@@ -1,0 +1,9 @@
+name = "massage-spa-ui"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-08-01"
+
+# /api/* is forwarded to the API Worker by functions/api/[[path]].ts, so the
+# browser only ever talks to one origin and session cookies stay first-party.
+[[services]]
+binding = "API"
+service = "massage-spa-api"

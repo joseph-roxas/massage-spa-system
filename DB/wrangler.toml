@@ -1,0 +1,9 @@
+# Used only for D1 migration commands. The database_id placeholder is replaced
+# in CI from the D1_DATABASE_ID repository variable; locally any value works.
+name = "massage-spa-db"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "massage-spa-db"
+database_id = "D1_DATABASE_ID_PLACEHOLDER"
+migrations_dir = "migrations"

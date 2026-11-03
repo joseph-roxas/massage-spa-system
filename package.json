@@ -1,0 +1,27 @@
+{
+  "name": "massage-spa-system",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "DB",
+    "API",
+    "UI"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "npm run db:migrate:local && concurrently -n api,ui -c blue,magenta \"npm run dev -w API\" \"npm run dev -w UI\"",
+    "db:generate": "npm run generate -w DB",
+    "db:migrate:local": "npm run migrate:local -w DB",
+    "db:seed:local": "npm run seed:local -w DB",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.5",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,12 @@
+name = "massage-spa-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+# The database_id placeholder is replaced in CI from the D1_DATABASE_ID
+# repository variable; locally any value works.
+[[d1_databases]]
+binding = "DB"
+database_name = "massage-spa-db"
+database_id = "D1_DATABASE_ID_PLACEHOLDER"
+migrations_dir = "../DB/migrations"

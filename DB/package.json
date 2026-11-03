@@ -1,0 +1,21 @@
+{
+  "name": "@spa/db",
+  "private": true,
+  "type": "module",
+  "main": "schema/index.ts",
+  "types": "schema/index.ts",
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate:local": "wrangler d1 migrations apply massage-spa-db --local --persist-to ../.wrangler-state",
+    "migrate:remote": "wrangler d1 migrations apply massage-spa-db --remote",
+    "seed:local": "wrangler d1 execute massage-spa-db --local --persist-to ../.wrangler-state --file seed/dev.sql",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11",
+    "wrangler": "^4.156.2"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.4"
+  }
+}

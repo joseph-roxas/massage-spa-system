@@ -1,0 +1,86 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from './api';
+
+export type ClockStaff = {
+  id: string;
+  displayName: string;
+  kind: 'therapist' | 'receptionist';
+  therapistClass: 'regular' | 'lmt' | null;
+  isOnCall: boolean;
+  hasPin: boolean;
+  clockedInAt: string | null;
+};
+
+export type RotationRow = {
+  staffId: string;
+  displayName: string;
+  therapistClass: 'regular' | 'lmt' | null;
+  isOnCall: boolean;
+  position: number;
+  status: 'free' | 'in_service';
+  queuedSince: string;
+};
+
+export type DtrEntry = {
+  id: string;
+  staffId: string;
+  displayName: string;
+  kind: 'therapist' | 'receptionist';
+  businessDay: string;
+  clockIn: string;
+  clockOut: string | null;
+  source: 'pin' | 'manual';
+  correctedAt: string | null;
+  correctionReason: string | null;
+  canEdit: boolean;
+};
+
+export const useClockStaff = () =>
+  useQuery({
+    queryKey: ['attendance', 'clock-staff'],
+    queryFn: () => api<{ staff: ClockStaff[] }>('/clock/staff'),
+    refetchInterval: 30_000,
+  });
+
+export const useRotation = () =>
+  useQuery({
+    queryKey: ['attendance', 'rotation'],
+    queryFn: () => api<{ day: string; next: string | null; rotation: RotationRow[] }>('/rotation'),
+    refetchInterval: 30_000,
+  });
+
+export const useDtr = (day: string) =>
+  useQuery({
+    queryKey: ['attendance', 'dtr', day],
+    queryFn: () => api<{ day: string; entries: DtrEntry[] }>(`/dtr?day=${day}`),
+  });
+
+export function usePunch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { staffId: string; pin: string; action: 'in' | 'out' }) =>
+      api<{ displayName: string; action: 'in' | 'out'; at: string }>('/clock/punch', { body }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
+  });
+}
+
+/** ISO instant → "HH:MM AM/PM" in Manila. */
+export function manilaTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit' });
+}
+
+/** ISO instant → value for <input type="datetime-local">, in Manila time. */
+export function toLocalInput(iso: string): string {
+  return new Date(new Date(iso).getTime() + 8 * 3600_000).toISOString().slice(0, 16);
+}
+
+/** <input type="datetime-local"> value (Manila) → ISO instant. */
+export function fromLocalInput(value: string): string {
+  return new Date(`${value}:00+08:00`).toISOString();
+}
+
+export function hoursBetween(from: string, to: string | null): string {
+  if (!to) return '—';
+  const min = Math.round((new Date(to).getTime() - new Date(from).getTime()) / 60_000);
+  return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, '0')}m`;
+}

@@ -24,6 +24,9 @@ export const staff = sqliteTable('staff', {
   govPagibig: integer('gov_pagibig').notNull().default(0),
   /** Clock-in Screen PIN, hashed. Null until set. */
   pinHash: text('pin_hash'),
+  /** Wrong PINs in a row; reaching the limit locks the PIN for a few minutes. */
+  pinFailedCount: integer('pin_failed_count').notNull().default(0),
+  pinLockedUntil: text('pin_locked_until'),
   /** The login account of a Staff member who also uses the system, if any. */
   userId: text('user_id').references(() => users.id),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),

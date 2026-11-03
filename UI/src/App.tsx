@@ -7,6 +7,8 @@ import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
 import { UsersPage } from './pages/UsersPage';
 import { PriceListPage } from './pages/PriceListPage';
+import { ClockInPage } from './pages/ClockInPage';
+import { DtrPage } from './pages/DtrPage';
 import { SettingsLayout } from './pages/settings/SettingsLayout';
 import { ServicesSettings } from './pages/settings/ServicesSettings';
 import { PromosSettings } from './pages/settings/PromosSettings';
@@ -31,6 +33,14 @@ const router = createBrowserRouter([
     ),
   },
   {
+    path: '/clock',
+    element: (
+      <RequireAuth>
+        <ClockInPage />
+      </RequireAuth>
+    ),
+  },
+  {
     element: (
       <RequireAuth>
         <Layout />
@@ -39,6 +49,14 @@ const router = createBrowserRouter([
     children: [
       { path: '/', element: <HomePage /> },
       { path: '/price-list', element: <PriceListPage /> },
+      {
+        path: '/dtr',
+        element: (
+          <RequireCapability capability="dtr.correct.therapist">
+            <DtrPage />
+          </RequireCapability>
+        ),
+      },
       {
         path: '/settings',
         element: (

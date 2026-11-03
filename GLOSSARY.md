@@ -84,11 +84,11 @@ A staff member's clock-in and clock-out times for a day; drives Rotation for The
 _Avoid_: Attendance, timesheet
 
 **Clock-in Screen**:
-The shared shop-device screen where Therapists clock in and out with a personal PIN and view their own earnings.
+The screen on the logged-in front-desk device where Staff tap their name and enter a personal PIN to clock in or out.
 _Avoid_: Kiosk, time clock
 
 **Business Day**:
-The span from opening (2:00pm) until that day's Day Close, even past midnight; all sales and DTR belong to it.
+The span from opening (2:00pm) until that day's Day Close, even past midnight; all sales and DTR belong to it. Activity before 6:00am counts toward the previous day.
 _Avoid_: Calendar day
 
 **Early Close**:

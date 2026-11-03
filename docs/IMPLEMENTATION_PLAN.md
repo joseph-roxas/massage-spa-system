@@ -218,7 +218,7 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - 13th Month Pay (December) = Σ basic pay earned Jan–Dec ÷ 12.
 
 ### 5.9 Business Day & Day Close
-- Business Day starts at first open (14:00) and ends at Day Close, regardless of midnight.
+- Business Day starts at first open (14:00) and ends at Day Close, regardless of midnight. Until Day Close exists, activity before 06:00 Manila counts toward the previous day.
 - Day Close shows expected Cash (cash payments − Cash-outs) and expected GCash; receptionist enters counted cash; variance stored. Day becomes read-only.
 - Logout blocked while a Business Day is open. If the browser closes, the next login sees "Business Day of ___ not closed" and new sales are blocked until it's closed.
 - Only Super Admin can reopen.
@@ -260,7 +260,7 @@ Desktop-first, large touch-friendly buttons; one sidebar nav filtered by role.
 4. **Checkout**: price breakdown, discount picker (Senior/PWD + ID, auto-promo, voucher serial lookup), add-ons, split Cash/GCash with ref, booklet invoice no.
 5. **Sell Vouchers**: service, qty, bundle toggle → prints serials.
 6. **Cash-outs**, **Early Close**, **Day Close** (blocking modal on logout attempt).
-7. **Clock-in Screen** (full-screen mode on same PC): PIN pad → clock in/out; therapists see this week's commissions, pending pay, CA balance.
+7. **Clock-in Screen** (full-screen on the logged-in front-desk PC): tap your name → 4-digit PIN → clock in/out; 5 wrong PINs lock that PIN for 5 minutes. Therapists' own earnings view arrives with Payroll (Phase 7).
 8. **DTR** (corrections with reason).
 9. **Payroll**: pick Pay Week → generate → review → approve (admin) → release → payslips; CA entry with live cap.
 10. **Inventory**: on-hand list with low-stock badges, Stock-out, Purchase Order request/receive, item history (vendor, price, dates, last stock-out).

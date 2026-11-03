@@ -29,6 +29,13 @@
       "when": 1793692218252,
       "tag": "0003_seed_catalogue",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793692872530,
+      "tag": "0004_dtr",
+      "breakpoints": true
     }
   ]
 }

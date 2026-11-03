@@ -123,7 +123,7 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 
 **Bookings & sales**
 - `bookings` — one Guest receiving one Service: business_day, kind (`walk_in|scheduled`), status (`scheduled|waiting|in_service|done|cancelled|no_show`), guest_name/guest_phone (optional, kept on the booking — no separate guest list), service_id, duration_min (snapshot), scheduled_at, requested_therapist_id, therapist_id, room_id, flex_mode, portable_table, override_reason, notes, started_at, done_at, cancel_reason. Partial unique indexes allow only one in-service Booking per Room and per therapist.
-- `sales` — booking_id, business_day, regular_price (snapshot), discount_type (`none|senior|pwd|promo|voucher|complimentary`), discount_ref (ID no. / promo_id / voucher_id), discount_amount, amount_due, foc_kind (`none|prepaid|real`), commission_base (= regular_price), commission_pct (snapshot), commission_amount, booklet_invoice_no.
+- `sales` — booking_id, business_day, status (`paid|voided`), regular_price (snapshot), discount_type (`none|senior|pwd|promo|voucher|complimentary`), discount_ref (ID no. / promo_id / voucher_id), discount_bp, discount_amount, service_amount (after discount; what Royalty counts), addons_total, amount_due, foc_kind (`none|prepaid|real`), commission_bp and commission_amount (snapshots, on regular_price), is_holiday, booklet_invoice_no (optional), reason (Complimentary), void_reason. One `paid` sale per Booking.
 - `sale_addons` — sale_id, addon_id, price.
 - `payments` — sale_id or voucher_sale_id, method (`cash|gcash`), amount, gcash_ref (required for gcash).
 - `vouchers` — serial (unique), service_id, voucher_sale_id, is_free (6th of bundle), status (`unused|redeemed`), redeemed_sale_id, imported (bool, go-live).
@@ -221,6 +221,11 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - Day Close shows expected Cash (cash payments − Cash-outs) and expected GCash; receptionist enters counted cash; variance stored. Day becomes read-only.
 - Logout blocked while a Business Day is open. If the browser closes, the next login sees "Business Day of ___ not closed" and new sales are blocked until it's closed.
 - Only Super Admin can reopen.
+- A Business Day record opens with the day's first walk-in, service start, sale, Cash-out or Early Close. Scheduling a future Booking opens nothing.
+- Day Close is refused until every Booking of the day is finished and checked out; unarrived Bookings must be marked no-show or cancelled.
+- On-call Therapists' unpaid Commission for the day is paid at Day Close as automatic `on_call_commission` Cash-outs, already deducted from expected cash.
+- A mistaken checkout is voided (with reason, audited), never deleted, and can be redone while the day is open. Cash-outs can be removed while the day is open.
+- The Super Admin may log out with a day open; the Receptionist may not.
 
 ## 6. API surface (REST, `/api/v1`)
 

@@ -46,8 +46,15 @@ export function useLogin() {
 export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api('/auth/logout', { body: {} }),
-    onSettled: () => {
+    mutationFn: async () => {
+      try {
+        await api('/auth/logout', { body: {} });
+      } catch (e) {
+        // Already logged out is still logged out; anything else (e.g. an open Business Day) is shown.
+        if (!(e instanceof ApiError && e.status === 401)) throw e;
+      }
+    },
+    onSuccess: () => {
       // Setting (not clearing) the user keeps RequireAuth subscribed, so it redirects to /login.
       qc.setQueryData(ME_KEY, null);
       qc.removeQueries({ predicate: (q) => q.queryKey[0] !== ME_KEY[0] });

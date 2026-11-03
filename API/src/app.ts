@@ -10,6 +10,8 @@ import { catalogueRoutes } from './modules/catalogue';
 import { staffRoutes } from './modules/staff';
 import { attendanceRoutes } from './modules/attendance';
 import { bookingRoutes } from './modules/bookings';
+import { salesRoutes } from './modules/sales';
+import { dayRoutes } from './modules/days';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
 
@@ -39,6 +41,8 @@ export function createApp(deps: AppDeps = {}) {
     .route('/settings', staffRoutes)
     .route('/', attendanceRoutes)
     .route('/', bookingRoutes)
+    .route('/sales', salesRoutes)
+    .route('/', dayRoutes)
     .notFound((c) => fail(c, 404, 'not_found', 'No such endpoint.'))
     .onError((err, c) => {
       console.error(err);

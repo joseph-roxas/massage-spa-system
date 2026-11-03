@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { users } from '@spa/db';
 import type { AppEnv, AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
+import { openDays } from '../lib/business-days';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { requireAuth } from '../auth/middleware';
@@ -35,6 +36,11 @@ const authed = new Hono<AuthedEnv>()
   .use(requireAuth)
   .get('/me', (c) => c.json({ user: c.var.user }))
   .post('/logout', async (c) => {
+    // The Receptionist may not leave a Business Day open; the Super Admin may.
+    if (c.var.user.role === 'receptionist') {
+      const [open] = await openDays(c.var.db);
+      if (open) return fail(c, 409, 'day_open', `Close the Business Day of ${open.date} before logging out.`);
+    }
     await endSession(c);
     return c.json({ ok: true });
   })

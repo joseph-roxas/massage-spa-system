@@ -3,7 +3,7 @@ import { toManila, type IsoDate } from './calendar';
 /**
  * Activity before this Manila time belongs to the previous Business Day, so a
  * late close at 1:30am still counts toward the day that opened at 2pm.
- * Until Day Close exists (Phase 5) this cutoff is what ends a Business Day.
+ * Day Close then locks that day; a closed day takes no new sales.
  */
 export const BUSINESS_DAY_CUTOFF = '06:00';
 

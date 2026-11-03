@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Navigate, NavLink, Outlet, useLocation } from 'react-router';
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { ApiError } from '../lib/api';
 import { can, type Capability } from '@spa/domain';
 import { ROLE_LABELS, useCurrentUser, useLogout } from '../lib/auth';
 
@@ -32,7 +33,9 @@ export function RequireCapability({ capability, children }: { capability: Capabi
 export function Layout() {
   const { data: user } = useCurrentUser();
   const logout = useLogout();
+  const navigate = useNavigate();
   if (!user) return null;
+  const dayOpen = logout.error instanceof ApiError && logout.error.code === 'day_open';
 
   return (
     <div className="flex min-h-screen bg-stone-100 text-stone-800">
@@ -69,6 +72,23 @@ export function Layout() {
               Log out
             </button>
           </div>
+          {logout.error && (
+            <div className="mt-3 rounded-md bg-amber-50 p-2 text-xs text-amber-900">
+              <p>{logout.error.message}</p>
+              {dayOpen && (
+                <button
+                  type="button"
+                  className="mt-1 font-medium underline"
+                  onClick={() => {
+                    logout.reset();
+                    navigate('/?close=1');
+                  }}
+                >
+                  Go to Day Close
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </aside>
       <main className="min-w-0 flex-1 p-8">

@@ -2,6 +2,8 @@ export * from './app-meta';
 export * from './audit-log';
 export * from './bookings';
 export * from './catalogue';
+export * from './days';
 export * from './dtr';
+export * from './sales';
 export * from './staff';
 export * from './users';

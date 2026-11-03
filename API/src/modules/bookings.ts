@@ -3,9 +3,10 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { addMinutes, businessDayOf, overlaps, roomFits, suggestRoom, suggestTherapist } from '@spa/domain';
-import { bookings, FLEX_MODES, services, staff } from '@spa/db';
+import { bookings, businessDays, FLEX_MODES, sales, services, staff } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
+import { openDayFor, openDays } from '../lib/business-days';
 import { activeBookingsFor, bookingSpan, frontDeskState, type BookingRow } from '../lib/front-desk';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
@@ -80,9 +81,15 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const now = nowIso();
     const day = businessDayOf(new Date(now));
     const state = await frontDeskState(c.var.db, day, now);
-    const [svc, people] = await Promise.all([
+    const [svc, people, daySales, dayRow, unclosed] = await Promise.all([
       c.var.db.select({ id: services.id, code: services.code, name: services.name }).from(services),
       c.var.db.select({ id: staff.id, displayName: staff.displayName }).from(staff),
+      c.var.db
+        .select({ id: sales.id, bookingId: sales.bookingId, amountDue: sales.amountDue, discountType: sales.discountType })
+        .from(sales)
+        .where(and(eq(sales.businessDay, day), eq(sales.status, 'paid'))),
+      c.var.db.select().from(businessDays).where(eq(businessDays.date, day)).get(),
+      openDays(c.var.db),
     ]);
     const svcById = new Map(svc.map((s) => [s.id, s]));
     const nameOf = (id: string | null) => (id ? (people.find((p) => p.id === id)?.displayName ?? null) : null);
@@ -94,12 +101,15 @@ export const bookingRoutes = new Hono<AuthedEnv>()
         therapistName: nameOf(b.therapistId),
         requestedTherapistName: nameOf(b.requestedTherapistId),
         endsAt: b.startedAt ? addMinutes(b.startedAt, b.durationMin) : null,
+        sale: daySales.find((x) => x.bookingId === b.id) ?? null,
       }))
       .sort((a, b) => (a.startedAt ?? a.scheduledAt ?? a.createdAt).localeCompare(b.startedAt ?? b.scheduledAt ?? b.createdAt));
     const byId = new Map(state.therapists.map((t) => [t.id, t]));
     return c.json({
       day,
       now,
+      businessDay: dayRow ?? null,
+      unclosed: unclosed.filter((d) => d.date < day).map((d) => d.date),
       next: state.next?.staffId ?? null,
       rotation: state.rotation.map((r) => ({ ...r, ...byId.get(r.staffId)! })),
       rooms: state.rooms
@@ -124,6 +134,11 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       const clash = await requestClash(c, input.requestedTherapistId, { start, end: addMinutes(start, service.durationMin) });
       // A walk-in may wait for a busy Requested Therapist; a scheduled time must be free.
       if (clash && input.kind === 'scheduled') return fail(c, 409, 'therapist_booked', clash);
+    }
+    // A walk-in is today's activity; a booking for later opens nothing yet.
+    if (input.kind === 'walk_in') {
+      const blocked = await openDayFor(c, businessDayOf(new Date(now)));
+      if (blocked) return blocked;
     }
     const id = crypto.randomUUID();
     await db.insert(bookings).values({
@@ -207,6 +222,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     }
     const input = c.req.valid('json');
     const now = nowIso();
+    const blocked = await openDayFor(c, businessDayOf(new Date(now)));
+    if (blocked) return blocked;
     const state = await frontDeskState(db, businessDayOf(new Date(now)), now);
 
     const onDuty = state.rotation.find((r) => r.staffId === input.therapistId);

@@ -15,6 +15,20 @@
       "when": 1793691083066,
       "tag": "0001_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793692208104,
+      "tag": "0002_catalogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793692218252,
+      "tag": "0003_seed_catalogue",
+      "breakpoints": true
     }
   ]
 }

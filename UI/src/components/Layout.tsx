@@ -6,6 +6,8 @@ import { ROLE_LABELS, useCurrentUser, useLogout } from '../lib/auth';
 /** Menu entries appear only for roles that hold the capability. */
 const NAV: { to: string; label: string; capability?: Capability }[] = [
   { to: '/', label: 'Front Desk' },
+  { to: '/price-list', label: 'Price List' },
+  { to: '/settings', label: 'Settings', capability: 'settings.manage' },
   { to: '/admin/users', label: 'Users', capability: 'users.manage' },
 ];
 

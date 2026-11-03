@@ -4,6 +4,14 @@ The day-to-day operation of a single franchise branch: booking guests to therapi
 
 ## People
 
+**Staff**:
+Everyone who works at the shop: Therapists and Receptionists. Most Staff never log in; they only use the Clock-in Screen.
+_Avoid_: Employee, worker
+
+**User**:
+A login account for the system, held by the Super Admin or a Receptionist. A User may also be a Staff member, but the two are separate records.
+_Avoid_: Account, staff login
+
 **Super Admin**:
 The owner account with unrestricted access; also the only recipient of user-approval requests.
 _Avoid_: Admin, owner account

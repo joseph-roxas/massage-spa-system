@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, FormEvent, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
 
 const BUTTON_VARIANTS = {
   primary: 'bg-teal-700 text-white hover:bg-teal-800 disabled:bg-teal-700/50',
@@ -66,6 +66,37 @@ export function Card({ title, actions, children }: { title?: string; actions?: R
     </section>
   );
 }
+
+export function Checkbox({ label, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string }) {
+  return (
+    <label className="inline-flex items-center gap-2 text-sm text-stone-700">
+      <input type="checkbox" className="h-4 w-4 rounded border-stone-300 accent-teal-700" {...props} />
+      {label}
+    </label>
+  );
+}
+
+export function Badge({ tone = 'stone', children }: { tone?: 'stone' | 'teal' | 'amber' | 'red'; children: ReactNode }) {
+  const tones = {
+    stone: 'bg-stone-100 text-stone-600',
+    teal: 'bg-teal-50 text-teal-800',
+    amber: 'bg-amber-100 text-amber-800',
+    red: 'bg-red-100 text-red-700',
+  };
+  return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${tones[tone]}`}>{children}</span>;
+}
+
+/** A light panel for an inline add/edit form. */
+export function FormPanel({ children, onSubmit }: { children: ReactNode; onSubmit: (e: FormEvent) => void }) {
+  return (
+    <form onSubmit={onSubmit} className="space-y-3 rounded-md border border-stone-200 bg-stone-50 p-4">
+      {children}
+    </form>
+  );
+}
+
+export const th = 'px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-stone-500';
+export const td = 'px-3 py-2 align-top text-sm';
 
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (

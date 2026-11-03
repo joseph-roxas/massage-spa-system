@@ -22,6 +22,7 @@ export type Client = {
   cookie: string | null;
   get(path: string): Promise<Response>;
   post(path: string, body?: unknown): Promise<Response>;
+  send(method: string, path: string, body?: unknown): Promise<Response>;
 };
 
 /** A tiny cookie-keeping client, like a browser tab. */
@@ -33,6 +34,9 @@ export function client(): Client {
     },
     async post(path, body = {}) {
       return send('POST', path, body);
+    },
+    async send(method, path, body = method === 'GET' ? undefined : {}) {
+      return send(method, path, body);
     },
   };
   async function send(method: string, path: string, body?: unknown) {

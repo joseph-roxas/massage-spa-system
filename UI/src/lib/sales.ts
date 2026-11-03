@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 
-export type DiscountType = 'none' | 'senior' | 'pwd' | 'promo' | 'complimentary';
+export type DiscountType = 'none' | 'senior' | 'pwd' | 'promo' | 'voucher' | 'complimentary';
 
 export type PriceChoice = {
   bookingId: string;
   statutory: 'senior' | 'pwd' | null;
   addonIds: string[];
   complimentary: boolean;
+  voucherSerial: string | null;
 };
 
 export type Quote = {
@@ -56,6 +57,8 @@ export type ClosePreview = {
   blockers: { bookingId: string; guest: string; service: string; problem: string }[];
   owed: { staffId: string; displayName: string; amount: number }[];
   totals: { cashIn: number; gcashIn: number; cashOut: number; expectedCash: number; expectedGcash: number };
+  /** Paid into the drawer for Vouchers sold today; already in the cash and GCash totals. */
+  vouchersSold: number;
   cashOuts: CashOut[];
   guests: number;
 };
@@ -80,9 +83,9 @@ export function useDayAction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (req: { path: string; body?: unknown; method?: string }) =>
-      api<{ id?: string }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
+      api<{ id?: string; total?: number; serials?: { serial: string; isFree: boolean }[] }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
     onSettled: () => {
-      for (const key of ['front-desk', 'cash-outs', 'close-preview']) qc.invalidateQueries({ queryKey: [key] });
+      for (const key of ['front-desk', 'cash-outs', 'close-preview', 'voucher-sales', 'vouchers']) qc.invalidateQueries({ queryKey: [key] });
     },
   });
 }

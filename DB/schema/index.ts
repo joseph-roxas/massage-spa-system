@@ -7,3 +7,4 @@ export * from './dtr';
 export * from './sales';
 export * from './staff';
 export * from './users';
+export * from './vouchers';

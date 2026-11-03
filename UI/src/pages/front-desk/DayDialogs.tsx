@@ -173,6 +173,9 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
               <Line label="Cash expected in the drawer" value={peso(p.totals.expectedCash)} strong />
             </div>
             <Line label="GCash received" value={peso(p.totals.expectedGcash)} />
+            {p.vouchersSold > 0 && (
+              <p className="pt-1 text-xs text-stone-500">Includes {peso(p.vouchersSold)} from vouchers sold today.</p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field

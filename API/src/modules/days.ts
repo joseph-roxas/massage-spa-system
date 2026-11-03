@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { businessDayOf, dayTotals, onCallOwed, SHOP_CLOSING_TIME, toManila, type Centavos } from '@spa/domain';
-import { bookings, businessDays, CASH_OUT_CATEGORIES, cashOuts, payments, sales, services, staff } from '@spa/db';
+import { bookings, businessDays, CASH_OUT_CATEGORIES, cashOuts, payments, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays, requireOpenDay } from '../lib/business-days';
@@ -24,7 +24,7 @@ const newCashOut = z.object({
 /** Everything Day Close needs to know about a day: what's unfinished, what's owed, what's in the drawer. */
 async function closingState(c: Context<AuthedEnv>, day: string) {
   const db = c.var.db;
-  const [row, dayBookings, paidSales, dayPayments, dayCashOuts, onCallStaff, svc] = await Promise.all([
+  const [row, dayBookings, paidSales, dayPayments, voucherPays, dayCashOuts, onCallStaff, svc] = await Promise.all([
     db.select().from(businessDays).where(eq(businessDays.date, day)).get(),
     db.select().from(bookings).where(eq(bookings.businessDay, day)),
     db.select().from(sales).where(and(eq(sales.businessDay, day), eq(sales.status, 'paid'))),
@@ -33,6 +33,11 @@ async function closingState(c: Context<AuthedEnv>, day: string) {
       .from(payments)
       .innerJoin(sales, eq(sales.id, payments.saleId))
       .where(and(eq(payments.businessDay, day), eq(sales.status, 'paid'))),
+    db
+      .select({ method: voucherPayments.method, amount: voucherPayments.amount })
+      .from(voucherPayments)
+      .innerJoin(voucherSales, eq(voucherSales.id, voucherPayments.voucherSaleId))
+      .where(and(eq(voucherPayments.businessDay, day), eq(voucherSales.status, 'paid'))),
     db.select().from(cashOuts).where(eq(cashOuts.businessDay, day)).orderBy(asc(cashOuts.createdAt)),
     db.select({ id: staff.id, displayName: staff.displayName }).from(staff).where(eq(staff.isOnCall, true)),
     db.select({ id: services.id, name: services.name }).from(services),
@@ -63,8 +68,10 @@ async function closingState(c: Context<AuthedEnv>, day: string) {
   ).map((o) => ({ ...o, displayName: onCallStaff.find((s) => s.id === o.staffId)!.displayName }));
 
   // On-call pay comes out of the drawer at close, so expect it gone.
-  const totals = dayTotals(dayPayments, [...dayCashOuts, ...owed]);
-  return { row, blockers, owed, totals, cashOuts: dayCashOuts, guests: paidSales.length };
+  // Voucher sales are paid into the same drawer.
+  const totals = dayTotals([...dayPayments, ...voucherPays], [...dayCashOuts, ...owed]);
+  const vouchersSold = voucherPays.reduce((s, p) => s + p.amount, 0) as Centavos;
+  return { row, blockers, owed, totals, vouchersSold, cashOuts: dayCashOuts, guests: paidSales.length };
 }
 
 export const dayRoutes = new Hono<AuthedEnv>()

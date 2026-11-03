@@ -125,9 +125,9 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - `bookings` — one Guest receiving one Service: business_day, kind (`walk_in|scheduled`), status (`scheduled|waiting|in_service|done|cancelled|no_show`), guest_name/guest_phone (optional, kept on the booking — no separate guest list), service_id, duration_min (snapshot), scheduled_at, requested_therapist_id, therapist_id, room_id, flex_mode, portable_table, override_reason, notes, started_at, done_at, cancel_reason. Partial unique indexes allow only one in-service Booking per Room and per therapist.
 - `sales` — booking_id, business_day, status (`paid|voided`), regular_price (snapshot), discount_type (`none|senior|pwd|promo|voucher|complimentary`), discount_ref (ID no. / promo_id / voucher_id), discount_bp, discount_amount, service_amount (after discount; what Royalty counts), addons_total, amount_due, foc_kind (`none|prepaid|real`), commission_bp and commission_amount (snapshots, on regular_price), is_holiday, booklet_invoice_no (optional), reason (Complimentary), void_reason. One `paid` sale per Booking.
 - `sale_addons` — sale_id, addon_id, price.
-- `payments` — sale_id or voucher_sale_id, method (`cash|gcash`), amount, gcash_ref (required for gcash).
-- `vouchers` — serial (unique), service_id, voucher_sale_id, is_free (6th of bundle), status (`unused|redeemed`), redeemed_sale_id, imported (bool, go-live).
-- `voucher_sales` — buyer_name/phone (optional), service_id, qty_paid, qty_free, unit_price (snapshot), total, business_day.
+- `payments` — sale_id, method (`cash|gcash`), amount, gcash_ref (required for gcash). `voucher_payments` is the same for a voucher_sale_id.
+- `vouchers` — serial (unique), service_id, voucher_sale_id (null if imported), is_free (6th of bundle), status (`unused|redeemed|voided`), redeemed_sale_id, imported (bool, go-live).
+- `voucher_sales` — buyer_name/phone (optional), service_id, qty_paid, qty_free, unit_price (snapshot), total, business_day, status (`paid|voided`).
 - `cash_outs` — business_day, amount, purpose, category, recorded_by. (On-call therapist same-day pay is a Cash-out of category `on_call_commission`.)
 
 **Payroll**
@@ -183,6 +183,13 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - Sold singly or as Bundle (5 paid + 1 free, same Service) at the Regular Price on sale day. Serial per voucher, no expiry.
 - Redemption only for the exact Service; marks serial `redeemed` (single use). No upgrades.
 - FOC classification: Redemption of paid voucher → `prepaid`; free 6th voucher or Complimentary Service → `real`.
+- Every 5 bought in one sale earn 1 free (10 → 2 free); no separate bundle toggle.
+- Serials are `<service code>-<6 chars>` without look-alike characters (0/O, 1/I/L), e.g. `SWE-7K3M9P`; typed back case- and space-insensitively.
+- A voucher pays only for the Service; Add-ons on top are still paid. Commission is earned on the Regular Price on the day redeemed.
+- Single use is enforced in the database (one paid sale per serial). Voiding that checkout makes the voucher usable again.
+- A voucher sale can be cancelled (with a reason) while its day is open and none of its vouchers is used; its vouchers become `voided`.
+- Voucher sale payments go into the same drawer and count at Day Close.
+- Go-live import (Super Admin only) takes the printed serials of paper vouchers with no sale record, so they are not counted as sales again.
 
 ### 5.6 Royalty
 - Monthly (calendar month start–end): Σ(payments for Services, after discounts, excluding add-on amounts) + Σ(voucher sales by sale day). Excludes Redemptions and Real FOCs.

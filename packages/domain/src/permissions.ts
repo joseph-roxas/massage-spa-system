@@ -10,6 +10,7 @@ export const CAPABILITIES = [
   'bookings.manage',
   'sales.manage',
   'sales.complimentary',
+  'vouchers.import',
   'cashouts.record',
   'day.close',
   'day.reopen',

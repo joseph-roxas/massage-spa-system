@@ -47,12 +47,16 @@ beforeEach(async () => {
   // Each test runs a fresh Business Day.
   await env.DB.batch([
     env.DB.prepare(`UPDATE dtr SET clock_out = ? WHERE clock_out IS NULL`).bind(new Date().toISOString()),
+    env.DB.prepare(`DELETE FROM voucher_payments`),
+    env.DB.prepare(`UPDATE vouchers SET redeemed_sale_id = NULL`),
     env.DB.prepare(`DELETE FROM payments`),
     env.DB.prepare(`DELETE FROM sale_addons`),
     env.DB.prepare(`DELETE FROM sales`),
     env.DB.prepare(`DELETE FROM cash_outs`),
     env.DB.prepare(`DELETE FROM business_days`),
     env.DB.prepare(`DELETE FROM bookings`),
+    env.DB.prepare(`DELETE FROM vouchers`),
+    env.DB.prepare(`DELETE FROM voucher_sales`),
   ]);
 });
 
@@ -229,5 +233,99 @@ describe('Early Close and Cash-outs', () => {
     expect((await json<{ cashOuts: unknown[] }>(await desk.get(`/cash-outs?day=${today()}`))).cashOuts).toHaveLength(1);
     expect((await desk.send('DELETE', `/cash-outs/${id}`)).status).toBe(200);
     expect((await json<{ cashOuts: unknown[] }>(await desk.get(`/cash-outs?day=${today()}`))).cashOuts).toHaveLength(0);
+  });
+});
+
+type Issued = { id: string; total: number; serials: { serial: string; isFree: boolean }[] };
+
+describe('vouchers', () => {
+  it('sells a 5+1 Bundle at the Regular Price; the sixth redeems as a Real FOC', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const res = await desk.post('/voucher-sales', { serviceId: 'swedish-60', qty: 5, buyerName: 'Ana', payments: cash(250000) });
+    expect(res.status).toBe(201);
+    const sold = await json<Issued>(res);
+    expect(sold.total).toBe(250000);
+    expect(sold.serials.map((s) => s.isFree)).toEqual([false, false, false, false, false, true]);
+    expect(sold.serials[0]!.serial).toMatch(/^SWE-[2-9A-Z]{6}$/);
+
+    const t = await therapist(admin);
+    const paidOne = sold.serials[0]!.serial;
+    const freeOne = sold.serials[5]!.serial;
+
+    // Typed back loosely; covers the Service and beats any other Discount. Add-ons are still paid.
+    const b1 = await served(desk, t);
+    const q = await json<Quote>(
+      await desk.post('/sales/quote', { bookingId: b1, statutory: 'senior', addonIds: ['extra-oil'], voucherSerial: ` ${paidOne.toLowerCase()} ` }),
+    );
+    expect(q).toMatchObject({ discount: { type: 'voucher', amount: 50000 }, serviceAmount: 0, amountDue: 5000, focKind: 'prepaid' });
+    expect((await desk.post('/sales', { bookingId: b1, addonIds: ['extra-oil'], voucherSerial: paidOne, payments: cash(5000) })).status).toBe(201);
+
+    // Single use.
+    const b2 = await served(desk, t);
+    const again = await desk.post('/sales', { bookingId: b2, voucherSerial: paidOne, payments: [] });
+    expect(again.status).toBe(409);
+    expect((await json<{ message: string }>(again)).message).toMatch(/already been used/);
+
+    const free = await desk.post('/sales', { bookingId: b2, voucherSerial: freeOne, payments: [] });
+    expect(free.status).toBe(201);
+    const { sales } = await json<{ sales: { bookingId: string; focKind: string; discountRef: string; commissionAmount: number }[] }>(await desk.get(`/sales?day=${today()}`));
+    expect(sales.find((s) => s.bookingId === b2)).toMatchObject({ focKind: 'real', discountRef: freeOne });
+    // Commission is still earned on a redeemed Voucher.
+    expect(sales.find((s) => s.bookingId === b2)!.commissionAmount).toBeGreaterThan(0);
+
+    const v = await json<{ status: string }>(await desk.get(`/vouchers/${freeOne}`));
+    expect(v.status).toBe('redeemed');
+  });
+
+  it('redeems only for the exact Service, and a voided checkout frees the Voucher', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const sold = await json<Issued>(await desk.post('/voucher-sales', { serviceId: 'thai-60', qty: 1, payments: cash(50000) }));
+    const serial = sold.serials[0]!.serial;
+    const t = await therapist(admin);
+
+    const swedish = await served(desk, t);
+    const wrong = await desk.post('/sales/quote', { bookingId: swedish, voucherSerial: serial });
+    expect(wrong.status).toBe(409);
+    expect((await json<{ message: string }>(wrong)).message).toMatch(/different service/);
+
+    const thai = await served(desk, t, 'thai-60');
+    const { id } = await json<{ id: string }>(await desk.post('/sales', { bookingId: thai, voucherSerial: serial, payments: [] }));
+    expect((await desk.post(`/sales/${id}/void`, { reason: 'wrong guest' })).status).toBe(200);
+    expect((await json<{ status: string }>(await desk.get(`/vouchers/${serial}`))).status).toBe('unused');
+    expect((await desk.post('/sales', { bookingId: thai, voucherSerial: serial, payments: [] })).status).toBe(201);
+
+    // A sale whose Voucher is used can no longer be cancelled.
+    expect((await desk.post(`/voucher-sales/${sold.id}/void`, { reason: 'mistake' })).status).toBe(409);
+  });
+
+  it('refuses Services not sold as Vouchers, and payments that do not match', async () => {
+    const desk = await loggedIn('receptionist');
+    expect((await desk.post('/voucher-sales', { serviceId: 'foot-60', qty: 1, payments: cash(45000) })).status).toBe(400);
+    expect((await desk.post('/voucher-sales', { serviceId: 'thai-60', qty: 2, payments: cash(50000) })).status).toBe(400);
+  });
+
+  it('puts Voucher sales in the drawer at Day Close, and a cancelled sale voids its Vouchers', async () => {
+    const desk = await loggedIn('receptionist');
+    await desk.post('/voucher-sales', { serviceId: 'thai-60', qty: 1, payments: [{ method: 'gcash', amount: 50000, gcashRef: 'G1' }] });
+    const wrong = await json<Issued>(await desk.post('/voucher-sales', { serviceId: 'thai-60', qty: 1, payments: cash(50000) }));
+    expect((await desk.post(`/voucher-sales/${wrong.id}/void`, { reason: 'typed the wrong service' })).status).toBe(200);
+    expect((await json<{ status: string }>(await desk.get(`/vouchers/${wrong.serials[0]!.serial}`))).status).toBe('voided');
+
+    const p = await json<Preview & { vouchersSold: number }>(await desk.get(`/days/${today()}/close-preview`));
+    expect(p.totals).toMatchObject({ cashIn: 0, expectedGcash: 50000 });
+    expect(p.vouchersSold).toBe(50000);
+  });
+
+  it('lets only the Super Admin import paper Vouchers, and never the same serial twice', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const body = { serviceId: 'ventosa-90', serials: ['p-0001', 'P-0002'], isFree: false };
+    expect((await desk.post('/vouchers/import', body)).status).toBe(403);
+    expect((await admin.post('/vouchers/import', body)).status).toBe(201);
+    expect((await admin.post('/vouchers/import', { ...body, serials: ['P-0002'] })).status).toBe(409);
+    const v = await json<{ imported: boolean; voucherSaleId: string | null; serviceId: string }>(await desk.get('/vouchers/p-0001'));
+    expect(v).toMatchObject({ imported: true, voucherSaleId: null, serviceId: 'ventosa-90' });
   });
 });

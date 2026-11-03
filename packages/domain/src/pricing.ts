@@ -6,7 +6,7 @@ import type { HhMm, IsoDate } from './calendar';
 export const STATUTORY_DISCOUNT_BP = 2000;
 
 export type StatutoryKind = 'senior' | 'pwd';
-export type DiscountType = 'none' | StatutoryKind | 'promo' | 'complimentary';
+export type DiscountType = 'none' | StatutoryKind | 'promo' | 'voucher' | 'complimentary';
 export type FocKind = 'none' | 'prepaid' | 'real';
 
 export type QuoteInput = {
@@ -20,6 +20,8 @@ export type QuoteInput = {
   statutory?: StatutoryKind | null;
   /** Super Admin is giving this Service free. */
   complimentary?: boolean;
+  /** The Guest is paying with a Voucher for this Service; `isFree` if it is the sixth of a Bundle. */
+  voucher?: { serial: string; isFree: boolean } | null;
   addonPrices?: readonly Centavos[];
 };
 
@@ -38,14 +40,17 @@ const NONE = { type: 'none', bp: 0, promoId: null, label: 'No discount' } as con
 /**
  * Prices one Service: at most one Discount, the largest the Guest qualifies
  * for (Statutory wins a tie, since it is the Guest's legal entitlement).
- * Add-ons go on top and are never discounted.
+ * A Voucher or Complimentary Service covers the whole Service and excludes
+ * every other Discount. Add-ons go on top and are never discounted.
  */
 export function quoteSale(input: QuoteInput): Quote {
   const addonsTotal = (input.addonPrices ?? []).reduce((s, p) => s + p, 0) as Centavos;
   const price = input.regularPrice;
 
   let best: Omit<Quote['discount'], 'amount'> = NONE;
-  if (input.complimentary) {
+  if (input.voucher) {
+    best = { type: 'voucher', bp: 10_000, promoId: null, label: `${input.voucher.isFree ? 'Free voucher' : 'Voucher'} ${input.voucher.serial}` };
+  } else if (input.complimentary) {
     best = { type: 'complimentary', bp: 10_000, promoId: null, label: 'Complimentary Service' };
   } else {
     const service = { serviceId: input.serviceId, startDate: input.startDate, startTime: input.startTime };
@@ -62,7 +67,8 @@ export function quoteSale(input: QuoteInput): Quote {
     }
   }
 
-  const amount = best.type === 'complimentary' ? price : percentOf(price, best.bp / 100);
+  const covered = best.type === 'complimentary' || best.type === 'voucher';
+  const amount = covered ? price : percentOf(price, best.bp / 100);
   const serviceAmount = (price - amount) as Centavos;
   return {
     regularPrice: price,
@@ -70,7 +76,7 @@ export function quoteSale(input: QuoteInput): Quote {
     serviceAmount,
     addonsTotal,
     amountDue: (serviceAmount + addonsTotal) as Centavos,
-    focKind: best.type === 'complimentary' ? 'real' : 'none',
+    focKind: best.type === 'complimentary' || input.voucher?.isFree ? 'real' : best.type === 'voucher' ? 'prepaid' : 'none',
   };
 }
 

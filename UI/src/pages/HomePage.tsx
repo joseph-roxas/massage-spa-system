@@ -8,6 +8,7 @@ import { guestLabel, useBoard, useDeskAction, type Board, type Booking } from '.
 import { useDayAction } from '../lib/sales';
 import { CheckoutDialog } from './front-desk/CheckoutDialog';
 import { CashOutDialog, DayCloseDialog, EarlyCloseDialog } from './front-desk/DayDialogs';
+import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 import { NewBookingDialog } from './front-desk/NewBookingDialog';
 import { StartDialog } from './front-desk/StartDialog';
 
@@ -133,7 +134,7 @@ function QueueLine({ b, onStart }: { b: Booking; onStart: (b: Booking) => void }
   );
 }
 
-type DayDialog = 'cash-outs' | 'early-close' | { close: string } | null;
+type DayDialog = 'cash-outs' | 'early-close' | 'vouchers' | { close: string } | null;
 
 /** Business Day status and its end-of-day actions. */
 function DayBar({ board, open }: { board: Board; open: (d: DayDialog) => void }) {
@@ -181,6 +182,7 @@ function DayBar({ board, open }: { board: Board; open: (d: DayDialog) => void })
         <span className="flex-1" />
         {!closed && (
           <>
+            <Button variant="secondary" className="h-8 px-3" onClick={() => open('vouchers')}>Sell vouchers</Button>
             <Button variant="secondary" className="h-8 px-3" onClick={() => open('cash-outs')}>Cash-outs</Button>
             {!d?.earlyCloseStatus && (
               <Button variant="secondary" className="h-8 px-3" onClick={() => open('early-close')}>Early Close</Button>
@@ -317,6 +319,7 @@ function FrontDeskBoard() {
       {payingBooking && <CheckoutDialog booking={payingBooking} onClose={() => setPaying(null)} />}
       {dayDialog === 'cash-outs' && <CashOutDialog day={board.day} onClose={() => setDayDialog(null)} />}
       {dayDialog === 'early-close' && <EarlyCloseDialog onClose={() => setDayDialog(null)} />}
+      {dayDialog === 'vouchers' && <SellVouchersDialog onClose={() => setDayDialog(null)} />}
       {dayDialog && typeof dayDialog === 'object' && <DayCloseDialog date={dayDialog.close} onClose={() => setDayDialog(null)} />}
     </div>
   );

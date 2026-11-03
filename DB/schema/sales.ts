@@ -5,7 +5,7 @@ import { addons, services } from './catalogue';
 import { staff } from './staff';
 import { users } from './users';
 
-export const DISCOUNT_TYPES = ['none', 'senior', 'pwd', 'promo', 'complimentary'] as const;
+export const DISCOUNT_TYPES = ['none', 'senior', 'pwd', 'promo', 'voucher', 'complimentary'] as const;
 export const FOC_KINDS = ['none', 'prepaid', 'real'] as const;
 export const SALE_STATUSES = ['paid', 'voided'] as const;
 export const PAYMENT_METHODS = ['cash', 'gcash'] as const;
@@ -29,7 +29,7 @@ export const sales = sqliteTable(
     /** Centavos, before any Discount. */
     regularPrice: integer('regular_price').notNull(),
     discountType: text('discount_type', { enum: DISCOUNT_TYPES }).notNull(),
-    /** Senior/PWD ID number, or the Promo id. */
+    /** Senior/PWD ID number, the Promo id, or the Voucher serial. */
     discountRef: text('discount_ref'),
     discountBp: integer('discount_bp').notNull().default(0),
     discountAmount: integer('discount_amount').notNull().default(0),
@@ -55,6 +55,8 @@ export const sales = sqliteTable(
     index('sales_therapist_idx').on(t.therapistId, t.businessDay),
     // A Booking is checked out once; a voided sale can be redone.
     uniqueIndex('sales_one_per_booking').on(t.bookingId).where(sql`status = 'paid'`),
+    // A Voucher pays for one Service only.
+    uniqueIndex('sales_one_per_voucher').on(t.discountRef).where(sql`discount_type = 'voucher' AND status = 'paid'`),
   ],
 );
 

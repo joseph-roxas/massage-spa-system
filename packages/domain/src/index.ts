@@ -7,3 +7,4 @@ export * from './money';
 export * from './permissions';
 export * from './pricing';
 export * from './rotation';
+export * from './vouchers';

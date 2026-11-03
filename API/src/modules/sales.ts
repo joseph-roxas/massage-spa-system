@@ -7,13 +7,15 @@ import {
   commissionFor,
   commissionRateOn,
   effectiveOn,
+  normalizeSerial,
   paymentProblem,
   quoteSale,
+  redemptionProblem,
   toManila,
   type Centavos,
   type Quote,
 } from '@spa/domain';
-import { addons, bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, saleAddons, sales, servicePrices, staff } from '@spa/db';
+import { addons, bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, saleAddons, sales, servicePrices, staff, vouchers } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
@@ -28,6 +30,7 @@ const quoteBody = z.object({
   statutory: z.enum(['senior', 'pwd']).nullable().default(null),
   addonIds: z.array(z.string().min(1)).max(10).default([]),
   complimentary: z.boolean().default(false),
+  voucherSerial: z.string().trim().max(40).nullable().default(null),
 });
 
 const checkout = z.object({
@@ -39,6 +42,7 @@ const checkout = z.object({
   addonIds: z.array(z.string().min(1)).max(10).default([]),
   /** Super Admin only. */
   complimentaryReason: z.string().trim().min(3, 'Give a short reason.').max(300).nullable().default(null),
+  voucherSerial: z.string().trim().max(40).nullable().default(null),
 });
 
 const payment = z.object({
@@ -60,6 +64,7 @@ type Priced = {
   addonLines: { id: string; name: string; price: number }[];
   commission: { bp: number; amount: Centavos };
   isHoliday: boolean;
+  voucher: typeof vouchers.$inferSelect | null;
 };
 
 /** Prices a finished Booking from the catalogue in force on its Business Day. */
@@ -78,6 +83,13 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
   if (paid) return fail(c, 409, 'already_paid', 'This guest has already been checked out.');
   if (input.complimentary && !can(c.var.user.role, 'sales.complimentary')) {
     return fail(c, 403, 'forbidden', 'Only the Super Admin can give a Complimentary Service.');
+  }
+  let voucher: typeof vouchers.$inferSelect | null = null;
+  if (input.voucherSerial) {
+    const serial = normalizeSerial(input.voucherSerial);
+    voucher = (await db.select().from(vouchers).where(eq(vouchers.serial, serial)).get()) ?? null;
+    const problem = redemptionProblem(voucher, booking.serviceId);
+    if (problem) return fail(c, 409, 'voucher_unusable', problem);
   }
   const day = booking.businessDay;
   const [prices, allPromos, chosenAddons, therapist, holiday, rates] = await Promise.all([
@@ -108,11 +120,13 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
       promos: allPromos,
       statutory: input.statutory,
       complimentary: input.complimentary,
+      voucher: voucher && { serial: voucher.serial, isFree: voucher.isFree },
       addonPrices: addonLines.map((a) => a!.price as Centavos),
     }),
     addonLines: addonLines.map((a) => ({ id: a!.id, name: a!.name, price: a!.price })),
     commission: commissionFor(regular.regularPrice as Centavos, rate, isHoliday),
     isHoliday,
+    voucher,
   };
 }
 
@@ -136,6 +150,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
       statutory: input.statutory?.kind ?? null,
       addonIds: input.addonIds,
       complimentary: !!input.complimentaryReason,
+      voucherSerial: input.voucherSerial,
     });
     if (priced instanceof Response) return priced;
     const { booking, quote, commission } = priced;
@@ -150,7 +165,13 @@ export const salesRoutes = new Hono<AuthedEnv>()
     const id = crypto.randomUUID();
     const now = nowIso();
     const discountRef =
-      quote.discount.type === 'promo' ? quote.discount.promoId : quote.discount.type === 'senior' || quote.discount.type === 'pwd' ? input.statutory!.idNumber : null;
+      quote.discount.type === 'promo'
+        ? quote.discount.promoId
+        : quote.discount.type === 'senior' || quote.discount.type === 'pwd'
+          ? input.statutory!.idNumber
+          : quote.discount.type === 'voucher'
+            ? priced.voucher!.serial
+            : null;
     try {
       await db.batch([
         db.insert(sales).values({
@@ -190,12 +211,25 @@ export const salesRoutes = new Hono<AuthedEnv>()
             createdAt: now,
           }),
         ),
+        // Single use is also enforced by sales_one_per_voucher, should two desks race.
+        ...(priced.voucher
+          ? [
+              db
+                .update(vouchers)
+                .set({ status: 'redeemed', redeemedSaleId: id, redeemedAt: now })
+                .where(and(eq(vouchers.id, priced.voucher.id), eq(vouchers.status, 'unused'))),
+            ]
+          : []),
         ...(input.complimentaryReason
           ? [auditInsert(db, { actorUserId: c.var.user.id, action: 'sale.complimentary', entity: 'sale', entityId: id, reason: input.complimentaryReason })]
           : []),
       ]);
     } catch (err) {
-      if (isUniqueViolation(err)) return fail(c, 409, 'already_paid', 'This guest has already been checked out.');
+      if (isUniqueViolation(err)) {
+        return priced.voucher && /discount_ref/.test(`${(err as Error).message} ${String((err as Error).cause ?? '')}`)
+          ? fail(c, 409, 'voucher_unusable', 'This voucher has already been used.')
+          : fail(c, 409, 'already_paid', 'This guest has already been checked out.');
+      }
       throw err;
     }
     return c.json({ id, amountDue: quote.amountDue }, 201);
@@ -212,6 +246,10 @@ export const salesRoutes = new Hono<AuthedEnv>()
     await db.batch([
       db.update(sales).set({ status: 'voided', voidReason: reason, voidedBy: c.var.user.id }).where(and(eq(sales.id, row.id), eq(sales.status, 'paid'))),
       auditInsert(db, { actorUserId: c.var.user.id, action: 'sale.void', entity: 'sale', entityId: row.id, before: row, reason }),
+      // The Voucher can be used again once its checkout is voided.
+      ...(row.discountType === 'voucher'
+        ? [db.update(vouchers).set({ status: 'unused', redeemedSaleId: null, redeemedAt: null }).where(eq(vouchers.redeemedSaleId, row.id))]
+        : []),
     ]);
     return c.json({ ok: true });
   })

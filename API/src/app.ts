@@ -12,6 +12,7 @@ import { attendanceRoutes } from './modules/attendance';
 import { bookingRoutes } from './modules/bookings';
 import { salesRoutes } from './modules/sales';
 import { dayRoutes } from './modules/days';
+import { voucherRoutes } from './modules/vouchers';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
 
@@ -43,6 +44,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/', bookingRoutes)
     .route('/sales', salesRoutes)
     .route('/', dayRoutes)
+    .route('/', voucherRoutes)
     .notFound((c) => fail(c, 404, 'not_found', 'No such endpoint.'))
     .onError((err, c) => {
       console.error(err);

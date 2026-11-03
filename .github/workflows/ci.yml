@@ -17,6 +17,7 @@ jobs:
       - run: npm ci
       - name: Migrations apply cleanly to a fresh local D1
         run: npm run db:migrate:local
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

@@ -3,20 +3,25 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8787 --persist-to ../.wrangler-state",
+    "dev": "wrangler dev --port 8787 --persist-to ../.wrangler-state --var APP_URL:http://localhost:5173",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc -p .",
-    "test": "vitest run"
+    "typecheck": "tsc -p . && tsc -p scripts",
+    "test": "vitest run",
+    "admin:create": "node scripts/create-super-admin.ts"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.5.0",
     "@cloudflare/workers-types": "^5.20261103.1",
+    "@types/node": "^24.19.2",
     "vitest": "^4.1.12",
     "wrangler": "^4.156.2"
   },
   "dependencies": {
+    "@hono/zod-validator": "^0.9.1",
     "@spa/db": "*",
+    "@spa/domain": "*",
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.16"
+    "hono": "^4.13.16",
+    "zod": "^4.6.7"
   }
 }

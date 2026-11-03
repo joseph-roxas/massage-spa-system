@@ -5,3 +5,5 @@ dist/
 .dev.vars
 *.log
 .DS_Store
+API/.super-admin.sql
+API/.wrangler-remote.toml

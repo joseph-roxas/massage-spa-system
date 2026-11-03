@@ -24,10 +24,19 @@ npm run dev
 
 This applies migrations to a local D1 database (`.wrangler-state/`), then starts the API on http://localhost:8787 and the UI on http://localhost:5173.
 
+Create a Super Admin login for the local database (asks for name, email and password):
+
+```bash
+npm run admin:create -w API
+```
+
+Locally, "new user request" notifications are printed in the API's console instead of emailed.
+
 Other commands:
 
 ```bash
 npm test            # domain unit tests + API tests against a local D1
+npm run lint
 npm run typecheck
 npm run build
 npm run db:generate # after editing DB/schema, generate a new migration
@@ -58,3 +67,12 @@ Migrations must stay backwards-compatible with the running API, since DB and API
    - Secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`
    - Variable: `D1_DATABASE_ID` (the id from step 2)
 5. Run the **Deploy all** workflow. The app is then at `https://massage-spa-ui.pages.dev`.
+6. Create the production Super Admin login:
+   ```bash
+   D1_DATABASE_ID=<id from step 2> npm run admin:create -w API -- --remote
+   ```
+   Run it again any time to reset the Super Admin password.
+
+### Approval emails (optional)
+
+New user requests always appear under **Users → Pending requests**. To also email them to the Super Admin, add a domain to Cloudflare, enable Email Routing, verify desiree.ababon@gmail.com as a destination, then in `API/wrangler.toml` set `EMAIL_FROM` and uncomment the `[[send_email]]` block. See [ADR 0002](docs/adr/0002-approval-email-admin-only.md).

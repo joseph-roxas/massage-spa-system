@@ -10,3 +10,13 @@ binding = "DB"
 database_name = "massage-spa-db"
 database_id = "D1_DATABASE_ID_PLACEHOLDER"
 migrations_dir = "../DB/migrations"
+
+[vars]
+SUPER_ADMIN_EMAIL = "desiree.ababon@gmail.com"
+APP_URL = "https://massage-spa-ui.pages.dev"
+
+# Uncomment once a domain with Email Routing is on Cloudflare (ADR 0002), and
+# set EMAIL_FROM above to an address on that domain, e.g. "noreply@yourspa.ph".
+# [[send_email]]
+# name = "EMAIL"
+# destination_address = "desiree.ababon@gmail.com"

@@ -9,6 +9,7 @@ import { userRoutes } from './modules/users';
 import { catalogueRoutes } from './modules/catalogue';
 import { staffRoutes } from './modules/staff';
 import { attendanceRoutes } from './modules/attendance';
+import { bookingRoutes } from './modules/bookings';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
 
@@ -37,6 +38,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/catalogue', catalogueRoutes)
     .route('/settings', staffRoutes)
     .route('/', attendanceRoutes)
+    .route('/', bookingRoutes)
     .notFound((c) => fail(c, 404, 'not_found', 'No such endpoint.'))
     .onError((err, c) => {
       console.error(err);

@@ -2,10 +2,11 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, gte, isNull, lte } from 'drizzle-orm';
-import { businessDayOf, can, computeRotation, nextInRotation, type Capability } from '@spa/domain';
+import { businessDayOf, can, type Capability } from '@spa/domain';
 import { dtr, staff } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
+import { frontDeskState } from '../lib/front-desk';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { isoDate } from '../lib/validation';
@@ -272,24 +273,13 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
 
   // ---- Rotation ----
   .get('/rotation', requireCapability('bookings.manage'), async (c) => {
-    const db = c.var.db;
-    const day = businessDayOf(new Date());
-    const [therapists, entries] = await Promise.all([
-      db
-        .select({ id: staff.id, displayName: staff.displayName, therapistClass: staff.therapistClass, isOnCall: staff.isOnCall })
-        .from(staff)
-        .where(and(eq(staff.kind, 'therapist'), eq(staff.active, true))),
-      db.select().from(dtr).where(eq(dtr.businessDay, day)),
-    ]);
-    // Service turns come from bookings (Phase 4); until then everyone on duty is free.
-    const rotation = computeRotation(
-      therapists.map((t) => ({ staffId: t.id, shifts: entries.filter((e) => e.staffId === t.id) })),
-      [],
-    );
-    const byId = new Map(therapists.map((t) => [t.id, t]));
+    const now = nowIso();
+    const day = businessDayOf(new Date(now));
+    const state = await frontDeskState(c.var.db, day, now);
+    const byId = new Map(state.therapists.map((t) => [t.id, t]));
     return c.json({
       day,
-      next: nextInRotation(rotation)?.staffId ?? null,
-      rotation: rotation.map((r) => ({ ...r, ...byId.get(r.staffId)! })),
+      next: state.next?.staffId ?? null,
+      rotation: state.rotation.map((r) => ({ ...r, ...byId.get(r.staffId)! })),
     });
   });

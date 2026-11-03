@@ -122,8 +122,7 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - `addons` — name, price. (Seed: Extra oil, 50.00.)
 
 **Bookings & sales**
-- `guests` — name, phone (optional).
-- `bookings` — guest_id, kind (`walk_in|scheduled`), scheduled_at, service_id, requested_therapist_id (nullable), therapist_id, room_id, flex_mode (`floor|recliner`), portable_table (bool), status (`queued|in_service|done|paid|cancelled|no_show`), started_at, done_at, business_day.
+- `bookings` — one Guest receiving one Service: business_day, kind (`walk_in|scheduled`), status (`scheduled|waiting|in_service|done|cancelled|no_show`), guest_name/guest_phone (optional, kept on the booking — no separate guest list), service_id, duration_min (snapshot), scheduled_at, requested_therapist_id, therapist_id, room_id, flex_mode, portable_table, override_reason, notes, started_at, done_at, cancel_reason. Partial unique indexes allow only one in-service Booking per Room and per therapist.
 - `sales` — booking_id, business_day, regular_price (snapshot), discount_type (`none|senior|pwd|promo|voucher|complimentary`), discount_ref (ID no. / promo_id / voucher_id), discount_amount, amount_due, foc_kind (`none|prepaid|real`), commission_base (= regular_price), commission_pct (snapshot), commission_amount, booklet_invoice_no.
 - `sale_addons` — sale_id, addon_id, price.
 - `payments` — sale_id or voucher_sale_id, method (`cash|gcash`), amount, gcash_ref (required for gcash).

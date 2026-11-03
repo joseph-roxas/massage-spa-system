@@ -1,3 +1,4 @@
+export * from './booking';
 export * from './business-day';
 export * from './calendar';
 export * from './catalogue';

@@ -36,6 +36,20 @@
       "when": 1793692872530,
       "tag": "0004_dtr",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793693300979,
+      "tag": "0005_bookings",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793693331584,
+      "tag": "0006_booking_guards",
+      "breakpoints": true
     }
   ]
 }

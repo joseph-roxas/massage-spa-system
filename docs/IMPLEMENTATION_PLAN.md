@@ -386,3 +386,115 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
 - **Night shift differential:** DOLE requires +10% for work between 10:00pm and 6:00am. The receptionist's 10–11pm hour (and any OT) would qualify. Not yet in the rules — confirm whether to add it as a `pay_rules` entry.
 - **Domain for approval email** (see §12.3): without it, approvals work in-app only.
 - **Happy Hours after 2026-11-30:** the promo simply stops applying; a replacement promo is a settings change, not code.
+
+## 14. Status and handoff (as of 2026-11-04)
+
+### 14.1 Where things stand
+
+- **Phases 0–11 are built, tested and pushed to `main`.** The last commit is `96cb501`, a fix to the setup wizard.
+  - Phase commits: 6 `9f7a17a..b653fe2`, 7 `53bc912`, 8 `192d733`, 9 `3bd9cdc`, 10 `a010a7f`, 11 `6d2c886`.
+- **Production go-live is in progress, run by the owner.** The owner is working through `scripts/go-live-setup.sh` (9 stages) and was last at stage 5, creating the Cloudflare API token.
+  - The token is the "Edit Cloudflare Workers" template plus `Account · D1 · Edit`. Its Zone Resources are `Include · All zones from an account`.
+  - After stage 5 come the GitHub secrets, the "Deploy all" workflow, the Super Admin login, and then the in-app Go-live checklist (`/admin/go-live`).
+  - On Windows, run the wizard with Git Bash: `& "C:\Program Files\Git\bin\bash.exe" scripts/go-live-setup.sh`. Plain `bash` in PowerShell is WSL, which has no Node.
+  - `.deploy.env` (gitignored) holds the account id and the D1 database id.
+- **Local test login:** `claude-test@spa.localhost`. Its password is in `.wrangler-state/test-login.txt` (gitignored, local only).
+- **Conventions:**
+  - Money is integer centavos; percentages are basis points.
+  - Capabilities live in `packages/domain/src/permissions.ts`.
+  - `auditInsert` goes inside `db.batch`, and a batch must not start with a spread.
+  - D1 allows at most 100 bound parameters per query.
+  - Every migration ends by updating `app_meta.schema_version`. The next migration is `0012_*`.
+
+### 14.2 Next features: Phase 12, owner's change requests after testing (NOT started)
+
+Nothing below is built yet. The design notes come from reading the code; confirm the open questions with the owner first.
+
+**A. Inventory: receptionist stops buying and starts accepting handovers**
+
+1. **Remove purchase capabilities from the receptionist.** Take `inventory.po.request` and `inventory.receive` off the receptionist in `permissions.ts`. Only the Super Admin requests orders, records purchases and receives deliveries. Hide the matching buttons in `UI/src/pages/inventory/StockTab.tsx` and `OrdersTab.tsx`.
+2. **Add a "Running low / Out of stock" button for the receptionist.** It notifies the admin in the app (approval email isn't set up yet).
+   - Proposed new table `stock_alerts`: `itemId` (nullable, so items outside the catalogue can be reported), `level` (`low` or `out`), `note`, `createdBy`, `resolvedAt`, `resolvedBy`.
+   - The admin sees open alerts on the Inventory page, with a badge on the nav.
+   - An alert resolves automatically when a Stock-in is recorded for its item, or the admin dismisses it.
+3. **The receptionist accepts items the admin turns over to the shop** (spa clothes, towels, slippers, other supplies).
+   - Proposal: admin-recorded purchases (Stock-ins) get `acceptedAt`, `acceptedBy` and `acceptNote`.
+   - The receptionist sees a "To accept" list and confirms receipt, with an optional note such as "2 towels missing".
+   - On hand counts only accepted Stock-ins. Opening counts are accepted automatically.
+   - The admin form gets an "Already at the shop" option for items the admin puts away personally.
+   - New capability `inventory.accept`.
+   - Non-consumables (towels, clothes) become catalogue Items with unit `pc` and reorder level 0.
+4. Stock-out (taking items out of storage) stays as it is for the receptionist.
+
+**B. Vouchers: serials, buyer and purchase date for double-checking**
+
+The data already exists: `voucher_sales` holds the buyer name, phone and business day, and `vouchers.serial` holds the serials. Only the screens are missing.
+
+1. **Sell dialog** (`UI/src/pages/front-desk/SellVouchersDialog.tsx`):
+   - The receptionist types the serial printed on each physical card, with a "Generate serials" fallback.
+   - The buyer name becomes required.
+   - The API (`POST /voucher-sales` in `API/src/modules/vouchers.ts`) accepts the list of serials and checks it for duplicates.
+2. **Voucher sales history on `VouchersPage`**, filtered by date range, buyer or serial. Each Bundle row shows the date sold, buyer, phone, every serial, how many have been used, and the date each one was used. Today the page only shows "Sold today".
+3. **Rule change: the free voucher is the last one used, not the 6th serial.**
+   - At checkout, count this sale's already-redeemed vouchers. The redemption is a Real FOC when that count is at least `qtyPaid`.
+   - For example, in a 10+2 sale, the 11th and 12th redemptions are Real FOCs.
+   - Imported paper vouchers keep their `isFree` flag.
+   - Migration: `UPDATE vouchers SET is_free = 0 WHERE voucher_sale_id IS NOT NULL`.
+   - Update `price()` in `API/src/modules/sales.ts`, the "Free" badges and the domain tests.
+
+**C. Checkout: one Discount dropdown**
+
+Replace the radio buttons in `CheckoutDialog.tsx` with one dropdown:
+
+- No discount
+- each active Promo, e.g. "Happy Hours (10%)"
+- Senior Citizen (20%)
+- PWD (20%)
+- Voucher
+- Complimentary (Real FOC), for the Super Admin only
+
+Supporting changes:
+
+- **Default pick:** the best Promo that applies, so a running Promo is visible.
+- **Quote API:** `POST /sales/quote` takes an explicit `promoId` or "none". Its response lists the active Promos for this Booking, each with whether it applies and, if not, why (wrong service, outside 2–6pm, past its end date).
+- **Domain:** add `promoProblem()` next to `promoApplies()` in `packages/domain/src/catalogue.ts`.
+- **Why the owner couldn't see Happy Hours:** it applies only to its own Service, and only when the Service *starts* inside its window. The old "Promo if any" option applied it silently.
+- **When a voucher serial is entered,** show its Bundle: who bought it and when, "3 of 6 used" with each use date, and whether this redemption will be the Real FOC.
+
+**D. Cash-out categories**
+
+- **New list:** the Cash-out form offers only **Petty cash** and **Laundry**. Drop Supplies, Food, Transport and Other from the form.
+- **Old values:** keep them in the enum for history and reports. `supplies` stays as the internal category for admin inventory purchases paid from the drawer.
+- **New field:** each Cash-out gets `source`, either `sales` (sales cash on hand) or `petty` (the petty cash fund).
+  - Petty cash → `petty`.
+  - Laundry defaults to `sales`, with a "Paid from" choice.
+  - Cash Advance and On-call pay → `sales`.
+  - Migration: existing `petty_cash` rows → `petty`, all others → `sales`.
+- **Files to change:** `DB/schema/days.ts`, `newCashOut` in `API/src/modules/days.ts`, `UI/src/lib/sales.ts`, `UI/src/pages/front-desk/DayDialogs.tsx`, and `CASH_OUT_LABELS` in `API/src/modules/reports.ts`.
+
+**E. Cash handover to the owner, and petty cash**
+
+1. **Petty cash fund:** ₱800, kept apart from sales cash.
+   - Balance = 800 + top-ups − petty Cash-outs.
+   - Refuse a petty Cash-out that exceeds the balance.
+   - Top it up weekly (Sunday or Monday) from sales cash, by recording a "Petty cash top-up" of 800 − balance.
+2. **Sales cash stays in the shop for several days** (roughly Wednesday to Saturday or Sunday). The receptionist pays the Therapists' payroll and the weekly laundry from it, then hands **everything except the petty cash** to the owner.
+3. **Proposed new table `cash_transfers`:** `kind` (`turnover`, `petty_topup` or `payroll`), `amount`, `businessDay`, `payrollId`, `note`, `createdBy`, `receivedAt`, `receivedBy`.
+   - Payroll release (`POST /payrolls/:id/release`) gets a "Paid from shop cash" option, default on in the UI, that records a `payroll` transfer.
+   - A transfer recorded after today's Day Close is attributed to the next Business Day.
+   - Transfers are not expenses, so they stay out of `cash_outs`, which the Expenses month view counts.
+4. **Reminder on the receptionist's Front Desk:**
+   - "Sales cash in the shop ₱X since <last handover>; pay payroll and laundry from it, then hand the rest to the owner. Keep petty cash at ₱800."
+   - Once every payroll of the last completed Pay Week is released, it becomes a stronger "All payroll is paid: hand over ₱X".
+   - On Sunday or Monday, if petty cash is below ₱800, it shows "Top up petty cash ₱Y".
+5. **Owner view:** cash in the shop, handovers waiting for confirmation (with a Received button), and a history of handovers, top-ups and payroll paid.
+6. **Two decisions were put to the owner and not answered yet:**
+   - **Day Close count.** Recommended: count *all* sales cash in the shop. Expected = last closed day's counted cash + cash received since − sales-source Cash-outs − On-call pay − transfers. The ₱800 petty cash is not counted. The alternative is to keep counting only today's cash and track cash on hand separately.
+   - **Handover confirmation.** Recommended: the owner confirms receipt, and a handover shows "Waiting for owner" until then. The alternative is that the receptionist's record is enough.
+
+### 14.3 Still open from earlier phases
+
+- Night shift differential (see §13).
+- Review of holidays and Happy Hours settings before go-live.
+- Approval email domain (see §12.3).
+- Whole-day offline entry: the paper sheet exists, but there is no bulk-entry screen.

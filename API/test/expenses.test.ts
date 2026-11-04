@@ -118,9 +118,9 @@ describe('expenses', () => {
       .bind(crypto.randomUUID(), today(), now)
       .run();
 
-    const { id: vendorId } = await json<{ id: string }>(await desk.post('/inventory/vendors', { name: `Market ${crypto.randomUUID().slice(0, 4)}` }));
-    expect((await desk.post('/inventory/stock-ins', { itemId: 'alcohol', vendorId, qty: 2, unitPrice: 40000, purchaseDate: today(), fromDrawer: true })).status).toBe(201);
-    expect((await desk.post('/inventory/stock-ins', { itemId: 'bleach', vendorId, qty: 1, unitPrice: 9000, purchaseDate: today() })).status).toBe(201);
+    const { id: vendorId } = await json<{ id: string }>(await admin.post('/inventory/vendors', { name: `Market ${crypto.randomUUID().slice(0, 4)}` }));
+    expect((await admin.post('/inventory/stock-ins', { itemId: 'alcohol', vendorId, qty: 2, unitPrice: 40000, purchaseDate: today(), fromDrawer: true })).status).toBe(201);
+    expect((await admin.post('/inventory/stock-ins', { itemId: 'bleach', vendorId, qty: 1, unitPrice: 9000, purchaseDate: today() })).status).toBe(201);
 
     const m = await json<Month>(await admin.get(`/expenses?month=${thisMonth()}`));
     expect(m.cashOuts.map((x) => x.category)).toEqual(['laundry']);

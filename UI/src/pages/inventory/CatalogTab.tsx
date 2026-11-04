@@ -1,29 +1,44 @@
 import { useState, type FormEvent } from 'react';
-import { Alert, Badge, Button, Card, Checkbox, Field, FormPanel, Input, td, th } from '../../components/ui';
+import { Alert, Badge, Button, Card, Checkbox, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
 import { todayManila } from '../../lib/format';
-import { itemLabel, useInventoryAction, useItems, useVendors, type Item, type Vendor } from '../../lib/inventory';
+import { ITEM_KIND_LABELS, itemLabel, useInventoryAction, useItems, useVendors, type Item, type ItemKind, type Vendor } from '../../lib/inventory';
 
 function ItemForm({ item, onDone }: { item?: Item; onDone: () => void }) {
   const act = useInventoryAction();
-  const [d, setD] = useState({ name: item?.name ?? '', unit: item?.unit ?? '', reorderLevel: String(item?.reorderLevel ?? 0), active: item?.active ?? true });
+  const [d, setD] = useState({
+    name: item?.name ?? '',
+    unit: item?.unit ?? '',
+    kind: item?.kind ?? ('consumable' as ItemKind),
+    reorderLevel: String(item?.reorderLevel ?? 0),
+    active: item?.active ?? true,
+  });
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const body = { name: d.name, unit: d.unit, reorderLevel: Number(d.reorderLevel), active: d.active };
+    const body = { name: d.name, unit: d.unit, kind: d.kind, reorderLevel: Number(d.reorderLevel), active: d.active };
     act.mutate(item ? { path: `/inventory/items/${item.id}`, method: 'PATCH', body } : { path: '/inventory/items', body }, { onSuccess: onDone });
   }
 
   return (
     <FormPanel onSubmit={submit}>
       {act.error && <Alert>{act.error.message}</Alert>}
-      <div className="grid grid-cols-[1fr_10rem_8rem] gap-3">
+      <div className="grid grid-cols-[1fr_10rem_11rem_8rem] gap-3">
         <Field label="Item">
           <Input required value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} placeholder="E.g. Massage oil" />
         </Field>
         <Field label="Unit">
           <Input required value={d.unit} onChange={(e) => setD({ ...d, unit: e.target.value })} placeholder="gal, roll, pack of 50" />
         </Field>
-        <Field label="Reorder at" hint="0 = no warning">
+        <Field label="Kind" hint={d.kind === 'consumable' ? 'Used up' : 'Discarded when broken or worn out'}>
+          <Select value={d.kind} onChange={(e) => setD({ ...d, kind: e.target.value as ItemKind })}>
+            {Object.entries(ITEM_KIND_LABELS).map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Low at the shop at" hint="0 = no warning">
           <Input inputMode="numeric" required value={d.reorderLevel} onChange={(e) => setD({ ...d, reorderLevel: e.target.value })} />
         </Field>
       </div>
@@ -68,6 +83,7 @@ function VendorForm({ vendor, onDone }: { vendor?: Vendor; onDone: () => void })
 function OpeningCount({ items, onDone }: { items: Item[]; onDone: () => void }) {
   const act = useInventoryAction();
   const [date, setDate] = useState(todayManila());
+  const [location, setLocation] = useState<'shop' | 'storage'>('shop');
   const [counts, setCounts] = useState<Record<string, string>>({});
   const entered = Object.entries(counts).filter(([, v]) => v.trim() !== '');
   const valid = entered.length > 0 && entered.every(([, v]) => Number.isInteger(Number(v)) && Number(v) >= 0);
@@ -76,14 +92,24 @@ function OpeningCount({ items, onDone }: { items: Item[]; onDone: () => void }) 
     <FormPanel
       onSubmit={(e) => {
         e.preventDefault();
-        act.mutate({ path: '/inventory/opening', method: 'PUT', body: { date, counts: entered.map(([itemId, v]) => ({ itemId, qty: Number(v) })) } }, { onSuccess: onDone });
+        act.mutate({ path: '/inventory/opening', method: 'PUT', body: { date, location, counts: entered.map(([itemId, v]) => ({ itemId, qty: Number(v) })) } }, { onSuccess: onDone });
       }}
     >
       {act.error && <Alert>{act.error.message}</Alert>}
-      <p className="text-sm text-stone-600">Count what is on the shelves and enter it once, when you start using the system. Entering an item again replaces its count. Leave blank to skip.</p>
-      <Field label="Counted on">
-        <Input type="date" required max={todayManila()} value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
-      </Field>
+      <p className="text-sm text-stone-600">
+        Count what is at the shop and what is in your storage, once, when you start using the system. Entering an item again replaces its count there. Leave blank to skip.
+      </p>
+      <div className="flex gap-3">
+        <Field label="Where">
+          <Select value={location} onChange={(e) => setLocation(e.target.value as 'shop' | 'storage')}>
+            <option value="shop">At the shop</option>
+            <option value="storage">In my storage</option>
+          </Select>
+        </Field>
+        <Field label="Counted on">
+          <Input type="date" required max={todayManila()} value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
+        </Field>
+      </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-2">
         {items
           .filter((i) => i.active)
@@ -135,7 +161,8 @@ export function CatalogTab() {
             <tr className="border-b border-stone-200">
               <th className={th}>Item</th>
               <th className={th}>Unit</th>
-              <th className={`${th} text-right`}>Reorder at</th>
+              <th className={th}>Kind</th>
+              <th className={`${th} text-right`}>Low at</th>
               <th className={th} />
             </tr>
           </thead>
@@ -143,7 +170,7 @@ export function CatalogTab() {
             {items.data?.items.map((i) =>
               editItem !== 'new' && editItem?.id === i.id ? (
                 <tr key={i.id}>
-                  <td colSpan={4} className="py-2">
+                  <td colSpan={5} className="py-2">
                     <ItemForm item={i} onDone={() => setEditItem(null)} />
                   </td>
                 </tr>
@@ -153,6 +180,7 @@ export function CatalogTab() {
                     {i.name} {!i.active && <Badge>Not stocked</Badge>}
                   </td>
                   <td className={td}>{i.unit}</td>
+                  <td className={td}>{ITEM_KIND_LABELS[i.kind]}</td>
                   <td className={`${td} text-right tabular-nums`}>{i.reorderLevel || '—'}</td>
                   <td className={`${td} text-right`}>
                     <button type="button" className="text-sm text-teal-800 underline" onClick={() => setEditItem(i)}>

@@ -16,6 +16,7 @@ describe('go-live checklist', () => {
     expect(before.checks.find((c) => c.key === 'desk-login')!.status).toBe('done');
 
     expect((await admin.send('PUT', '/inventory/opening', { date: before.firstSunday.slice(0, 4) + '-01-01', counts: [{ itemId: 'tissue', qty: 12 }] })).status).toBe(200);
+    expect((await admin.send('PUT', '/inventory/opening', { date: before.firstSunday.slice(0, 4) + '-01-01', location: 'storage', counts: [{ itemId: 'tissue', qty: 40 }] })).status).toBe(200);
     const after = (await (await admin.get('/go-live/status')).json()) as Status;
     expect(after.checks.find((c) => c.key === 'inventory')!.status).toBe('done');
   });

@@ -14,7 +14,7 @@ export const goLiveRoutes = new Hono<AuthedEnv>().get('/go-live/status', require
   const db = c.var.db;
   const today = businessDayOf(new Date());
   const year = today.slice(0, 4);
-  const [people, desks, svc, priced, hols, imported, cards, openings, counted] = await Promise.all([
+  const [people, desks, svc, priced, hols, imported, cards, openings, counted, stored] = await Promise.all([
     db.select({ kind: staff.kind, isOnCall: staff.isOnCall, hasPin: sql<number>`${staff.pinHash} is not null`, dailyRate: staff.dailyRate }).from(staff).where(eq(staff.active, true)),
     db.select({ n: count }).from(users).where(and(eq(users.role, 'receptionist'), eq(users.status, 'active'))).get(),
     db.select({ n: count }).from(services).where(eq(services.active, true)).get(),
@@ -23,7 +23,8 @@ export const goLiveRoutes = new Hono<AuthedEnv>().get('/go-live/status', require
     db.select({ n: count }).from(vouchers).where(and(eq(vouchers.imported, true), isNull(vouchers.redeemedSaleId))).get(),
     db.select({ n: count }).from(vouchers).where(eq(vouchers.status, 'in_shop')).get(),
     db.select({ n: count }).from(caLedger).where(eq(caLedger.entry, 'opening')).get(),
-    db.select({ n: count }).from(stockIns).where(eq(stockIns.kind, 'opening')).get(),
+    db.select({ n: count }).from(stockIns).where(and(eq(stockIns.kind, 'opening'), eq(stockIns.location, 'shop'))).get(),
+    db.select({ n: count }).from(stockIns).where(and(eq(stockIns.kind, 'opening'), eq(stockIns.location, 'storage'))).get(),
   ]);
 
   const therapists = people.filter((p) => p.kind === 'therapist' && !p.isOnCall);
@@ -91,9 +92,9 @@ export const goLiveRoutes = new Hono<AuthedEnv>().get('/go-live/status', require
     },
     {
       key: 'inventory',
-      label: 'Count the stock on the shelves',
-      status: n(counted) > 0 ? 'done' : 'todo',
-      detail: n(counted) ? `${n(counted)} item(s) counted` : 'Inventory → Items & vendors → Opening count',
+      label: 'Count the stock at the shop and in your storage',
+      status: n(counted) > 0 && n(stored) > 0 ? 'done' : 'todo',
+      detail: `${n(counted)} item(s) counted at the shop, ${n(stored)} in storage · Inventory → Items & vendors → Opening count`,
       link: '/inventory?tab=items',
     },
   ];

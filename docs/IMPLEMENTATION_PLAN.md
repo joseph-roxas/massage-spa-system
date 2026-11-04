@@ -462,6 +462,7 @@ Nothing below is built yet. Every decision here was confirmed with the owner on 
 6. **Use** (rename of Stock-out, Consumables only) and **Discard** (Reusable Supply/Equipment, reason `broken` | `worn_out` | `lost`), both from Shop Stock. Super Admin sees Discards as a replacement signal.
 7. **Go-live**: today's on-hand counts become Shop Stock; a new step asks the Storage count per Item.
 8. Purchases are expensed in the month bought (no depreciation, Equipment included).
+9. **As built** (migration 0015): `stock_ins.location` and `stock_outs.location` (`storage` | `shop`), `stock_outs.kind` (`use` | `discard`) with `reason`, and new tables `turnovers` and `takeout_requests`. Existing stock rows were moved to `shop`. No new capability was added: the Receptionist's Use, Discard, Take-out Requests and Receiving all run under `inventory.stock_out`, and the Super Admin's actions (Stock-ins, Purchase Orders, Turnovers, resolving shortfalls, closing requests, Storage discards) under `inventory.po.approve`. The Receptionist no longer has `inventory.po.request` or `inventory.receive`, and the Purchase Orders tab is Super Admin only. For Receiving shows at the top of Inventory → Stock; Voucher Endorsements stay on the Vouchers page. A shortfall is resolved as "Still in my storage" or "Lost" (a Storage discard).
 
 **12.5 Staff records and Certificates**
 

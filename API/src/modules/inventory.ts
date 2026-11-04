@@ -1,10 +1,39 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
-import { businessDayOf, isLowStock, poCan, receiveProblem, statusAfterDelivery, stockOutProblem, type PoStatus } from '@spa/domain';
-import { cashOuts, items, PO_STATUSES, purchaseOrderLines, purchaseOrders, staff, stockIns, stockOuts, users, vendors } from '@spa/db';
+import {
+  businessDayOf,
+  can,
+  isLowStock,
+  poCan,
+  receiveProblem,
+  receiveTurnoverProblem,
+  statusAfterDelivery,
+  stockLevels,
+  takeOutProblem,
+  turnoverProblem,
+  type PoStatus,
+} from '@spa/domain';
+import {
+  cashOuts,
+  DISCARD_REASONS,
+  ITEM_KINDS,
+  items,
+  PO_STATUSES,
+  purchaseOrderLines,
+  purchaseOrders,
+  staff,
+  STOCK_LOCATIONS,
+  stockIns,
+  stockOuts,
+  TAKEOUT_LEVELS,
+  takeoutRequests,
+  turnovers,
+  users,
+  vendors,
+} from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor } from '../lib/business-days';
@@ -19,6 +48,7 @@ const qty = z.number().int().min(1).max(100_000);
 const itemFields = z.object({
   name,
   unit: z.string().trim().min(1).max(30),
+  kind: z.enum(ITEM_KINDS).optional(),
   reorderLevel: z.number().int().min(0).max(100_000),
   active: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(100_000).optional(),
@@ -26,22 +56,49 @@ const itemFields = z.object({
 const vendorFields = z.object({ name, contact: z.string().trim().max(200).optional(), active: z.boolean().optional() });
 const reasonBody = z.object({ reason: z.string().trim().min(3, 'Give a short reason.').max(300) });
 
-/** On hand per Item. */
-async function onHandMap(db: Db, itemIds?: string[]) {
-  const where = (col: typeof stockIns.itemId | typeof stockOuts.itemId) => (itemIds ? inArray(col, itemIds) : undefined);
-  const [ins, outs] = await Promise.all([
-    db.select({ itemId: stockIns.itemId, qty: sql<number>`sum(${stockIns.qty})` }).from(stockIns).where(where(stockIns.itemId)).groupBy(stockIns.itemId),
+type Stock = { storage: number; inTransit: number; shop: number; lastStockOut: string | null };
+
+const NO_STOCK: Stock = { storage: 0, inTransit: 0, shop: 0, lastStockOut: null };
+
+/** Storage, in transit and Shop Stock per Item. */
+async function stockMap(db: Db, itemIds?: string[]): Promise<Map<string, Stock>> {
+  const where = (col: typeof stockIns.itemId | typeof stockOuts.itemId | typeof turnovers.itemId) => (itemIds ? inArray(col, itemIds) : undefined);
+  const [ins, outs, sent] = await Promise.all([
     db
-      .select({ itemId: stockOuts.itemId, qty: sql<number>`sum(${stockOuts.qty})`, last: sql<string>`max(${stockOuts.date})` })
+      .select({ itemId: stockIns.itemId, location: stockIns.location, qty: sql<number>`sum(${stockIns.qty})` })
+      .from(stockIns)
+      .where(where(stockIns.itemId))
+      .groupBy(stockIns.itemId, stockIns.location),
+    db
+      .select({ itemId: stockOuts.itemId, location: stockOuts.location, qty: sql<number>`sum(${stockOuts.qty})`, last: sql<string>`max(${stockOuts.date})` })
       .from(stockOuts)
       .where(where(stockOuts.itemId))
-      .groupBy(stockOuts.itemId),
+      .groupBy(stockOuts.itemId, stockOuts.location),
+    db
+      .select({
+        itemId: turnovers.itemId,
+        inTransit: sql<number>`sum(case when ${turnovers.receivedAt} is null then ${turnovers.qty} else 0 end)`,
+        received: sql<number>`sum(coalesce(${turnovers.receivedQty}, 0))`,
+      })
+      .from(turnovers)
+      .where(where(turnovers.itemId))
+      .groupBy(turnovers.itemId),
   ]);
-  const out = new Map<string, { onHand: number; lastStockOut: string | null }>();
-  for (const i of ins) out.set(i.itemId, { onHand: Number(i.qty), lastStockOut: null });
-  for (const o of outs) {
-    const cur = out.get(o.itemId) ?? { onHand: 0, lastStockOut: null };
-    out.set(o.itemId, { onHand: cur.onHand - Number(o.qty), lastStockOut: o.last });
+  const ids = new Set([...ins.map((x) => x.itemId), ...outs.map((x) => x.itemId), ...sent.map((x) => x.itemId)]);
+  const out = new Map<string, Stock>();
+  for (const id of ids) {
+    const qty = (rows: { itemId: string; location: string; qty: number }[], location: string) =>
+      Number(rows.find((r) => r.itemId === id && r.location === location)?.qty ?? 0);
+    const t = sent.find((s) => s.itemId === id);
+    const levels = stockLevels({
+      storageIns: qty(ins, 'storage'),
+      shopIns: qty(ins, 'shop'),
+      inTransit: Number(t?.inTransit ?? 0),
+      received: Number(t?.received ?? 0),
+      storageOuts: qty(outs, 'storage'),
+      shopOuts: qty(outs, 'shop'),
+    });
+    out.set(id, { ...levels, lastStockOut: outs.find((o) => o.itemId === id && o.location === 'shop')?.last ?? null });
   }
   return out;
 }
@@ -92,7 +149,7 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
     const db = c.var.db;
     const [rows, stock, purchases] = await Promise.all([
       db.select().from(items).orderBy(asc(items.sortOrder), asc(items.name)),
-      onHandMap(db),
+      stockMap(db),
       db
         .select({ itemId: stockIns.itemId, unitPrice: stockIns.unitPrice, purchaseDate: stockIns.purchaseDate, vendorName: vendors.name })
         .from(stockIns)
@@ -102,9 +159,10 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
     ]);
     return c.json({
       items: rows.map((i) => {
-        const s = stock.get(i.id) ?? { onHand: 0, lastStockOut: null };
+        const s = stock.get(i.id) ?? NO_STOCK;
         const latest = purchases.find((p) => p.itemId === i.id) ?? null;
-        return { ...i, ...s, low: isLowStock(s.onHand, i.reorderLevel), latestPurchase: latest };
+        // `onHand` is Shop Stock; the reorder level warns on what the shop has.
+        return { ...i, ...s, onHand: s.shop, low: isLowStock(s.shop, i.reorderLevel), latestPurchase: latest };
       }),
     });
   })
@@ -138,7 +196,7 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
   .get('/inventory/items/:id/history', async (c) => {
     const db = c.var.db;
     const id = c.req.param('id');
-    const [ins, outs] = await Promise.all([
+    const [ins, outs, sent] = await Promise.all([
       db
         .select({ row: stockIns, vendorName: vendors.name })
         .from(stockIns)
@@ -153,10 +211,46 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
         .where(eq(stockOuts.itemId, id))
         .orderBy(desc(stockOuts.date), desc(stockOuts.createdAt))
         .limit(200),
+      db.select().from(turnovers).where(eq(turnovers.itemId, id)).orderBy(desc(turnovers.createdAt)).limit(200),
     ]);
     const moves = [
-      ...ins.map((i) => ({ type: i.row.kind === 'opening' ? ('opening' as const) : ('in' as const), id: i.row.id, date: i.row.purchaseDate, qty: i.row.qty, unitPrice: i.row.unitPrice, who: i.vendorName, note: null, createdAt: i.row.createdAt })),
-      ...outs.map((o) => ({ type: 'out' as const, id: o.row.id, date: o.row.date, qty: o.row.qty, unitPrice: null, who: o.takenBy, note: o.row.note, createdAt: o.row.createdAt })),
+      ...ins.map((i) => ({
+        type: i.row.kind === 'opening' ? ('opening' as const) : ('in' as const),
+        location: i.row.location,
+        id: i.row.id,
+        date: i.row.purchaseDate,
+        qty: i.row.qty,
+        unitPrice: i.row.unitPrice,
+        who: i.vendorName,
+        note: null as string | null,
+        createdAt: i.row.createdAt,
+      })),
+      ...outs.map((o) => ({
+        type: o.row.kind,
+        location: o.row.location,
+        id: o.row.id,
+        date: o.row.date,
+        qty: o.row.qty,
+        unitPrice: null,
+        who: o.takenBy,
+        note: [o.row.reason?.replace('_', ' '), o.row.note].filter(Boolean).join(': ') || null,
+        createdAt: o.row.createdAt,
+      })),
+      ...sent.map((t) => ({
+        type: 'turnover' as const,
+        location: 'shop' as const,
+        id: t.id,
+        date: t.sentOn,
+        qty: t.receivedQty ?? t.qty,
+        unitPrice: null,
+        who: null,
+        note: !t.receivedAt
+          ? 'Sent, not received yet'
+          : t.receivedQty! < t.qty
+            ? `${t.qty} sent, ${t.receivedQty} received${t.receiveNote ? `: ${t.receiveNote}` : ''}`
+            : t.receiveNote,
+        createdAt: t.createdAt,
+      })),
     ].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
     return c.json({ moves });
   })
@@ -196,18 +290,54 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
 
   .post(
     '/inventory/stock-outs',
-    zValidator('json', z.object({ itemId: z.string().min(1), qty, takenByStaffId: z.string().min(1).nullable().optional(), note: z.string().trim().max(200).optional() }), invalidInput),
+    zValidator(
+      'json',
+      z
+        .object({
+          itemId: z.string().min(1),
+          qty,
+          kind: z.enum(['use', 'discard']).default('use'),
+          reason: z.enum(DISCARD_REASONS).optional(),
+          /** Storage: the Super Admin discarding from their own stock. */
+          location: z.enum(STOCK_LOCATIONS).default('shop'),
+          takenByStaffId: z.string().min(1).nullable().optional(),
+          note: z.string().trim().max(200).optional(),
+        })
+        .refine((x) => x.kind === 'use' || x.reason, { message: 'Say why: broken, worn out or lost.', path: ['reason'] }),
+      invalidInput,
+    ),
     async (c) => {
       const db = c.var.db;
       const input = c.req.valid('json');
+      if (input.location === 'storage' && !can(c.var.user.role, 'inventory.po.approve')) return fail(c, 403, 'forbidden', 'Only the Super Admin manages Storage.');
       const item = await db.select().from(items).where(eq(items.id, input.itemId)).get();
       if (!item) return fail(c, 404, 'not_found', 'Item not found.');
-      const available = (await onHandMap(db, [item.id])).get(item.id)?.onHand ?? 0;
-      const problem = stockOutProblem(input.qty, available);
+      const stock = (await stockMap(db, [item.id])).get(item.id) ?? NO_STOCK;
+      const available = input.location === 'shop' ? stock.shop : stock.storage;
+      const problem =
+        input.location === 'shop'
+          ? takeOutProblem(input.kind, item.kind, input.qty, available)
+          : input.kind === 'use'
+            ? 'Items are used at the shop. Send them with a Turnover.'
+            : input.qty > available
+              ? `Only ${available} in storage.`
+              : null;
       if (problem) return fail(c, 409, 'not_enough', `${item.name}: ${problem}`);
       const id = crypto.randomUUID();
-      const row = { id, itemId: item.id, qty: input.qty, date: businessDayOf(new Date()), takenByStaffId: input.takenByStaffId ?? null, note: input.note || null, createdAt: nowIso(), recordedBy: c.var.user.id };
-      await db.batch([db.insert(stockOuts).values(row), auditInsert(db, { actorUserId: c.var.user.id, action: 'stock_out.create', entity: 'stock_out', entityId: id, after: row })]);
+      const row = {
+        id,
+        itemId: item.id,
+        qty: input.qty,
+        kind: input.kind,
+        reason: input.kind === 'discard' ? input.reason! : null,
+        location: input.location,
+        date: businessDayOf(new Date()),
+        takenByStaffId: input.takenByStaffId ?? null,
+        note: input.note || null,
+        createdAt: nowIso(),
+        recordedBy: c.var.user.id,
+      };
+      await db.batch([db.insert(stockOuts).values(row), auditInsert(db, { actorUserId: c.var.user.id, action: `stock_out.${input.kind}`, entity: 'stock_out', entityId: id, after: row })]);
       return c.json({ id, onHand: available - input.qty }, 201);
     },
   )
@@ -224,7 +354,7 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
     return c.json({ ok: true });
   })
 
-  /** A purchase bought without a Purchase Order, e.g. from the market. */
+  /** A purchase bought without a Purchase Order, e.g. from the market. It lands in Storage. */
   .post(
     '/inventory/stock-ins',
     requireCapability('inventory.receive'),
@@ -256,23 +386,231 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
     },
   )
 
-  /** Go-live: the counted quantity of each Item. Replaces that Item's earlier opening count. */
+  /** Go-live: the counted quantity of each Item at the Shop or in Storage. Replaces that Item's earlier count there. */
   .put(
     '/inventory/opening',
     requireCapability('inventory.po.approve'),
-    zValidator('json', z.object({ date: isoDate, counts: z.array(z.object({ itemId: z.string().min(1), qty: z.number().int().min(0).max(100_000) })).min(1).max(80) }), invalidInput),
+    zValidator(
+      'json',
+      z.object({
+        date: isoDate,
+        location: z.enum(STOCK_LOCATIONS).default('shop'),
+        counts: z.array(z.object({ itemId: z.string().min(1), qty: z.number().int().min(0).max(100_000) })).min(1).max(80),
+      }),
+      invalidInput,
+    ),
     async (c) => {
       const db = c.var.db;
-      const { date, counts } = c.req.valid('json');
+      const { date, location, counts } = c.req.valid('json');
       const known = new Set((await db.select({ id: items.id }).from(items)).map((i) => i.id));
       if (counts.some((x) => !known.has(x.itemId))) return fail(c, 404, 'not_found', 'An item was not found.');
       const now = nowIso();
       await db.batch([
         auditInsert(db, { actorUserId: c.var.user.id, action: 'inventory.opening', entity: 'inventory', entityId: date, after: counts }),
         ...counts.flatMap((x) => [
-          db.delete(stockIns).where(and(eq(stockIns.itemId, x.itemId), eq(stockIns.kind, 'opening'))),
-          ...(x.qty > 0 ? [db.insert(stockIns).values({ id: crypto.randomUUID(), itemId: x.itemId, kind: 'opening', qty: x.qty, purchaseDate: date, createdAt: now, receivedBy: c.var.user.id })] : []),
+          db.delete(stockIns).where(and(eq(stockIns.itemId, x.itemId), eq(stockIns.kind, 'opening'), eq(stockIns.location, location))),
+          ...(x.qty > 0
+            ? [db.insert(stockIns).values({ id: crypto.randomUUID(), itemId: x.itemId, kind: 'opening', location, qty: x.qty, purchaseDate: date, createdAt: now, receivedBy: c.var.user.id })]
+            : []),
         ]),
+      ]);
+      return c.json({ ok: true });
+    },
+  )
+
+  // ------------------------------------------------- Take-out Requests
+
+  /** Open requests first, then the most recent resolved ones. */
+  .get('/inventory/takeout-requests', async (c) => {
+    const db = c.var.db;
+    const rows = await db
+      .select({ r: takeoutRequests, itemName: items.name, unit: items.unit, by: users.firstName })
+      .from(takeoutRequests)
+      .leftJoin(items, eq(items.id, takeoutRequests.itemId))
+      .leftJoin(users, eq(users.id, takeoutRequests.createdBy))
+      .orderBy(sql`${takeoutRequests.resolvedAt} is not null`, desc(takeoutRequests.createdAt))
+      .limit(100);
+    const ids = rows.map((x) => x.r.id);
+    const sent = ids.length
+      ? await db.select({ requestId: turnovers.takeoutRequestId, qty: turnovers.qty, receivedAt: turnovers.receivedAt }).from(turnovers).where(inArray(turnovers.takeoutRequestId, ids))
+      : [];
+    return c.json({
+      requests: rows.map((x) => ({
+        ...x.r,
+        itemName: x.itemName ?? x.r.itemText,
+        unit: x.unit,
+        requestedByName: x.by,
+        sent: sent.filter((t) => t.requestId === x.r.id).reduce((n, t) => n + t.qty, 0),
+      })),
+    });
+  })
+
+  /** The shop needs an Item: running low or out. The Super Admin sends it from Storage, buying first if needed. */
+  .post(
+    '/inventory/takeout-requests',
+    zValidator(
+      'json',
+      z
+        .object({
+          itemId: z.string().min(1).optional(),
+          itemText: z.string().trim().min(2).max(120).optional(),
+          qty,
+          level: z.enum(TAKEOUT_LEVELS),
+          note: z.string().trim().max(300).optional(),
+        })
+        .refine((x) => !!x.itemId !== !!x.itemText, { message: 'Pick an item, or describe a new one.', path: ['itemId'] }),
+      invalidInput,
+    ),
+    async (c) => {
+      const db = c.var.db;
+      const input = c.req.valid('json');
+      if (input.itemId && !(await db.select({ id: items.id }).from(items).where(eq(items.id, input.itemId)).get())) return fail(c, 404, 'not_found', 'Item not found.');
+      const id = crypto.randomUUID();
+      await db.insert(takeoutRequests).values({
+        id,
+        itemId: input.itemId ?? null,
+        itemText: input.itemText ?? null,
+        qty: input.qty,
+        level: input.level,
+        note: input.note || null,
+        createdAt: nowIso(),
+        createdBy: c.var.user.id,
+      });
+      return c.json({ id }, 201);
+    },
+  )
+
+  .post('/inventory/takeout-requests/:id/dismiss', requireCapability('inventory.po.approve'), zValidator('json', reasonBody, invalidInput), async (c) => {
+    const db = c.var.db;
+    const row = await db.select().from(takeoutRequests).where(eq(takeoutRequests.id, c.req.param('id'))).get();
+    if (!row) return fail(c, 404, 'not_found', 'Request not found.');
+    if (row.resolvedAt) return fail(c, 409, 'resolved', 'This request is already closed.');
+    await db
+      .update(takeoutRequests)
+      .set({ resolvedAt: nowIso(), resolvedBy: c.var.user.id, dismissReason: c.req.valid('json').reason })
+      .where(eq(takeoutRequests.id, row.id));
+    return c.json({ ok: true });
+  })
+
+  // ---------------------------------------------------------------- Turnovers
+
+  /** Not yet received first (the shop's For Receiving list), then shortfalls to resolve, then the rest. */
+  .get('/inventory/turnovers', async (c) => {
+    const rows = await c.var.db
+      .select({ t: turnovers, itemName: items.name, unit: items.unit })
+      .from(turnovers)
+      .innerJoin(items, eq(items.id, turnovers.itemId))
+      .orderBy(sql`${turnovers.receivedAt} is not null`, desc(turnovers.createdAt))
+      .limit(150);
+    return c.json({
+      turnovers: rows.map((r) => ({
+        ...r.t,
+        itemName: r.itemName,
+        unit: r.unit,
+        short: r.t.receivedQty !== null && r.t.receivedQty < r.t.qty ? r.t.qty - r.t.receivedQty : 0,
+      })),
+    });
+  })
+
+  /** The Super Admin sends items from Storage to the shop. */
+  .post(
+    '/inventory/turnovers',
+    requireCapability('inventory.po.approve'),
+    zValidator(
+      'json',
+      z.object({ itemId: z.string().min(1), qty, sentOn: isoDate, takeoutRequestId: z.string().min(1).optional(), note: z.string().trim().max(300).optional() }),
+      invalidInput,
+    ),
+    async (c) => {
+      const db = c.var.db;
+      const input = c.req.valid('json');
+      if (input.sentOn > businessDayOf(new Date())) return fail(c, 400, 'future_date', 'The date sent cannot be in the future.');
+      const item = await db.select().from(items).where(eq(items.id, input.itemId)).get();
+      if (!item) return fail(c, 404, 'not_found', 'Item not found.');
+      if (input.takeoutRequestId) {
+        const req = await db.select().from(takeoutRequests).where(eq(takeoutRequests.id, input.takeoutRequestId)).get();
+        if (!req || req.resolvedAt) return fail(c, 409, 'request_closed', 'That request is already closed.');
+      }
+      const stock = (await stockMap(db, [item.id])).get(item.id) ?? NO_STOCK;
+      const problem = turnoverProblem(input.qty, stock.storage);
+      if (problem) return fail(c, 409, 'not_enough', `${item.name}: ${problem}`);
+      const id = crypto.randomUUID();
+      const row = { id, ...input, takeoutRequestId: input.takeoutRequestId ?? null, note: input.note || null, createdAt: nowIso(), createdBy: c.var.user.id };
+      await db.batch([db.insert(turnovers).values(row), auditInsert(db, { actorUserId: c.var.user.id, action: 'turnover.create', entity: 'turnover', entityId: id, after: row })]);
+      return c.json({ id }, 201);
+    },
+  )
+
+  /** A Turnover sent by mistake is removed before the shop receives it. */
+  .delete('/inventory/turnovers/:id', requireCapability('inventory.po.approve'), async (c) => {
+    const db = c.var.db;
+    const row = await db.select().from(turnovers).where(eq(turnovers.id, c.req.param('id'))).get();
+    if (!row) return fail(c, 404, 'not_found', 'Turnover not found.');
+    if (row.receivedAt) return fail(c, 409, 'already_received', 'The shop has already received this.');
+    await db.batch([db.delete(turnovers).where(eq(turnovers.id, row.id)), auditInsert(db, { actorUserId: c.var.user.id, action: 'turnover.delete', entity: 'turnover', entityId: row.id, before: row })]);
+    return c.json({ ok: true });
+  })
+
+  /** The shop confirms what arrived; Shop Stock goes up by that, and the request it answers is closed. */
+  .post(
+    '/inventory/turnovers/:id/receive',
+    zValidator('json', z.object({ receivedQty: z.number().int().min(0).max(100_000), note: z.string().trim().max(300).optional() }), invalidInput),
+    async (c) => {
+      const db = c.var.db;
+      const row = await db.select().from(turnovers).where(eq(turnovers.id, c.req.param('id'))).get();
+      if (!row) return fail(c, 404, 'not_found', 'Turnover not found.');
+      if (row.receivedAt) return fail(c, 409, 'already_received', 'This has already been received.');
+      const input = c.req.valid('json');
+      const problem = receiveTurnoverProblem(input.receivedQty, row.qty);
+      if (problem) return fail(c, 400, 'too_many', problem);
+      if (input.receivedQty < row.qty && !input.note) return fail(c, 400, 'note_required', 'Say what is missing or damaged.');
+      const now = nowIso();
+      await db.batch([
+        db
+          .update(turnovers)
+          .set({ receivedQty: input.receivedQty, receivedAt: now, receivedBy: c.var.user.id, receiveNote: input.note || null })
+          .where(and(eq(turnovers.id, row.id), isNull(turnovers.receivedAt))),
+        ...(row.takeoutRequestId
+          ? [db.update(takeoutRequests).set({ resolvedAt: now, resolvedBy: c.var.user.id }).where(and(eq(takeoutRequests.id, row.takeoutRequestId), isNull(takeoutRequests.resolvedAt)))]
+          : []),
+        auditInsert(db, { actorUserId: c.var.user.id, action: 'turnover.receive', entity: 'turnover', entityId: row.id, after: input }),
+      ]);
+      return c.json({ ok: true });
+    },
+  )
+
+  /** The Super Admin says where a shortfall went: still in Storage, or lost (discarded from Storage). */
+  .post(
+    '/inventory/turnovers/:id/resolve',
+    requireCapability('inventory.po.approve'),
+    zValidator('json', z.object({ outcome: z.enum(['in_storage', 'lost']) }), invalidInput),
+    async (c) => {
+      const db = c.var.db;
+      const row = await db.select().from(turnovers).where(eq(turnovers.id, c.req.param('id'))).get();
+      if (!row) return fail(c, 404, 'not_found', 'Turnover not found.');
+      const short = row.receivedQty === null ? 0 : row.qty - row.receivedQty;
+      if (!short || row.shortfallResolvedAt) return fail(c, 409, 'nothing_short', 'There is no open shortfall on this Turnover.');
+      const { outcome } = c.req.valid('json');
+      const now = nowIso();
+      await db.batch([
+        db.update(turnovers).set({ shortfallOutcome: outcome, shortfallResolvedAt: now }).where(eq(turnovers.id, row.id)),
+        ...(outcome === 'lost'
+          ? [
+              db.insert(stockOuts).values({
+                id: crypto.randomUUID(),
+                itemId: row.itemId,
+                qty: short,
+                kind: 'discard',
+                reason: 'lost',
+                location: 'storage',
+                date: businessDayOf(new Date()),
+                note: `Short on the Turnover of ${row.sentOn}`,
+                createdAt: now,
+                recordedBy: c.var.user.id,
+              }),
+            ]
+          : []),
+        auditInsert(db, { actorUserId: c.var.user.id, action: 'turnover.resolve', entity: 'turnover', entityId: row.id, after: { outcome, short } }),
       ]);
       return c.json({ ok: true });
     },

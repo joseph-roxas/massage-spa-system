@@ -20,6 +20,50 @@ export function stockOutProblem(qty: number, available: number): string | null {
   return null;
 }
 
+export type ItemKind = 'consumable' | 'reusable' | 'equipment';
+
+/**
+ * Where an Item's stock is. Storage holds purchases until the Super Admin
+ * sends them; a Turnover is in transit until the Shop receives it, and any
+ * shortfall stays counted in Storage. Shop Stock is only what was received.
+ */
+export function stockLevels(m: {
+  storageIns: number;
+  shopIns: number;
+  /** Turnovers sent and not yet received. */
+  inTransit: number;
+  /** Quantity actually received from Turnovers. */
+  received: number;
+  storageOuts: number;
+  shopOuts: number;
+}): { storage: number; inTransit: number; shop: number } {
+  return {
+    storage: m.storageIns - m.inTransit - m.received - m.storageOuts,
+    inTransit: m.inTransit,
+    shop: m.shopIns + m.received - m.shopOuts,
+  };
+}
+
+/** Use is for Consumables; Discard is for Reusable Supplies and Equipment. */
+export function takeOutProblem(kind: 'use' | 'discard', itemKind: ItemKind, qty: number, available: number): string | null {
+  if (kind === 'use' && itemKind !== 'consumable') return 'Only consumables are used up. Discard a broken, worn-out or lost item instead.';
+  if (kind === 'discard' && itemKind === 'consumable') return 'Consumables are used, not discarded.';
+  if (qty > available) return available > 0 ? `Only ${available} at the shop.` : 'None at the shop.';
+  return null;
+}
+
+/** The Super Admin can send only what Storage has. */
+export function turnoverProblem(qty: number, inStorage: number): string | null {
+  if (qty > inStorage) return inStorage > 0 ? `Only ${inStorage} in storage. Record the purchase first.` : 'None in storage. Record the purchase first.';
+  return null;
+}
+
+/** The Shop can receive up to what was sent; less is a shortfall. */
+export function receiveTurnoverProblem(receivedQty: number, sentQty: number): string | null {
+  if (receivedQty > sentQty) return `Only ${sentQty} were sent.`;
+  return null;
+}
+
 export type PoLine = { id: string; qty: number; received: number };
 
 /** A delivery may not bring more of a line than is still to come. */

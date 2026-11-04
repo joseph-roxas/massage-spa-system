@@ -64,6 +64,13 @@
       "when": 1793741316677,
       "tag": "0008_vouchers",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793757060595,
+      "tag": "0009_payroll",
+      "breakpoints": true
     }
   ]
 }

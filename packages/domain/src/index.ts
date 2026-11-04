@@ -8,3 +8,4 @@ export * from './permissions';
 export * from './pricing';
 export * from './rotation';
 export * from './vouchers';
+export * from './payroll';

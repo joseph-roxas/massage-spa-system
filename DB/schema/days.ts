@@ -28,7 +28,7 @@ export const businessDays = sqliteTable('business_days', {
   reopenedBy: text('reopened_by').references(() => users.id),
 });
 
-export const CASH_OUT_CATEGORIES = ['on_call_commission', 'petty_cash', 'supplies', 'food', 'transport', 'other'] as const;
+export const CASH_OUT_CATEGORIES = ['on_call_commission', 'cash_advance', 'petty_cash', 'supplies', 'food', 'transport', 'other'] as const;
 
 /** Cash taken from the drawer during a Business Day. */
 export const cashOuts = sqliteTable(

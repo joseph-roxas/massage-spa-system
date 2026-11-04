@@ -59,7 +59,9 @@ export function usePunch() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { staffId: string; pin: string; action: 'in' | 'out' }) =>
-      api<{ displayName: string; action: 'in' | 'out'; at: string }>('/clock/punch', { body }),
+      api<{ displayName: string; action: 'in' | 'out'; at: string; earnings: { from: string; commission: number; services: number } | null }>('/clock/punch', {
+        body,
+      }),
     onSettled: () => qc.invalidateQueries({ queryKey: ['attendance'] }),
   });
 }

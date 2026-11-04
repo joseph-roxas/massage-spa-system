@@ -9,6 +9,7 @@ const NAV: { to: string; label: string; capability?: Capability }[] = [
   { to: '/', label: 'Front Desk' },
   { to: '/vouchers', label: 'Vouchers', capability: 'sales.manage' },
   { to: '/dtr', label: 'Time Records', capability: 'dtr.correct.therapist' },
+  { to: '/payroll', label: 'Payroll', capability: 'payroll.therapist.generate' },
   { to: '/price-list', label: 'Price List' },
   { to: '/settings', label: 'Settings', capability: 'settings.manage' },
   { to: '/admin/users', label: 'Users', capability: 'users.manage' },
@@ -40,7 +41,7 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen bg-stone-100 text-stone-800">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-stone-200 bg-white">
+      <aside className="flex w-60 shrink-0 print:hidden flex-col border-r border-stone-200 bg-white">
         <div className="px-5 py-5">
           <p className="text-sm font-semibold uppercase tracking-widest text-teal-700">Spa System</p>
         </div>
@@ -92,7 +93,7 @@ export function Layout() {
           )}
         </div>
       </aside>
-      <main className="min-w-0 flex-1 p-8">
+      <main className="min-w-0 flex-1 p-8 print:p-0">
         <Outlet />
       </main>
     </div>

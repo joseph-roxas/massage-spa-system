@@ -4,6 +4,7 @@ export * from './bookings';
 export * from './catalogue';
 export * from './days';
 export * from './dtr';
+export * from './payroll';
 export * from './sales';
 export * from './staff';
 export * from './users';

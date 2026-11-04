@@ -131,11 +131,11 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - `cash_outs` — business_day, amount, purpose, category, recorded_by. (On-call therapist same-day pay is a Cash-out of category `on_call_commission`.)
 
 **Payroll**
-- `pay_weeks` — start (Sunday), end (Saturday).
-- `payrolls` — pay_week_id, staff_id, status (`draft|approved|released`), gross, gov_sss, gov_phic, gov_pagibig, ca_deduction, net, breakdown_json, approved_by/at, released_at.
-- `cash_advances` — staff_id, amount, business_day, against_pay_week_id (therapists), override_by.
-- `ca_ledger` — staff_id, entry (`opening|advance|repayment`), amount, payroll_id. (Balance = sum.)
-- `bonuses` — year, staff_id, kind (`year_end_bonus|thirteenth_month`), basis, pct, amount.
+- Pay Weeks are not stored; a Payroll names its week by `week_start` (the Sunday).
+- `payrolls` — week_start, staff_id (one per week), kind (`therapist|receptionist`), status (`draft|approved|released`), gross, gov_sss, gov_phic, gov_pagibig, ca_deduction, net, basic (receptionist, for 13th Month), breakdown_json (per-day lines), generated/approved/released by+at.
+- `cash_advances` — staff_id, amount, business_day, against_week_start (therapists), cash_out_id (when paid from the drawer), override_by, note.
+- `ca_ledger` — staff_id, entry (`opening|advance|repayment`), amount, cash_advance_id, payroll_id. (Balance = opening + advances − repayments.)
+- `bonuses` — year, staff_id, kind (`year_end_bonus|thirteenth_month`), basis, bp, amount, paid_at.
 - `pay_rules` — key/value settings for receptionist premiums (see §5.6), editable.
 
 **Inventory**
@@ -202,6 +202,13 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - CA deduction = Σ CAs taken against this pay week.
 - **CA cap** when taking a CA: unreleased net pay of the last completed Pay Week − CAs already taken against it. Blocked above cap unless Super Admin overrides.
 - Year-end Bonus (December): Σ commission Jan–Dec × % entered by Super Admin.
+- "Worked" = clocked in or served a Guest that week. On-call Therapists have no weekly Payroll.
+- A CA counts against last week while that week's Payroll is still a draft (or not generated); once it is approved, against the current week, capped at what has been earned so far this week. A CA taken while a draft exists updates the draft at once.
+- Net pay can be negative (e.g. a week with one guest still withholds Government Deductions); the screen flags it.
+- CAs default to coming out of the cash drawer: they are recorded as a `cash_advance` Cash-out on today's Business Day and count at Day Close. A CA can be removed (mistakes) while its day is open and its Payroll unapproved.
+- Flow: generate (Receptionist or Super Admin, only after the week ends and every day in it is closed) → approve (Super Admin) → mark paid/release (Receptionist or Super Admin). Drafts can be recomputed any time; an approved Payroll can go back to draft with a reason.
+- Payslip is a printable page (browser Print → PDF), not a server-made PDF.
+- Clock-in Screen shows a Therapist their Commission so far this Pay Week (On-call: today) after punching in or out.
 
 ### 5.8 Payroll — Receptionist
 - Shift 14:00–23:00, 1 hr unpaid meal break → 8 paid hrs; hourly = daily ÷ 8 (692 → 86.50); per-minute = hourly ÷ 60.
@@ -222,6 +229,11 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - Government Deductions 212.50 / 105.63 / 50.00 weekly.
 - CA: running balance (opening balance 4,000.00 at go-live); no cap; repayment amount chosen per Payroll, defaulting to last week's; warning when balance > one week's gross.
 - 13th Month Pay (December) = Σ basic pay earned Jan–Dec ÷ 12.
+- Pay per minute = daily rate ÷ 480. Late, leaving early, and gaps between punches longer than the meal break come off the 480 minutes; the day's premium applies to what is left. Overtime is every minute after 23:00 (past midnight too) at the day's OT rate.
+- Unworked Regular Holiday pays 100% only when it is not her Rest Day. Unworked Special Days and ordinary days pay nothing.
+- Basic pay (for 13th Month) = daily rate for paid minutes at 100%, excluding premiums, Overtime and unworked holiday pay. Counted by day, so a week across New Year splits correctly. Only approved/released Payrolls count.
+- Generating is refused while any of her DTR entries in the week has no clock-out.
+- Only the Super Admin sees, prepares and pays the Receptionist's Payroll and CAs. Receptionist CA repayment can't exceed the balance; the screen warns when the balance is more than a week's gross.
 
 ### 5.9 Business Day & Day Close
 - Business Day starts at first open (14:00) and ends at Day Close, regardless of midnight. Until Day Close exists, activity before 06:00 Manila counts toward the previous day.
@@ -249,8 +261,8 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 | comp | `POST /sales/complimentary {reason}` (super admin) |
 | day | `POST /days/open`, `POST /days/early-close {reason}`, `POST /days/close {countedCash}`, `POST /days/:id/reopen`, `POST /days/:id/reject-early-close` |
 | cash-outs | CRUD (same day only) |
-| payroll | `POST /payroll/generate {payWeekId, scope}`, `POST /payroll/:id/approve`, `/release`, `GET /payroll/:id/payslip.pdf`; `POST /cash-advances`, `GET /cash-advances/cap?staffId=` |
-| bonuses | `POST /bonuses/year-end {year, pct}`, `POST /bonuses/thirteenth-month {year}` |
+| payroll | `GET /payroll/weeks/:start`, `POST /payroll/weeks/:start/generate {kind}`, `GET /payrolls/:id`, `PUT /payrolls/:id/ca-repayment`, `POST /payrolls/:id/{approve,unapprove,release}`; `GET /cash-advances/balances`, `GET /cash-advances?staffId=`, `POST /cash-advances`, `DELETE /cash-advances/:id`, `PUT /cash-advances/opening` |
+| bonuses | `GET /bonuses?year=`, `POST /bonuses/year-end {year, bp}`, `POST /bonuses/thirteenth-month {year}`, `POST /bonuses/:id/paid` |
 | inventory | items, vendors, `POST /stock-outs`, purchase orders (request/approve/receive → stock-in), `GET /inventory/on-hand` |
 | expenses | CRUD, recurring templates, confirm pending |
 | royalty | `GET /royalty?month=`, `POST /royalty/:id/confirm` |

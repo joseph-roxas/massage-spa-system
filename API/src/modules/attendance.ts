@@ -1,9 +1,9 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, gte, isNull, lte } from 'drizzle-orm';
-import { businessDayOf, can, type Capability } from '@spa/domain';
-import { dtr, staff } from '@spa/db';
+import { and, asc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { businessDayOf, can, payWeekOf, type Capability } from '@spa/domain';
+import { dtr, sales, staff } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { frontDeskState } from '../lib/front-desk';
@@ -157,7 +157,19 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
       if (!open) return fail(c, 409, 'not_in', `${person.displayName} is not clocked in.`);
       await db.batch([reset, db.update(dtr).set({ clockOut: now }).where(eq(dtr.id, open.id))]);
     }
-    return c.json({ staffId, displayName: person.displayName, action, at: now });
+    // Therapists see what they have earned so far this Pay Week (On-call: today) on the Clock-in Screen.
+    let earnings: { from: string; commission: number; services: number } | null = null;
+    if (person.kind === 'therapist') {
+      const day = businessDayOf(new Date(now));
+      const from = person.isOnCall ? day : payWeekOf(day).start;
+      const row = await db
+        .select({ commission: sql<number>`coalesce(sum(${sales.commissionAmount}), 0)`, services: sql<number>`count(*)` })
+        .from(sales)
+        .where(and(eq(sales.therapistId, staffId), eq(sales.status, 'paid'), gte(sales.businessDay, from), lte(sales.businessDay, day)))
+        .get();
+      earnings = { from, commission: Number(row?.commission ?? 0), services: Number(row?.services ?? 0) };
+    }
+    return c.json({ staffId, displayName: person.displayName, action, at: now, earnings });
   })
 
   // ---- DTR review and corrections ----

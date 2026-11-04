@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { manilaTime, useClockStaff, usePunch, type ClockStaff } from '../lib/attendance';
+import { peso } from '../lib/format';
 
 const ROLE = (s: ClockStaff) =>
   s.kind === 'receptionist' ? 'Receptionist' : `${s.therapistClass === 'lmt' ? 'LMT' : 'Therapist'}${s.isOnCall ? ' · On-call' : ''}`;
@@ -16,7 +17,11 @@ function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () =
     punch.mutate(
       { staffId: person.id, pin, action },
       {
-        onSuccess: (r) => onDone(`${r.displayName} clocked ${r.action} at ${manilaTime(r.at)}`),
+        onSuccess: (r) =>
+          onDone(
+            `${r.displayName} clocked ${r.action} at ${manilaTime(r.at)}` +
+              (r.earnings ? ` · ${person.isOnCall ? 'Today' : 'This week'} so far: ${peso(r.earnings.commission)} from ${r.earnings.services} guest${r.earnings.services === 1 ? '' : 's'}` : ''),
+          ),
         onError: () => setPin(''),
       },
     );

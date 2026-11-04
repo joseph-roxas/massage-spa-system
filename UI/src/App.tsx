@@ -10,6 +10,8 @@ import { PriceListPage } from './pages/PriceListPage';
 import { ClockInPage } from './pages/ClockInPage';
 import { DtrPage } from './pages/DtrPage';
 import { VouchersPage } from './pages/VouchersPage';
+import { PayrollPage } from './pages/PayrollPage';
+import { PayslipPage } from './pages/payroll/PayslipPage';
 import { SettingsLayout } from './pages/settings/SettingsLayout';
 import { ServicesSettings } from './pages/settings/ServicesSettings';
 import { PromosSettings } from './pages/settings/PromosSettings';
@@ -55,6 +57,22 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="sales.manage">
             <VouchersPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/payroll',
+        element: (
+          <RequireCapability capability="payroll.therapist.generate">
+            <PayrollPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/payroll/:id',
+        element: (
+          <RequireCapability capability="payroll.therapist.generate">
+            <PayslipPage />
           </RequireCapability>
         ),
       },

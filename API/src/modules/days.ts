@@ -16,7 +16,7 @@ const reasonBody = z.object({ reason: z.string().trim().min(3, 'Give a short rea
 const dateParam = z.object({ date: isoDate });
 
 const newCashOut = z.object({
-  category: z.enum(CASH_OUT_CATEGORIES).exclude(['on_call_commission']),
+  category: z.enum(CASH_OUT_CATEGORIES).exclude(['on_call_commission', 'cash_advance']),
   amount: z.number().int().min(1).max(10_000_000),
   purpose: z.string().trim().min(3, 'Say what the cash was for.').max(200),
 });
@@ -216,6 +216,7 @@ export const dayRoutes = new Hono<AuthedEnv>()
     const row = await db.select().from(cashOuts).where(eq(cashOuts.id, c.req.param('id'))).get();
     if (!row) return fail(c, 404, 'not_found', 'Cash-out not found.');
     if (row.category === 'on_call_commission') return fail(c, 409, 'on_call_pay', 'On-call pay is recorded by Day Close.');
+    if (row.category === 'cash_advance') return fail(c, 409, 'cash_advance', 'Remove the Cash Advance itself instead.');
     const blocked = await requireOpenDay(c, row.businessDay);
     if (blocked) return blocked;
     await db.batch([

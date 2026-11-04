@@ -7,7 +7,7 @@ import { duration, longDate, peso } from '../lib/format';
 import { guestLabel, useBoard, useDeskAction, type Board, type Booking } from '../lib/front-desk';
 import { useDayAction } from '../lib/sales';
 import { CheckoutDialog } from './front-desk/CheckoutDialog';
-import { CashReminder, HandoverDialog, TopUpDialog } from './front-desk/CashDialogs';
+import { CashReminder, HandoverDialog, TaxReminder, TopUpDialog } from './front-desk/CashDialogs';
 import { CashOutDialog, DayCloseDialog, EarlyCloseDialog } from './front-desk/DayDialogs';
 import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 import { NewBookingDialog } from './front-desk/NewBookingDialog';
@@ -215,6 +215,7 @@ function FrontDeskBoard() {
   const [paying, setPaying] = useState<string | null>(null);
   const [dayDialog, setDayDialog] = useState<DayDialog>(null);
   const canCash = useCan('cashouts.record');
+  const isOwner = useCan('reports.all');
   // Arriving from a blocked logout opens Day Close straight away.
   const [params, setParams] = useSearchParams();
   const wantsClose = params.has('close');
@@ -250,6 +251,7 @@ function FrontDeskBoard() {
         </div>
       </div>
       <DayBar board={board} open={setDayDialog} />
+      <TaxReminder enabled={isOwner} />
       {canCash && <CashReminder onHandover={() => setDayDialog('handover')} onTopUp={() => setDayDialog('top-up')} />}
       {done.error && <Alert>{done.error.message}</Alert>}
 

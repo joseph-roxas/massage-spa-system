@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { DEFAULT_CONTRIBUTION_RATES, type ContributionRates } from '@spa/domain';
 import { Alert, Button, Card, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
 import { useCommissionRates, usePayRules, useSave } from '../../lib/catalogue';
 import { longDate, parsePesos, percent, pesosText, todayManila } from '../../lib/format';
@@ -222,9 +223,9 @@ function GovDefaultsCard({ value }: { value: GovDefaults }) {
   }
 
   return (
-    <Card title="Default weekly government deductions">
+    <Card title="Default fixed weekly deductions (older records)">
       <form onSubmit={submit} className="space-y-3">
-        <p className="text-sm text-stone-500">Used when adding new staff. Each person's own amounts are edited under Staff.</p>
+        <p className="text-sm text-stone-500">Used only for staff without a monthly salary basis. Set a salary basis under Staff to use the brackets instead.</p>
         {(error || save.error) && <Alert>{error ?? save.error?.message}</Alert>}
         {saved && <Alert tone="success">Saved.</Alert>}
         {(['therapist', 'receptionist'] as const).map((who) => (
@@ -243,6 +244,79 @@ function GovDefaultsCard({ value }: { value: GovDefaults }) {
   );
 }
 
+type Rates = ContributionRates;
+
+/** Percent text for basis points, and back. */
+const bpText = (bp: number) => String(bp / 100);
+const parseBp = (t: string) => (Number.isFinite(Number(t)) && t.trim() !== '' ? Math.round(Number(t) * 100) : null);
+
+/** SSS, PhilHealth and Pag-IBIG rates: change them when the agencies issue new circulars. */
+function ContributionRatesCard({ value }: { value: Rates }) {
+  const fields = [
+    ['sss', 'eeBp', 'SSS employee %', 'bp'],
+    ['sss', 'erBp', 'SSS employer %', 'bp'],
+    ['sss', 'mscMin', 'SSS lowest salary credit', 'peso'],
+    ['sss', 'mscMax', 'SSS highest salary credit', 'peso'],
+    ['sss', 'ecLow', 'EC below ₱15,000 credit', 'peso'],
+    ['sss', 'ecHigh', 'EC from ₱15,000 credit', 'peso'],
+    ['phic', 'bp', 'PhilHealth % (split equally)', 'bp'],
+    ['phic', 'floor', 'PhilHealth salary floor', 'peso'],
+    ['phic', 'ceiling', 'PhilHealth salary ceiling', 'peso'],
+    ['pagibig', 'eeBp', 'Pag-IBIG employee %', 'bp'],
+    ['pagibig', 'erBp', 'Pag-IBIG employer %', 'bp'],
+    ['pagibig', 'fundSalaryMax', 'Pag-IBIG maximum fund salary', 'peso'],
+  ] as const;
+  const read = (agency: keyof Rates, key: string, kind: 'bp' | 'peso') => {
+    const v = (value[agency] as Record<string, number>)[key]!;
+    return kind === 'bp' ? bpText(v) : pesosText(v);
+  };
+  const [d, setD] = useState<Record<string, string>>(() => Object.fromEntries(fields.map(([a, k, , kind]) => [`${a}.${k}`, read(a, k, kind)])));
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const save = usePayRule<Rates>('contribution_rates');
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const next = structuredClone(value);
+    for (const [a, k, , kind] of fields) {
+      const v = kind === 'bp' ? parseBp(d[`${a}.${k}`]!) : parsePesos(d[`${a}.${k}`]!);
+      if (v === null) return setError('Every rate must be a number.');
+      (next[a] as Record<string, number>)[k] = v;
+    }
+    setError(null);
+    save.mutate(next, { onSuccess: () => setSaved(true) });
+  }
+
+  return (
+    <Card title="SSS, PhilHealth and Pag-IBIG rates">
+      <form onSubmit={submit} className="space-y-3">
+        <p className="text-sm text-stone-500">
+          Used with each person's monthly salary basis (under Staff) for their deductions and your employer share. Set from SSS Circular 2024-006, PhilHealth
+          Advisory 2025-0002 and HDMF Circular 460; update them when the agencies change their rates.
+        </p>
+        {(error || save.error) && <Alert>{error ?? save.error?.message}</Alert>}
+        {saved && <Alert tone="success">Saved. Recompute this month's employer contributions on the Finance page.</Alert>}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {fields.map(([a, k, label]) => (
+            <Field key={`${a}.${k}`} label={label}>
+              <Input
+                inputMode="decimal"
+                required
+                value={d[`${a}.${k}`]}
+                onChange={(e) => {
+                  setD({ ...d, [`${a}.${k}`]: e.target.value });
+                  setSaved(false);
+                }}
+              />
+            </Field>
+          ))}
+        </div>
+        <Button type="submit" disabled={save.isPending}>Save rates</Button>
+      </form>
+    </Card>
+  );
+}
+
 export function PaySettings() {
   const { data, error } = usePayRules();
   return (
@@ -252,6 +326,7 @@ export function PaySettings() {
       {data && (
         <>
           <ReceptionistRules rules={data.payRules} />
+          <ContributionRatesCard value={(data.payRules.contribution_rates as Rates | undefined) ?? DEFAULT_CONTRIBUTION_RATES} />
           <GovDefaultsCard value={data.payRules.gov_deduction_defaults as GovDefaults} />
         </>
       )}

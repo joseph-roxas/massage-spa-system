@@ -14,6 +14,7 @@ const NAV: { to: string; label: string; capability?: Capability }[] = [
   { to: '/inventory', label: 'Inventory', capability: 'inventory.stock_out' },
   { to: '/expenses', label: 'Expenses', capability: 'expenses.manage' },
   { to: '/reports', label: 'Reports', capability: 'reports.daily' },
+  { to: '/finance', label: 'Finance', capability: 'reports.all' },
   { to: '/price-list', label: 'Price List' },
   { to: '/paper-sheet', label: 'Paper backup', capability: 'bookings.manage' },
   { to: '/settings', label: 'Settings', capability: 'settings.manage' },

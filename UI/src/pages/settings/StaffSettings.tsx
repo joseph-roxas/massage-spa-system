@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { certificateStatus, govIdWarning, type GovId } from '@spa/domain';
+import { certificateStatus, DEFAULT_CONTRIBUTION_RATES, govIdWarning, monthlyContributions, type ContributionRates, type GovId } from '@spa/domain';
 import { Alert, Badge, Button, Card, Checkbox, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
-import { useSave, useStaff, type Certificate, type Qualification, type StaffMember } from '../../lib/catalogue';
+import { usePayRules, useSave, useStaff, type Certificate, type Qualification, type StaffMember } from '../../lib/catalogue';
 import { longDate, parsePesos, peso, pesosText, todayManila } from '../../lib/format';
 
 type Role = 'regular' | 'lmt' | 'receptionist';
@@ -44,6 +44,7 @@ type Draft = {
   hireDate: string;
   isOnCall: boolean;
   dailyRate: string;
+  contributionBase: string;
   govSss: string;
   govPhic: string;
   govPagibig: string;
@@ -56,6 +57,15 @@ const GOV_FIELDS: [GovId, 'sssNo' | 'phicNo' | 'tin' | 'pagibigNo', string][] = 
   ['pagibig', 'pagibigNo', 'Pag-IBIG no.'],
   ['tin', 'tin', 'TIN'],
 ];
+
+/** What a salary basis means each month, given which ID numbers are on file. */
+function basisHint(d: Draft, rates: ContributionRates): string {
+  const base = parsePesos(d.contributionBase);
+  if (base === null) return 'Leave blank to keep fixed weekly amounts';
+  const c = monthlyContributions(base, rates, { sss: !!d.sssNo.trim(), phic: !!d.phicNo.trim(), pagibig: !!d.pagibigNo.trim() });
+  const missing = [!d.sssNo.trim() && 'SSS', !d.phicNo.trim() && 'PhilHealth', !d.pagibigNo.trim() && 'Pag-IBIG'].filter(Boolean);
+  return `Monthly: employee ${peso(c.ee)}, employer ${peso(c.er)}${missing.length ? ` (no ${missing.join(', ')} number yet)` : ''}`;
+}
 
 function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => void }) {
   const [d, setD] = useState<Draft>({
@@ -79,6 +89,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
     hireDate: member?.hireDate ?? '',
     isOnCall: member?.isOnCall ?? false,
     dailyRate: member?.dailyRate != null ? pesosText(member.dailyRate) : '',
+    contributionBase: member?.contributionBase != null ? pesosText(member.contributionBase) : '',
     govSss: member ? pesosText(member.govSss) : '',
     govPhic: member ? pesosText(member.govPhic) : '',
     govPagibig: member ? pesosText(member.govPagibig) : '',
@@ -92,6 +103,8 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
   );
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
   const isReceptionist = d.role === 'receptionist';
+  const rules = usePayRules();
+  const rates = (rules.data?.payRules.contribution_rates as ContributionRates | undefined) ?? DEFAULT_CONTRIBUTION_RATES;
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -123,6 +136,13 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
       const rate = parsePesos(d.dailyRate);
       if (rate === null) return setError('Enter the daily rate in pesos.');
       body.dailyRate = rate;
+    }
+    if (d.isOnCall && !isReceptionist) body.contributionBase = null;
+    else if (d.contributionBase.trim() === '') body.contributionBase = null;
+    else {
+      const base = parsePesos(d.contributionBase);
+      if (base === null) return setError('Enter the monthly salary basis in pesos.');
+      body.contributionBase = base;
     }
     // Blank deduction fields on a new record use the defaults from Commission & Pay.
     for (const k of ['govSss', 'govPhic', 'govPagibig'] as const) {
@@ -242,8 +262,15 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
           </Field>
         )}
         {!(d.isOnCall && !isReceptionist) && (
+          <div className="col-span-2">
+            <Field label="Monthly salary basis for SSS, PhilHealth, Pag-IBIG (₱)" hint={basisHint(d, rates)}>
+              <Input inputMode="decimal" value={d.contributionBase} onChange={(e) => set('contributionBase', e.target.value)} placeholder="E.g. 8000" />
+            </Field>
+          </div>
+        )}
+        {!(d.isOnCall && !isReceptionist) && d.contributionBase.trim() === '' && (
           <>
-            <Field label="SSS / week (₱)" hint={member ? undefined : 'Blank = default'}>
+            <Field label="SSS / week (₱)" hint={member ? 'Fixed amount, without a salary basis' : 'Blank = default'}>
               <Input inputMode="decimal" value={d.govSss} onChange={(e) => set('govSss', e.target.value)} />
             </Field>
             <Field label="PhilHealth / week (₱)">
@@ -394,7 +421,11 @@ function StaffRow({ member }: { member: StaffMember }) {
         </td>
         <td className={`${td} tabular-nums`}>{member.dailyRate != null ? `${peso(member.dailyRate)}/day` : 'Commission'}</td>
         <td className={`${td} text-xs tabular-nums text-stone-600`}>
-          {member.isOnCall ? '—' : `SSS ${peso(member.govSss)} · PHIC ${peso(member.govPhic)} · Pag-IBIG ${peso(member.govPagibig)}`}
+          {member.isOnCall
+            ? '—'
+            : member.contributionBase != null
+              ? `Basis ${peso(member.contributionBase)}/month`
+              : `SSS ${peso(member.govSss)} · PHIC ${peso(member.govPhic)} · Pag-IBIG ${peso(member.govPagibig)} / week`}
         </td>
         <td className={td}>{member.hasPin ? <Badge tone="teal">Set</Badge> : <Badge tone="amber">Not set</Badge>}</td>
         <td className={`${td} whitespace-nowrap text-right`}>
@@ -448,7 +479,7 @@ export function StaffSettings() {
                 <th className={th}>Name</th>
                 <th className={th}>Role</th>
                 <th className={th}>Pay</th>
-                <th className={th}>Weekly deductions</th>
+                <th className={th}>Contributions</th>
                 <th className={th}>PIN</th>
                 <th className={th} />
               </tr>

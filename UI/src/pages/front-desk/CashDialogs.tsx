@@ -3,6 +3,8 @@ import { topUpNeeded } from '@spa/domain';
 import { Alert, Button, Field, Input } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useCashAction, useCashSummary } from '../../lib/cash';
+import { dueText, useTaxDue } from '../../lib/finance';
+import { Link } from 'react-router';
 import { longDate, parsePesos, peso, pesosText } from '../../lib/format';
 
 /** Sales Cash in the shop, and what to do with it: hold for Payroll and Laundry, hand over, or top up petty cash. */
@@ -111,5 +113,23 @@ export function TopUpDialog({ onClose }: { onClose: () => void }) {
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** From the day a quarter ends until it is filed: the 2551Q to pay, red in its last week. */
+export function TaxReminder({ enabled }: { enabled: boolean }) {
+  const { data } = useTaxDue(enabled);
+  const due = data?.due;
+  if (!enabled || !due) return null;
+  const urgent = due.daysLeft <= 7;
+  return (
+    <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm ${urgent ? 'border-red-300 bg-red-50 text-red-900' : 'border-stone-200 bg-white text-stone-700'}`}>
+      <span className="flex-1">
+        <span className="font-semibold">2551Q for {due.quarter}: {peso(due.tax)}</span> {dueText(due)}.
+      </span>
+      <Link to="/finance" className="text-sm font-medium underline">
+        File it
+      </Link>
+    </div>
   );
 }

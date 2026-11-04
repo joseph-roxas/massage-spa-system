@@ -15,7 +15,8 @@ import {
   royaltyGross,
   type Month,
 } from '@spa/domain';
-import { cashOuts, expenseCategories, expenses, items, recurringExpenses, royaltyStatements, sales, stockIns, vendors, voucherSales } from '@spa/db';
+import { cashOuts, expenseCategories, expenses, items, recurringExpenses, royaltyStatements, sales, staff, stockIns, vendors, voucherSales } from '@spa/db';
+import { contributionRates, contributionsOf } from '../lib/contributions';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { fail, invalidInput } from '../lib/http';
@@ -147,10 +148,46 @@ export async function draftRoyalty(db: Db, m: Month, actor: string | null, bp?: 
   return statement;
 }
 
+/**
+ * (Re)computes a month's Employer Contributions draft from everyone's bracket.
+ * Returns null once that month's Expense is confirmed.
+ */
+export async function draftContributions(db: Db, m: Month, actor: string | null) {
+  const [people, rates, existing] = await Promise.all([
+    db.select().from(staff).where(eq(staff.active, true)),
+    contributionRates(db),
+    db.select().from(expenses).where(eq(expenses.contributionsMonth, m)).get(),
+  ]);
+  if (existing?.status === 'confirmed') return null;
+  const shares = people.map((p) => ({ name: p.displayName, c: contributionsOf(p, rates) })).filter((x) => x.c && x.c.er > 0);
+  const amount = shares.reduce((s, x) => s + x.c!.er, 0);
+  if (!amount && !existing) return 0;
+  const { end } = monthRange(m);
+  const description = `Employer SSS, PhilHealth and Pag-IBIG for ${m}: ${shares.map((x) => `${x.name} ${peso(x.c!.er)}`).join(', ') || 'nobody'}`;
+  await db.batch([
+    existing
+      ? db.update(expenses).set({ amount, description, date: end }).where(eq(expenses.id, existing.id))
+      : db.insert(expenses).values({
+          id: crypto.randomUUID(),
+          categoryId: 'employer-contributions',
+          date: end,
+          amount,
+          description,
+          status: 'pending',
+          contributionsMonth: m,
+          createdAt: nowIso(),
+          createdBy: actor,
+        }),
+    auditInsert(db, { actorUserId: actor, action: 'contributions.draft', entity: 'expense_month', entityId: m, after: { amount } }),
+  ]);
+  return amount;
+}
+
 /** The daily job: this month's recurring drafts and last month's Royalty draft. Idempotent. */
 export async function monthlyJobs(db: Db, now = new Date()) {
   const thisMonth = monthOf(businessDayOf(now));
   const drafted = await draftRecurring(db, thisMonth, null);
+  await draftContributions(db, thisMonth, null);
   const last = previousMonth(thisMonth);
   const hasRoyalty = await db.select({ month: royaltyStatements.month }).from(royaltyStatements).where(eq(royaltyStatements.month, last)).get();
   if (!hasRoyalty) await draftRoyalty(db, last, null);
@@ -218,6 +255,12 @@ export const expenseRoutes = new Hono<AuthedEnv>()
     return c.json({ ok: true });
   })
   /** Normally done by the daily job; also available on demand. */
+  /** Recomputes a month's Employer Contributions draft, e.g. after changing someone's salary basis. */
+  .post('/expenses/contributions/draft', zValidator('json', z.object({ month }), invalidInput), async (c) => {
+    const amount = await draftContributions(c.var.db, c.req.valid('json').month, c.var.user.id);
+    if (amount === null) return fail(c, 409, 'confirmed', 'That month’s employer contributions are already confirmed.');
+    return c.json({ amount });
+  })
   .post('/expenses/recurring/draft', zValidator('json', z.object({ month }), invalidInput), async (c) => {
     return c.json({ drafted: await draftRecurring(c.var.db, c.req.valid('json').month, c.var.user.id) });
   })

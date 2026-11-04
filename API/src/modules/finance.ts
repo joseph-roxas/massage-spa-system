@@ -69,7 +69,7 @@ async function holidaySet(db: Db, q: string) {
   return new Set(rows.map((r) => r.date));
 }
 
-async function quarterStatus(db: Db, q: string) {
+export async function quarterStatus(db: Db, q: string) {
   const { start, end } = quarterRange(q);
   const [gross, filing, hols] = await Promise.all([
     grossSales(db, start, end),

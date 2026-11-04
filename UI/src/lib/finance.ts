@@ -40,9 +40,6 @@ export const usePercentageTax = (quarter: string) =>
     placeholderData: (prev) => prev,
   });
 
-export const useTaxDue = (enabled: boolean) =>
-  useQuery({ queryKey: ['finance', 'due'], queryFn: () => api<{ due: QuarterStatus | null }>('/finance/percentage-tax/due'), enabled });
-
 export const useIncomeStatement = (from: string, to: string) =>
   useQuery({
     queryKey: ['finance', 'statement', from, to],
@@ -55,7 +52,7 @@ export function useFinanceAction() {
   return useMutation({
     mutationFn: (req: { path: string; body?: unknown }) => api<{ amount?: number }>(req.path, { method: 'POST', body: req.body ?? {} }),
     onSettled: () => {
-      for (const key of ['finance', 'expenses']) qc.invalidateQueries({ queryKey: [key] });
+      for (const key of ['finance', 'expenses', 'attention']) qc.invalidateQueries({ queryKey: [key] });
     },
   });
 }

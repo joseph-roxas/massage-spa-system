@@ -55,7 +55,9 @@ export function useExpenseAction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (req: { path: string; body?: unknown; method?: string }) => api<{ id?: string }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['expenses'] }),
+    onSettled: () => {
+      for (const key of ['expenses', 'attention']) qc.invalidateQueries({ queryKey: [key] });
+    },
   });
 }
 

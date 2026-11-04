@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-route
 import { ApiError } from '../lib/api';
 import { can, type Capability } from '@spa/domain';
 import { ROLE_LABELS, useCurrentUser, useLogout } from '../lib/auth';
+import { useAttention } from '../lib/attention';
 
 /** Menu entries appear only for roles that hold the capability. */
 const NAV: { to: string; label: string; capability?: Capability }[] = [
@@ -41,6 +42,9 @@ export function RequireCapability({ capability, children }: { capability: Capabi
 
 export function Layout() {
   const { data: user } = useCurrentUser();
+  const attention = useAttention(can(user?.role, 'settings.manage'));
+  const waiting = attention.data?.items.length ?? 0;
+  const urgent = attention.data?.items.some((i) => i.tone === 'urgent') ?? false;
   const logout = useLogout();
   const navigate = useNavigate();
   if (!user) return null;
@@ -64,7 +68,17 @@ export function Layout() {
                 }`
               }
             >
-              {n.label}
+              <span className="flex items-center justify-between">
+                {n.label}
+                {n.to === '/' && waiting > 0 && (
+                  <span
+                    title="Needs attention"
+                    className={`rounded-full px-2 text-xs font-semibold text-white ${urgent ? 'bg-red-600' : 'bg-amber-500'}`}
+                  >
+                    {waiting}
+                  </span>
+                )}
+              </span>
             </NavLink>
           ))}
         </nav>

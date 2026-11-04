@@ -113,6 +113,8 @@ export function useInventoryAction() {
   return useMutation({
     mutationFn: (req: { path: string; body?: unknown; method?: string }) =>
       api<{ id?: string; status?: PoStatus }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['inventory'] }),
+    onSettled: () => {
+      for (const key of ['inventory', 'attention']) qc.invalidateQueries({ queryKey: [key] });
+    },
   });
 }

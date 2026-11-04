@@ -406,9 +406,9 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
   - D1 allows at most 100 bound parameters per query.
   - Every migration ends by updating `app_meta.schema_version`. The next migration is `0012_*`.
 
-### 14.2 Next features: Phase 12, owner's change requests after testing (NOT started)
+### 14.2 Phase 12: owner's change requests after testing (built on `cr-1`, not merged)
 
-Nothing below is built yet. Every decision here was confirmed with the owner on 2026-11-04 (three grilling rounds); the vocabulary is in `GLOSSARY.md` and the Day Close change in ADR 0003. Build on branch `cr-1`, one commit per slice, in this order.
+All seven slices are built on branch `cr-1`, one commit each (12.1–12.7), with migrations 0012–0017; each slice ends with an **As built** note where it differs from the plan. Every decision here was confirmed with the owner on 2026-11-04 (three grilling rounds); the vocabulary is in `GLOSSARY.md` and the Day Close change in ADR 0003. Build on branch `cr-1`, one commit per slice, in this order.
 
 **12.1 Cash-out categories and the checkout Discount dropdown**
 
@@ -489,6 +489,8 @@ Nothing below is built yet. Every decision here was confirmed with the owner on 
 **12.7 Needs attention**
 
 One list on the Super Admin's Home, with a nav badge: open Take-out Requests, Turnover shortfalls, Cash Handovers waiting, Certificates expiring, missing government IDs, 2551Q due. Each links to where it is acted on. (Approval email is still not set up.)
+
+**As built:** `GET /attention` (Super Admin, `settings.manage`) also lists incomplete staff records and Expense drafts to confirm, and replaces the separate 2551Q bar on Home. Urgent items (2551Q in its last 7 days or late, out-of-stock requests, expired Certificates) come first with a red dot; the Front Desk nav item shows the count, red when anything is urgent. It refreshes every minute and after any action that can clear an item.
 
 ### 14.3 Still open from earlier phases
 

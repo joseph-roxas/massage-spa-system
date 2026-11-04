@@ -20,12 +20,21 @@ const serviceFields = z.object({
   kind: z.enum(SERVICE_KINDS),
   isFootType: z.boolean(),
   voucherEligible: z.boolean(),
+  /** Printed before each Voucher card's number, e.g. "NTL-SM"; empty for none. */
+  voucherPrefix: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^([A-Z0-9]+(-[A-Z0-9]+)*)?$/, 'Use letters and digits joined by dashes, e.g. NTL-SM.')
+    .max(20)
+    .transform((s) => s || null)
+    .nullable(),
   active: z.boolean(),
   sortOrder: z.number().int(),
 });
 
 const newService = serviceFields
-  .partial({ isFootType: true, voucherEligible: true, active: true, sortOrder: true })
+  .partial({ isFootType: true, voucherEligible: true, voucherPrefix: true, active: true, sortOrder: true })
   .extend({ regularPrice: centavos, effectiveFrom: isoDate });
 
 const newPrice = z.object({ regularPrice: centavos, effectiveFrom: notInPast('Effective date') });
@@ -94,6 +103,7 @@ export const catalogueRoutes = new Hono<AuthedEnv>()
           kind: input.kind,
           isFootType: input.isFootType ?? false,
           voucherEligible: input.voucherEligible ?? false,
+          voucherPrefix: input.voucherPrefix ?? null,
           active: input.active ?? true,
           sortOrder: input.sortOrder ?? 1000,
           createdAt: now,
@@ -109,7 +119,7 @@ export const catalogueRoutes = new Hono<AuthedEnv>()
         auditInsert(db, { actorUserId: c.var.user.id, action: 'service.create', entity: 'service', entityId: id, after: input }),
       ]);
     } catch (err) {
-      if (isUniqueViolation(err)) return fail(c, 409, 'code_taken', 'Another service already uses that code.');
+      if (isUniqueViolation(err)) return fail(c, 409, 'code_taken', 'Another service already uses that code or voucher code.');
       throw err;
     }
     return c.json({ id }, 201);
@@ -126,7 +136,7 @@ export const catalogueRoutes = new Hono<AuthedEnv>()
         auditInsert(db, { actorUserId: c.var.user.id, action: 'service.update', entity: 'service', entityId: id, before, after: changes }),
       ]);
     } catch (err) {
-      if (isUniqueViolation(err)) return fail(c, 409, 'code_taken', 'Another service already uses that code.');
+      if (isUniqueViolation(err)) return fail(c, 409, 'code_taken', 'Another service already uses that code or voucher code.');
       throw err;
     }
     return c.json({ ok: true });

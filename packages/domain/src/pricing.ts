@@ -25,7 +25,7 @@ export type QuoteInput = {
   statutory?: StatutoryKind | null;
   /** Super Admin is giving this Service free. */
   complimentary?: boolean;
-  /** The Guest is paying with a Voucher for this Service; `isFree` if it is the sixth of a Bundle. */
+  /** The Guest is paying with a Voucher for this Service; `isFree` if this Redemption is a Real FOC. */
   voucher?: { serial: string; isFree: boolean } | null;
   addonPrices?: readonly Centavos[];
 };

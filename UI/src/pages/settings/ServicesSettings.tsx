@@ -47,6 +47,7 @@ type ServiceDraft = {
   kind: 'single' | 'combo';
   isFootType: boolean;
   voucherEligible: boolean;
+  voucherPrefix: string;
   active: boolean;
   sortOrder: string;
   price: string;
@@ -60,6 +61,7 @@ function ServiceForm({ service, onDone }: { service?: Service; onDone: () => voi
     kind: service?.kind ?? 'single',
     isFootType: service?.isFootType ?? false,
     voucherEligible: service?.voucherEligible ?? false,
+    voucherPrefix: service?.voucherPrefix ?? '',
     active: service?.active ?? true,
     sortOrder: String(service?.sortOrder ?? 1000),
     price: '',
@@ -80,6 +82,7 @@ function ServiceForm({ service, onDone }: { service?: Service; onDone: () => voi
       durationMin: Number(d.durationMin),
       isFootType: d.isFootType,
       voucherEligible: d.voucherEligible,
+      voucherPrefix: d.voucherEligible ? d.voucherPrefix : (service?.voucherPrefix ?? null),
       active: d.active,
       sortOrder: Number(d.sortOrder),
     };
@@ -127,6 +130,13 @@ function ServiceForm({ service, onDone }: { service?: Service; onDone: () => voi
         <Checkbox label="Sold as a voucher" checked={d.voucherEligible} onChange={(e) => set('voucherEligible', e.target.checked)} />
         <Checkbox label="Offered" checked={d.active} onChange={(e) => set('active', e.target.checked)} />
       </div>
+      {d.voucherEligible && (
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Voucher code" hint="Printed before each card number: NTL-SM gives NTL-SM-0271">
+            <Input maxLength={20} value={d.voucherPrefix} onChange={(e) => set('voucherPrefix', e.target.value.toUpperCase())} placeholder="E.g. NTL-SM" />
+          </Field>
+        </div>
+      )}
       <div className="flex gap-2">
         <Button type="submit" disabled={save.isPending}>{service ? 'Save changes' : 'Add service'}</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
@@ -146,7 +156,7 @@ function ServiceRow({ service }: { service: Service }) {
           {service.name}
           <div className="mt-1 flex gap-1">
             {service.kind === 'combo' && <Badge>Combo</Badge>}
-            {service.voucherEligible && <Badge tone="teal">Voucher</Badge>}
+            {service.voucherEligible && <Badge tone="teal">Voucher{service.voucherPrefix ? ` ${service.voucherPrefix}` : ''}</Badge>}
             {service.isFootType && <Badge>Recliner OK</Badge>}
             {!service.active && <Badge tone="red">Not offered</Badge>}
           </div>

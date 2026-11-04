@@ -17,7 +17,7 @@ The owner account with unrestricted access; also the only recipient of user-appr
 _Avoid_: Admin, owner account
 
 **Receptionist**:
-A staff member on a fixed daily rate who runs the front desk: bookings, sales, therapist DTR, stock-out and order requests, therapist payroll and cash-outs.
+A staff member on a fixed daily rate who runs the front desk: bookings, sales, therapist DTR, Take-out Requests and Receiving, therapist payroll, cash-outs and Cash Handovers. Never buys stock.
 _Avoid_: Cashier, front desk
 
 **Therapist**:
@@ -25,11 +25,19 @@ A staff member paid by commission on the services they perform. Is either a Regu
 _Avoid_: Masseuse, masseur, staff
 
 **Regular Therapist**:
-A Therapist without a massage licence; earns the lower commission rate.
+A Therapist who is not DOH-licensed; earns the lower commission rate.
 _Avoid_: Normal therapist
 
 **Licensed Massage Therapist (LMT)**:
-A Therapist holding a massage licence; earns the higher commission rate.
+A Therapist with a DOH Certificate; the only Qualification that earns the higher commission rate. An expired DOH Certificate is flagged, not demoted automatically.
+_Avoid_: DOH therapist
+
+**Qualification**:
+A Therapist's training level: NC-II holder, DOH-licensed, Nuat Thai trained only, or experience only.
+
+**Certificate**:
+A dated credential a Therapist holds (TESDA NC-II or DOH licence), with a number and an expiry date. A Therapist may hold several.
+_Avoid_: Cert, licence (alone)
 
 **On-call Therapist**:
 A Therapist called in for a single day to handle extra guests, paid their commission at the end of that day rather than through weekly Payroll.
@@ -104,7 +112,7 @@ _Avoid_: End of day, Z-reading
 A Service's list price before any Discount; the basis for every Commission.
 
 **Discount**:
-A reduction in what the Guest pays, always absorbed by the shop. At most one per Service; the Guest gets whichever eligible one is largest.
+A reduction in what the Guest pays, always absorbed by the shop. At most one per Service, chosen at checkout; the best applicable Promo is offered first.
 
 **Statutory Discount**:
 The 20% Senior Citizen or PWD Discount, which requires the Guest's ID number.
@@ -117,14 +125,22 @@ A time-boxed Discount defined by Service, time-of-day window and validity dates.
 The Promo giving 10% off Swedish Massage (1hr) when the Service starts 2:00–6:00pm, valid until 2026-11-30.
 
 **Voucher**:
-A serial-numbered, non-expiring prepaid entitlement to one specific Service, redeemable once by whoever presents the serial, only at this branch. Sold at that Service's Regular Price.
+A serial-numbered, non-expiring prepaid entitlement to one specific Service, redeemable once by whoever presents the serial, only at this branch. Sold at that Service's Regular Price to a named buyer. The Receptionist only sells serials she has Received through a Voucher Endorsement, picking each one herself.
 _Avoid_: Gift certificate, GC
+
+**Voucher Serial**:
+The number printed on a Voucher card: branch code, Service code and a 4-digit counter, e.g. NTL-SM-0271 (Nuat Thai Lawaan, Swedish Massage, card 271). The Service code fixes which Service the card is for.
+_Avoid_: Voucher number, code
+
+**Voucher Endorsement**:
+The Super Admin handing a printed range of Voucher cards for one Service to the shop, e.g. NTL-SM-0271 to 0320. Received by the Receptionist like a Turnover.
+_Avoid_: Voucher turnover, issuance
 
 **Redemption**:
 Using a Voucher for its exact Service, which marks its serial used; no upgrades or paying a difference.
 
 **Voucher Bundle**:
-Five Vouchers bought together for the same Service, plus a sixth free Voucher (5+1).
+Vouchers bought together for the same Service, where every five paid earn one free (5+1). The free ones are whichever of the Bundle's Vouchers are redeemed last, not a particular serial.
 
 **FOC (Free of Charge)**:
 A Service the Guest pays nothing for at the time of service. Is either a Prepaid FOC or a Real FOC.
@@ -133,7 +149,7 @@ A Service the Guest pays nothing for at the time of service. Is either a Prepaid
 An FOC paid for earlier, i.e. redemption of a purchased Voucher.
 
 **Real FOC**:
-An FOC nobody paid for: the free sixth Voucher of a Voucher Bundle, or a Complimentary Service.
+An FOC nobody paid for: the last Redemption(s) of a Voucher Bundle, or a Complimentary Service.
 
 **Complimentary Service**:
 A Real FOC granted only by the Super Admin, with a reason.
@@ -186,8 +202,34 @@ _Avoid_: Therapist 13th month
 The Receptionist's statutory December payment.
 
 **Cash-out**:
-Cash taken from the drawer during the day for a recorded purpose.
+Cash taken out during the day for a recorded purpose: Petty cash (from the Petty Cash Fund), Laundry (from Sales Cash), a Cash Advance or On-call pay. Petty cash and Laundry are also Expenses.
 _Avoid_: Petty cash withdrawal
+
+**Petty Cash Fund**:
+A fixed ₱800 kept at the shop, apart from Sales Cash, for small buys (rice, ballpens, paper, tape, phone load).
+
+**Petty Cash Top-up**:
+Moving Sales Cash into the Petty Cash Fund to bring it back to ₱800, done weekly on Sunday or Monday.
+_Avoid_: Replenishment
+
+**Sales Cash**:
+Cash from sales held at the shop, often for several days, from which the Receptionist pays Payroll, Laundry and Petty Cash Top-ups.
+_Avoid_: Cash on hand, drawer
+
+**Cash Handover**:
+The Receptionist giving the Super Admin all Sales Cash once that week's Payroll and Laundry are paid. It is complete only when the Super Admin confirms receipt, naming who received it if not them.
+_Avoid_: Turnover (that is for Items), remittance
+
+**Employer Contributions**:
+The shop's own share of SSS, PhilHealth and Pag-IBIG, derived from each staff member's contribution bracket; an Expense. On-call Therapists have none.
+
+**Percentage Tax**:
+The 3% quarterly tax on gross sales the shop owes as a non-VAT business, filed on BIR Form 2551Q. Expenses do not reduce it.
+_Avoid_: 2551Q (that is the form), VAT
+
+**Income Statement**:
+Revenue less every cost for a month, quarter or year, showing whether the shop made a profit.
+_Avoid_: Financial statement, P&L
 
 **Expense**:
 Money the shop spends, under a category (laundry, utilities, BIR, bookkeeping, supplies, etc.).
@@ -195,17 +237,54 @@ Money the shop spends, under a category (laundry, utilities, BIR, bookkeeping, s
 ## Inventory
 
 **Item**:
-A stocked consumable with a unit of measure, e.g. massage oil (gal).
+Something the shop stocks, with a unit of measure and an Item Kind, e.g. massage oil (gal), bath towel (pc).
+
+**Item Kind**:
+Whether an Item is a Consumable, a Reusable Supply or Equipment.
+
+**Consumable**:
+An Item used up in service or daily running: oil, alcohol, tissue, rice.
+_Avoid_: Disposable
+
+**Reusable Supply**:
+An Item used again and again until it breaks or wears out: baskets, sprayers, oil containers, drinking glasses, spa shorts, towels, bed sheets, herbal balls, hot stones, ventosa glasses.
+_Avoid_: Disposable, asset
+
+**Equipment**:
+A large, durable Item such as an aircon, bed or recliner, tracked by count only.
+_Avoid_: Fixed asset
+
+**Storage**:
+The Super Admin's own stock, where every purchase lands first; the Shop is sent only what it needs.
+
+**Shop Stock**:
+The quantity of an Item physically at the shop, counting only Turnovers that have been Received.
 
 **Stock-in**:
-Receiving quantity of an Item from a Vendor at a purchase price and date.
+The Super Admin recording a purchase of an Item into Storage from a Vendor, at a price and date. Counted as an Expense when bought.
 
-**Stock-out**:
-Taking quantity of an Item out of storage for use.
-_Avoid_: Withdrawal, issue
+**Use**:
+The Receptionist taking a quantity of a Consumable out of Shop Stock for service or daily running.
+_Avoid_: Stock-out, withdrawal, issue
+
+**Discard**:
+Removing a Reusable Supply or Equipment from Shop Stock because it broke, wore out or was lost, with that reason.
+_Avoid_: Write-off, disposal
+
+**Turnover**:
+The Super Admin sending a quantity of an Item from Storage to the Shop, with or without a Take-out Request. It sits on the Receptionist's For Receiving list until Received; any shortfall stays counted in Storage and is flagged for the Super Admin.
+_Avoid_: Handover (that is for cash), delivery
+
+**Receiving**:
+The Receptionist confirming a Turnover arrived, with the date and any shortfall; only then does Shop Stock go up.
+_Avoid_: Accepting
+
+**Take-out Request**:
+The Receptionist asking the Super Admin for an Item the shop needs, flagged running low or out of stock. Fulfilled by a Turnover from Storage, buying first if Storage has none.
+_Avoid_: Restock request, purchase request, stock alert
 
 **Purchase Order**:
-A request to buy Items from a Vendor, received later as one or more Stock-ins.
+The Super Admin's plan to buy Items from a Vendor, received later into Storage as one or more Stock-ins.
 
 **Vendor**:
 A supplier Items are bought from.

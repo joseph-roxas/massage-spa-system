@@ -408,89 +408,82 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
 
 ### 14.2 Next features: Phase 12, owner's change requests after testing (NOT started)
 
-Nothing below is built yet. The design notes come from reading the code; confirm the open questions with the owner first.
+Nothing below is built yet. Every decision here was confirmed with the owner on 2026-11-04 (three grilling rounds); the vocabulary is in `GLOSSARY.md` and the Day Close change in ADR 0003. Build on branch `cr-1`, one commit per slice, in this order.
 
-**A. Inventory: receptionist stops buying and starts accepting handovers**
+**12.1 Cash-out categories and the checkout Discount dropdown**
 
-1. **Remove purchase capabilities from the receptionist.** Take `inventory.po.request` and `inventory.receive` off the receptionist in `permissions.ts`. Only the Super Admin requests orders, records purchases and receives deliveries. Hide the matching buttons in `UI/src/pages/inventory/StockTab.tsx` and `OrdersTab.tsx`.
-2. **Add a "Running low / Out of stock" button for the receptionist.** It notifies the admin in the app (approval email isn't set up yet).
-   - Proposed new table `stock_alerts`: `itemId` (nullable, so items outside the catalogue can be reported), `level` (`low` or `out`), `note`, `createdBy`, `resolvedAt`, `resolvedBy`.
-   - The admin sees open alerts on the Inventory page, with a badge on the nav.
-   - An alert resolves automatically when a Stock-in is recorded for its item, or the admin dismisses it.
-3. **The receptionist accepts items the admin turns over to the shop** (spa clothes, towels, slippers, other supplies).
-   - Proposal: admin-recorded purchases (Stock-ins) get `acceptedAt`, `acceptedBy` and `acceptNote`.
-   - The receptionist sees a "To accept" list and confirms receipt, with an optional note such as "2 towels missing".
-   - On hand counts only accepted Stock-ins. Opening counts are accepted automatically.
-   - The admin form gets an "Already at the shop" option for items the admin puts away personally.
-   - New capability `inventory.accept`.
-   - Non-consumables (towels, clothes) become catalogue Items with unit `pc` and reorder level 0.
-4. Stock-out (taking items out of storage) stays as it is for the receptionist.
+1. **Cash-out form** offers only **Petty cash** (paid from the Petty Cash Fund) and **Laundry** (paid from Sales Cash). Cash Advance and On-call pay stay as they are.
+   - Keep `supplies`, `food`, `transport`, `other` in `CASH_OUT_CATEGORIES` for history and reports; just drop them from the form.
+   - Add `source` (`sales` | `petty`) to `cash_outs`. Migration: `petty_cash` rows → `petty`, the rest → `sales`. (Built in `0012_cash_out_source`; Day Close still subtracts every Cash-out until 12.3 starts using `source`.)
+   - Petty cash and Laundry Cash-outs feed the Expenses month view as today.
+   - Files: `DB/schema/days.ts`, `newCashOut` in `API/src/modules/days.ts`, `UI/src/lib/sales.ts`, `UI/src/pages/front-desk/DayDialogs.tsx`, `CASH_OUT_LABELS` in `API/src/modules/reports.ts`.
+2. **One Discount dropdown** in `CheckoutDialog.tsx` replaces the radio buttons: No discount · each active Promo ("Happy Hours (10%)") · Senior Citizen (20%) · PWD (20%) · Voucher · Complimentary (Real FOC, Super Admin only).
+   - Default pick: the best Promo that applies, so a running Promo is visible.
+   - Promos that don't apply are listed disabled with the reason (wrong Service, outside 2–6pm start, past end date). Add `promoProblem()` beside `promoApplies()` in `packages/domain/src/catalogue.ts`.
+   - `POST /sales/quote` takes an explicit `promoId` or `none` and returns the active Promos with applies/why-not.
+   - Why the owner couldn't see Happy Hours: it applies only to Swedish (1hr) starting 2–6pm, and the old "Promo if any" option applied it silently.
 
-**B. Vouchers: serials, buyer and purchase date for double-checking**
+**12.2 Vouchers: serials, endorsements, sales history, last-used free rule**
 
-The data already exists: `voucher_sales` holds the buyer name, phone and business day, and `vouchers.serial` holds the serials. Only the screens are missing.
+1. **Voucher Serial format** is `NTL-SM-0271`: branch code, Service voucher code, 4-digit counter.
+   - New setting: branch code (`NTL`). New per-Service field `voucherCode` (AM, SM, VM, TB), separate from the existing `services.code`.
+   - `normalizeSerial()` accepts `NTLSM0271`, `ntl-sm 0271`, etc., and checkout searches serials as you type.
+   - Retire `newSerial()` random generation; nobody generates serials in the app.
+2. **Voucher Endorsement**: the Super Admin records Service + counter range (e.g. SM 0271–0320, date). It appears on the Receptionist's For Receiving list (shared with Turnovers, 12.4); receiving creates the serials as `in_shop`.
+   - Voucher statuses become `in_shop` → `sold` → `redeemed`, plus `voided` (damaged/lost card, Super Admin only).
+3. **Sell dialog** (`SellVouchersDialog.tsx`): the Receptionist picks **each** serial from a dropdown of received, unsold serials for that Service; no auto-fill, no generate. Buyer name required, phone optional. API checks every serial is `in_shop` and for the right Service.
+4. **Voucher sales history** on `VouchersPage`: filter by date range, buyer or serial. Each Bundle row shows date sold, buyer, phone, each serial, how many used and when each was used. Also an "In shop" count per Service.
+5. **Free = last redeemed.** At redemption, count the Bundle's already-redeemed Vouchers; it is a Real FOC when that count ≥ `qtyPaid` (in 10+2, the 11th and 12th). Migration: `UPDATE vouchers SET is_free = 0 WHERE voucher_sale_id IS NOT NULL`. Imported paper vouchers keep `isFree`. Update `price()` in `API/src/modules/sales.ts`, the "Free" badges and domain tests.
+6. **Checkout with a serial** shows its Bundle: buyer, date bought, "3 of 6 used" with each use date, and whether this Redemption will be the Real FOC.
+7. **Go-live** (replaces the "paper vouchers" step): per Service code, the owner enters the serials currently in the shop unsold, and the sold-but-unused ones with buyer/date if known, marking which imported ones are free. The owner's Feb 18 counts are stale and have gaps (AM "0092–0142 (50pcs)" is 51 numbers; VM and TB have no range), so this is a fresh count.
 
-1. **Sell dialog** (`UI/src/pages/front-desk/SellVouchersDialog.tsx`):
-   - The receptionist types the serial printed on each physical card, with a "Generate serials" fallback.
-   - The buyer name becomes required.
-   - The API (`POST /voucher-sales` in `API/src/modules/vouchers.ts`) accepts the list of serials and checks it for duplicates.
-2. **Voucher sales history on `VouchersPage`**, filtered by date range, buyer or serial. Each Bundle row shows the date sold, buyer, phone, every serial, how many have been used, and the date each one was used. Today the page only shows "Sold today".
-3. **Rule change: the free voucher is the last one used, not the 6th serial.**
-   - At checkout, count this sale's already-redeemed vouchers. The redemption is a Real FOC when that count is at least `qtyPaid`.
-   - For example, in a 10+2 sale, the 11th and 12th redemptions are Real FOCs.
-   - Imported paper vouchers keep their `isFree` flag.
-   - Migration: `UPDATE vouchers SET is_free = 0 WHERE voucher_sale_id IS NOT NULL`.
-   - Update `price()` in `API/src/modules/sales.ts`, the "Free" badges and the domain tests.
+**12.3 Petty Cash Fund, Sales Cash and Cash Handover** (ADR 0003)
 
-**C. Checkout: one Discount dropdown**
+1. **Petty Cash Fund** ₱800. Balance = 800 + Top-ups − petty Cash-outs; refuse a petty Cash-out above the balance.
+2. **Petty Cash Top-up**: recorded by the Receptionist, moves Sales Cash into the fund; not an Expense. On Sunday/Monday the Front Desk suggests 800 − balance.
+3. **New table `cash_transfers`**: `kind` (`handover`, `petty_topup`, `payroll`), `amount`, `businessDay`, `payrollId`, `note`, `createdBy`; for handovers also `receivedAmount`, `receivedAt`, `receivedBy` (User), `receivedByName` (free text when someone received it for the owner), `confirmedBy`.
+   - Payroll release (`POST /payrolls/:id/release`) gets "Paid from shop cash", default on, recording a `payroll` transfer.
+   - A transfer recorded after today's Day Close belongs to the next Business Day.
+   - Transfers are not Expenses and stay out of `cash_outs`.
+4. **Day Close counts all Sales Cash in the shop**: expected = last closed day's counted Sales Cash + cash received today − Sales-Cash Cash-outs − payroll/top-up/handover transfers. Petty Cash counted separately. Needs a one-time opening Sales Cash count. Change `packages/domain/src/day-close.ts`.
+5. **Front Desk reminder**: always "Sales Cash in shop ₱X since <last handover>". Once every payroll of the last completed Pay Week is released **and** this week's Laundry is recorded, it becomes "All paid: hand over ₱X (keep petty cash at ₱800)".
+6. **Cash Handover**: the Receptionist records the amount; status "Waiting for owner". Only the Super Admin clicks **Received**, entering the amount counted and "Me" or the name of who received it. Expected / handed over / received differences are kept and shown; confirm with a note is allowed.
+7. **Owner view**: Sales Cash in shop, handovers waiting, history of handovers, top-ups and payroll paid.
 
-Replace the radio buttons in `CheckoutDialog.tsx` with one dropdown:
+**12.4 Inventory: Storage, Shop Stock, Turnover, Receiving, Take-out Request, Item Kinds**
 
-- No discount
-- each active Promo, e.g. "Happy Hours (10%)"
-- Senior Citizen (20%)
-- PWD (20%)
-- Voucher
-- Complimentary (Real FOC), for the Super Admin only
+1. **Item Kind** on `items`: `consumable` | `reusable` | `equipment`. Inventory list filterable by kind. Migration: existing Items → `consumable`; the owner reclassifies in one list.
+2. **Two locations.** Every Stock-in (Super Admin only) lands in **Storage**. **Shop Stock** = Received Turnovers − Uses − Discards. Lists show Storage, Shop and total.
+3. **Receptionist loses** `inventory.po.request` and `inventory.receive` (and Record a Purchase). Hide those buttons in `StockTab.tsx` / `OrdersTab.tsx`.
+4. **Take-out Request** (new table): Item (or free text for something new), qty needed, `low` | `out`, note, createdBy, resolvedAt/By. The Super Admin sees whether Storage has it and fulfils with a Turnover (buying first if needed) or dismisses. Resolved when its Turnover is Received.
+5. **Turnover** (new table): Item, qty, date, optional Take-out Request, createdBy; `receivedQty`, `receivedAt`, `receivedBy`, note. Can be sent without a request. Appears on the Receptionist's **For Receiving** list with Voucher Endorsements. A shortfall stays counted in Storage and is flagged to the Super Admin to resolve. New capability `inventory.receive_turnover`.
+6. **Use** (rename of Stock-out, Consumables only) and **Discard** (Reusable Supply/Equipment, reason `broken` | `worn_out` | `lost`), both from Shop Stock. Super Admin sees Discards as a replacement signal.
+7. **Go-live**: today's on-hand counts become Shop Stock; a new step asks the Storage count per Item.
+8. Purchases are expensed in the month bought (no depreciation, Equipment included).
 
-Supporting changes:
+**12.5 Staff records and Certificates**
 
-- **Default pick:** the best Promo that applies, so a running Promo is visible.
-- **Quote API:** `POST /sales/quote` takes an explicit `promoId` or "none". Its response lists the active Promos for this Booking, each with whether it applies and, if not, why (wrong service, outside 2–6pm, past its end date).
-- **Domain:** add `promoProblem()` next to `promoApplies()` in `packages/domain/src/catalogue.ts`.
-- **Why the owner couldn't see Happy Hours:** it applies only to its own Service, and only when the Service *starts* inside its window. The old "Promo if any" option applied it silently.
-- **When a voucher serial is entered,** show its Bundle: who bought it and when, "3 of 6 used" with each use date, and whether this redemption will be the Real FOC.
+1. New `staff` fields: surname (existing `lastName`), first name, middle name, gender, birthdate, birthplace, civil status, religion, address, email, SSS no., PhilHealth no., TIN, Pag-IBIG no., hire date. Required: surname, first name, gender, birthdate, hire date. ID numbers get a length warning (SSS 10, PhilHealth 12, Pag-IBIG 12, TIN 9 or 12 digits) that never blocks saving.
+2. Personal and government-ID fields are visible and editable by the Super Admin only.
+3. **Qualification** per Therapist: NC-II holder, DOH-licensed, Nuat Thai trained only, experience only. Only DOH-licensed Therapists can be LMT class.
+4. **Certificates** (new table): staffId, type (`nc2` | `doh`), number, issued, expires. Needs attention alert 60 days before expiry; an LMT whose DOH Certificate expired shows "licence expired" but isn't demoted automatically.
 
-**D. Cash-out categories**
+**12.6 Employer Contributions, 2551Q and the Income Statement**
 
-- **New list:** the Cash-out form offers only **Petty cash** and **Laundry**. Drop Supplies, Food, Transport and Other from the form.
-- **Old values:** keep them in the enum for history and reports. `supplies` stays as the internal category for admin inventory purchases paid from the drawer.
-- **New field:** each Cash-out gets `source`, either `sales` (sales cash on hand) or `petty` (the petty cash fund).
-  - Petty cash → `petty`.
-  - Laundry defaults to `sales`, with a "Paid from" choice.
-  - Cash Advance and On-call pay → `sales`.
-  - Migration: existing `petty_cash` rows → `petty`, all others → `sales`.
-- **Files to change:** `DB/schema/days.ts`, `newCashOut` in `API/src/modules/days.ts`, `UI/src/lib/sales.ts`, `UI/src/pages/front-desk/DayDialogs.tsx`, and `CASH_OUT_LABELS` in `API/src/modules/reports.ts`.
+1. **Contribution brackets.** Per staff member, the owner sets the monthly salary base; the system computes monthly employee and employer shares from rate tables kept in Settings. Rates to re-verify against SSS/PhilHealth/Pag-IBIG official pages before building:
+   - SSS 15% of MSC (EE 5%, ER 10%) + EC ₱10 (MSC < 15,000) or ₱30; MSC ₱5,000–35,000.
+   - PhilHealth 5% split equally; base floor ₱10,000, ceiling ₱100,000.
+   - Pag-IBIG EE 2% (1% if ≤ ₱1,500), ER 2%; fund salary cap ₱10,000.
+   - Owner's current figures (EE monthly) check out: Therapists SSS ₱400 / PHIC ₱250 / HDMF ₱160 → ER ₱810 / ₱250 / ₱160 = **₱1,220**; Receptionist ₱850 / ₱422.50 / ₱200 → ER ₱1,730 / ₱422.50 / ₱200 = **₱2,352.50**.
+2. **Weekly deduction** = monthly EE share ÷ number of Pay Weeks ending in that month (4 or 5), so each month adds up exactly. Replaces the fixed weekly `govSss`/`govPhic`/`govPagibig` amounts.
+3. Each agency applies only once that staff member's ID number is entered (one Therapist has none yet); missing IDs show in Needs attention. On-call Therapists: none.
+4. Monthly Employer Contributions draft as a Recurring Expense for the owner to confirm.
+5. **Percentage Tax (2551Q)**: 3% of quarterly gross sales (Service payments after Discounts + Add-ons + Voucher sales on the day sold); expenses don't reduce it. Due the 25th day after quarter end (Apr 25, Jul 25, Oct 25, Jan 25), moved to the next working day if that is a weekend/Holiday. Home shows amount and countdown from quarter end, red in the last 7 days; **Filed** (date + amount paid) records the Expense and clears it.
+6. **Income Statement** (Reports), month/quarter/year with the same period last year: Revenue (Services, Add-ons, Voucher sales; Discounts shown) less Commissions (by Service date), Receptionist pay (by DTR date), Employer Contributions, Royalty, Percentage Tax, Laundry, Petty cash, purchases (date bought) and other Expenses → Net profit.
 
-**E. Cash handover to the owner, and petty cash**
+**12.7 Needs attention**
 
-1. **Petty cash fund:** ₱800, kept apart from sales cash.
-   - Balance = 800 + top-ups − petty Cash-outs.
-   - Refuse a petty Cash-out that exceeds the balance.
-   - Top it up weekly (Sunday or Monday) from sales cash, by recording a "Petty cash top-up" of 800 − balance.
-2. **Sales cash stays in the shop for several days** (roughly Wednesday to Saturday or Sunday). The receptionist pays the Therapists' payroll and the weekly laundry from it, then hands **everything except the petty cash** to the owner.
-3. **Proposed new table `cash_transfers`:** `kind` (`turnover`, `petty_topup` or `payroll`), `amount`, `businessDay`, `payrollId`, `note`, `createdBy`, `receivedAt`, `receivedBy`.
-   - Payroll release (`POST /payrolls/:id/release`) gets a "Paid from shop cash" option, default on in the UI, that records a `payroll` transfer.
-   - A transfer recorded after today's Day Close is attributed to the next Business Day.
-   - Transfers are not expenses, so they stay out of `cash_outs`, which the Expenses month view counts.
-4. **Reminder on the receptionist's Front Desk:**
-   - "Sales cash in the shop ₱X since <last handover>; pay payroll and laundry from it, then hand the rest to the owner. Keep petty cash at ₱800."
-   - Once every payroll of the last completed Pay Week is released, it becomes a stronger "All payroll is paid: hand over ₱X".
-   - On Sunday or Monday, if petty cash is below ₱800, it shows "Top up petty cash ₱Y".
-5. **Owner view:** cash in the shop, handovers waiting for confirmation (with a Received button), and a history of handovers, top-ups and payroll paid.
-6. **Two decisions were put to the owner and not answered yet:**
-   - **Day Close count.** Recommended: count *all* sales cash in the shop. Expected = last closed day's counted cash + cash received since − sales-source Cash-outs − On-call pay − transfers. The ₱800 petty cash is not counted. The alternative is to keep counting only today's cash and track cash on hand separately.
-   - **Handover confirmation.** Recommended: the owner confirms receipt, and a handover shows "Waiting for owner" until then. The alternative is that the receptionist's record is enough.
+One list on the Super Admin's Home, with a nav badge: open Take-out Requests, Turnover shortfalls, Cash Handovers waiting, Certificates expiring, missing government IDs, 2551Q due. Each links to where it is acted on. (Approval email is still not set up.)
 
 ### 14.3 Still open from earlier phases
 

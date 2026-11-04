@@ -13,6 +13,7 @@ export const CAPABILITIES = [
   'vouchers.import',
   'vouchers.endorse',
   'cashouts.record',
+  'cash.receive',
   'day.close',
   'day.reopen',
   'dtr.correct.therapist',

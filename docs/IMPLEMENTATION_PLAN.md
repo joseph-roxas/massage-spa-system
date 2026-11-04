@@ -450,6 +450,7 @@ Nothing below is built yet. Every decision here was confirmed with the owner on 
 5. **Front Desk reminder**: always "Sales Cash in shop ₱X since <last handover>". Once every payroll of the last completed Pay Week is released **and** this week's Laundry is recorded, it becomes "All paid: hand over ₱X (keep petty cash at ₱800)".
 6. **Cash Handover**: the Receptionist records the amount; status "Waiting for owner". Only the Super Admin clicks **Received**, entering the amount counted and "Me" or the name of who received it. Expected / handed over / received differences are kept and shown; confirm with a note is allowed.
 7. **Owner view**: Sales Cash in shop, handovers waiting, history of handovers, top-ups and payroll paid.
+8. **As built** (migration 0014): the `Cash` page (`/cash`) is the owner view, also visible to the Receptionist without the Received and count buttons. The one-time opening count is a `cash_transfers` row of kind `opening` ("Count sales cash in the shop", Super Admin), and any later count restarts the running total the same way. Payroll release takes `fromShopCash` (default true). The "hand over" reminder fires once last Pay Week's Payroll is all released and a Laundry Cash-out exists this Pay Week, until a handover is recorded this Pay Week. Owner-only actions use the new capability `cash.receive`.
 
 **12.4 Inventory: Storage, Shop Stock, Turnover, Receiving, Take-out Request, Item Kinds**
 

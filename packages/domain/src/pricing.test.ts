@@ -123,7 +123,7 @@ describe('Day Close totals', () => {
       ],
       [{ amount: pesos(150) }],
     );
-    expect(t).toEqual({ cashIn: pesos(1400), gcashIn: pesos(450), cashOut: pesos(150), expectedCash: pesos(1250), expectedGcash: pesos(450) });
+    expect(t).toEqual({ carriedIn: 0, transfersOut: 0, cashIn: pesos(1400), gcashIn: pesos(450), cashOut: pesos(150), expectedCash: pesos(1250), expectedGcash: pesos(450) });
   });
 
   it('owes On-call Therapists their Commission less what was already paid', () => {

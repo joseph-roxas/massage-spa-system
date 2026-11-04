@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { businessDayOf, lastCompletedPayWeek } from '@spa/domain';
-import { Alert, Badge, Button, Card, td, th } from '../components/ui';
+import { Alert, Badge, Button, Card, Checkbox, td, th } from '../components/ui';
 import { useCan } from '../lib/auth';
 import { longDate, peso } from '../lib/format';
 import { nextWeek, prevWeek, STATUS_LABELS, STATUS_TONE, usePayrollAction, usePayWeek, type Payroll, type PayrollKind } from '../lib/payroll';
@@ -19,8 +19,11 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
   const total = (k: 'gross' | 'net' | 'caDeduction') => rows.reduce((s, r) => s + r[k], 0);
   const gov = (r: Payroll) => r.govSss + r.govPhic + r.govPagibig;
 
+  const [fromShopCash, setFromShopCash] = useState(true);
+
   async function each(list: Payroll[], step: 'approve' | 'release') {
-    for (const r of list) await act.mutateAsync({ path: `/payrolls/${r.id}/${step}` }).catch(() => null);
+    const body = step === 'release' ? { fromShopCash } : {};
+    for (const r of list) await act.mutateAsync({ path: `/payrolls/${r.id}/${step}`, body }).catch(() => null);
   }
 
   return (
@@ -37,6 +40,9 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
             <Button disabled={act.isPending} onClick={() => each(drafts, 'approve')}>
               Approve {drafts.length === rows.length ? 'all' : drafts.length}
             </Button>
+          )}
+          {approved.length > 0 && (
+            <Checkbox label="Paid from shop cash" checked={fromShopCash} onChange={(e) => setFromShopCash(e.target.checked)} />
           )}
           {approved.length > 0 && (
             <Button disabled={act.isPending} onClick={() => each(approved, 'release')}>

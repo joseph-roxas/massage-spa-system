@@ -103,7 +103,7 @@ export function usePayrollAction() {
     mutationFn: (req: { path: string; body?: unknown; method?: string }) =>
       api<{ generated?: number; computed?: number }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
     onSettled: () => {
-      for (const key of ['payroll', 'cash-advances', 'bonuses', 'cash-outs', 'close-preview', 'front-desk']) qc.invalidateQueries({ queryKey: [key] });
+      for (const key of ['payroll', 'cash-advances', 'bonuses', 'cash-outs', 'close-preview', 'front-desk', 'cash']) qc.invalidateQueries({ queryKey: [key] });
     },
   });
 }

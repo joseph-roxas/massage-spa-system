@@ -50,3 +50,36 @@ export const cashOuts = sqliteTable(
   },
   (t) => [index('cash_outs_day_idx').on(t.businessDay)],
 );
+
+/**
+ * Sales Cash moved without being spent: Payroll paid from the shop, a Petty
+ * Cash Top-up, or a Cash Handover to the owner. `opening` is the Super
+ * Admin's count of Sales Cash in the shop when counting starts. Not Expenses.
+ */
+export const CASH_TRANSFER_KINDS = ['opening', 'payroll', 'petty_topup', 'handover'] as const;
+
+export const cashTransfers = sqliteTable(
+  'cash_transfers',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind', { enum: CASH_TRANSFER_KINDS }).notNull(),
+    /** Centavos. For a handover, what the Receptionist handed over. */
+    amount: integer('amount').notNull(),
+    /** The Business Day it counts toward; after that day's Day Close, the next one. */
+    businessDay: text('business_day').notNull(),
+    /** Payroll paid from the shop. */
+    payrollId: text('payroll_id'),
+    note: text('note'),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by').references(() => users.id),
+    /** Handover: what the owner counted, and who received it. */
+    receivedAmount: integer('received_amount'),
+    receivedOn: text('received_on'),
+    /** "Me" (the confirming Super Admin) leaves this null; otherwise who received it for them. */
+    receivedByName: text('received_by_name'),
+    receiveNote: text('receive_note'),
+    confirmedAt: text('confirmed_at'),
+    confirmedBy: text('confirmed_by').references(() => users.id),
+  },
+  (t) => [index('cash_transfers_day_idx').on(t.businessDay), index('cash_transfers_kind_idx').on(t.kind, t.businessDay)],
+);

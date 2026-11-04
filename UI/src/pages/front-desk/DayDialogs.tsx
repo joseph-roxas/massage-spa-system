@@ -162,13 +162,15 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
           {save.error && <Alert>{save.error.message}</Alert>}
           <div className="space-y-1 rounded-lg bg-stone-50 p-4 text-sm">
             <Line label={`Guests checked out`} value={String(p.guests)} />
+            <Line label="Sales cash already in the shop" value={peso(p.totals.carriedIn)} />
             <Line label="Cash received" value={peso(p.totals.cashIn)} />
-            <Line label="Cash-outs" value={`−${peso(p.totals.cashOut - p.owed.reduce((s, o) => s + o.amount, 0))}`} />
+            <Line label="Cash-outs from sales cash" value={`−${peso(p.totals.cashOut - p.owed.reduce((s, o) => s + o.amount, 0))}`} />
+            {p.totals.transfersOut > 0 && <Line label="Payroll, petty cash top-up, handed to owner" value={`−${peso(p.totals.transfersOut)}`} />}
             {p.owed.map((o) => (
               <Line key={o.staffId} label={`On-call pay: ${o.displayName} (pay now)`} value={`−${peso(o.amount)}`} />
             ))}
             <div className="border-t border-stone-200 pt-1">
-              <Line label="Cash expected in the drawer" value={peso(p.totals.expectedCash)} strong />
+              <Line label="Sales cash expected in the shop" value={peso(p.totals.expectedCash)} strong />
             </div>
             <Line label="GCash received" value={peso(p.totals.expectedGcash)} />
             {p.vouchersSold > 0 && (
@@ -178,7 +180,7 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
           <div className="grid grid-cols-2 gap-3">
             <Field
               label="Cash counted (₱)"
-              hint={variance === null ? 'Count the drawer' : variance === 0 ? 'Matches' : variance > 0 ? `Over by ${peso(variance)}` : `Short by ${peso(-variance)}`}
+              hint={variance === null ? 'Count all sales cash in the shop, not the ₱800 petty cash' : variance === 0 ? 'Matches' : variance > 0 ? `Over by ${peso(variance)}` : `Short by ${peso(-variance)}`}
             >
               <Input required autoFocus inputMode="decimal" value={counted} onChange={(e) => setCounted(e.target.value)} />
             </Field>

@@ -7,6 +7,7 @@ import { duration, longDate, peso } from '../lib/format';
 import { guestLabel, useBoard, useDeskAction, type Board, type Booking } from '../lib/front-desk';
 import { useDayAction } from '../lib/sales';
 import { CheckoutDialog } from './front-desk/CheckoutDialog';
+import { CashReminder, HandoverDialog, TopUpDialog } from './front-desk/CashDialogs';
 import { CashOutDialog, DayCloseDialog, EarlyCloseDialog } from './front-desk/DayDialogs';
 import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 import { NewBookingDialog } from './front-desk/NewBookingDialog';
@@ -134,7 +135,7 @@ function QueueLine({ b, onStart }: { b: Booking; onStart: (b: Booking) => void }
   );
 }
 
-type DayDialog = 'cash-outs' | 'early-close' | 'vouchers' | { close: string } | null;
+type DayDialog = 'cash-outs' | 'early-close' | 'vouchers' | 'handover' | 'top-up' | { close: string } | null;
 
 /** Business Day status and its end-of-day actions. */
 function DayBar({ board, open }: { board: Board; open: (d: DayDialog) => void }) {
@@ -213,6 +214,7 @@ function FrontDeskBoard() {
   const [starting, setStarting] = useState<string | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
   const [dayDialog, setDayDialog] = useState<DayDialog>(null);
+  const canCash = useCan('cashouts.record');
   // Arriving from a blocked logout opens Day Close straight away.
   const [params, setParams] = useSearchParams();
   const wantsClose = params.has('close');
@@ -248,6 +250,7 @@ function FrontDeskBoard() {
         </div>
       </div>
       <DayBar board={board} open={setDayDialog} />
+      {canCash && <CashReminder onHandover={() => setDayDialog('handover')} onTopUp={() => setDayDialog('top-up')} />}
       {done.error && <Alert>{done.error.message}</Alert>}
 
       <div className="grid grid-cols-[1fr_18rem] gap-6">
@@ -319,6 +322,8 @@ function FrontDeskBoard() {
       {payingBooking && <CheckoutDialog booking={payingBooking} onClose={() => setPaying(null)} />}
       {dayDialog === 'cash-outs' && <CashOutDialog day={board.day} onClose={() => setDayDialog(null)} />}
       {dayDialog === 'early-close' && <EarlyCloseDialog onClose={() => setDayDialog(null)} />}
+      {dayDialog === 'handover' && <HandoverDialog onClose={() => setDayDialog(null)} />}
+      {dayDialog === 'top-up' && <TopUpDialog onClose={() => setDayDialog(null)} />}
       {dayDialog === 'vouchers' && <SellVouchersDialog onClose={() => setDayDialog(null)} />}
       {dayDialog && typeof dayDialog === 'object' && <DayCloseDialog date={dayDialog.close} onClose={() => setDayDialog(null)} />}
     </div>

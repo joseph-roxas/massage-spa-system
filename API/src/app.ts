@@ -14,6 +14,7 @@ import { salesRoutes } from './modules/sales';
 import { dayRoutes } from './modules/days';
 import { voucherRoutes } from './modules/vouchers';
 import { payrollRoutes } from './modules/payroll';
+import { inventoryRoutes } from './modules/inventory';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
 
@@ -47,6 +48,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/', dayRoutes)
     .route('/', voucherRoutes)
     .route('/', payrollRoutes)
+    .route('/', inventoryRoutes)
     .notFound((c) => fail(c, 404, 'not_found', 'No such endpoint.'))
     .onError((err, c) => {
       console.error(err);

@@ -11,6 +11,7 @@ import { ClockInPage } from './pages/ClockInPage';
 import { DtrPage } from './pages/DtrPage';
 import { VouchersPage } from './pages/VouchersPage';
 import { PayrollPage } from './pages/PayrollPage';
+import { InventoryPage } from './pages/InventoryPage';
 import { PayslipPage } from './pages/payroll/PayslipPage';
 import { SettingsLayout } from './pages/settings/SettingsLayout';
 import { ServicesSettings } from './pages/settings/ServicesSettings';
@@ -57,6 +58,14 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="sales.manage">
             <VouchersPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/inventory',
+        element: (
+          <RequireCapability capability="inventory.stock_out">
+            <InventoryPage />
           </RequireCapability>
         ),
       },

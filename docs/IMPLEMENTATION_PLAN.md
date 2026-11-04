@@ -146,6 +146,7 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - `stock_ins` — item_id, vendor_id, po_line_id (nullable), qty, unit_price, purchase_date, received_by.
 - `stock_outs` — item_id, qty, taken_by_staff_id, recorded_by, date.
 - Derived: on-hand = Σin − Σout; last stock-out date = max(stock_outs.date); latest price = last stock_in.
+- As built: `items.unit` is free text ("gal", "pack of 50", "500 g"); `stock_ins.kind` is `purchase|opening` (opening = go-live count, no vendor/price); `stock_outs` has an optional note. Quantities are whole units.
 
 **Expenses & royalty**
 - `expense_categories` — laundry, petty cash, rice allowance, bookkeeping, electricity, BIR (2551Q, FS), business permit, supplies & tools, phone load, AC cleaning, other.
@@ -234,6 +235,15 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - Basic pay (for 13th Month) = daily rate for paid minutes at 100%, excluding premiums, Overtime and unworked holiday pay. Counted by day, so a week across New Year splits correctly. Only approved/released Payrolls count.
 - Generating is refused while any of her DTR entries in the week has no clock-out.
 - Only the Super Admin sees, prepares and pays the Receptionist's Payroll and CAs. Receptionist CA repayment can't exceed the balance; the screen warns when the balance is more than a week's gross.
+
+### 5.8a Inventory
+- Seeded with the owner's list (16 Items, including both pack sizes of tea lights and Epsom salt, and small/medium trash bags); reorder level 1 unit each (tissue: 6 rolls). All editable.
+- Low stock = on hand at or below the reorder level (0 = never warns). Before the opening count, everything shows as low.
+- Stock-out: refused above on hand; recorded on today's Business Day with an optional "taken by" and note. Removable the same day (Super Admin: any day).
+- Purchase Order: Receptionist or Super Admin requests (one line per Item, expected price optional) → Super Admin approves → received in one or more deliveries, each line at the price actually paid; a delivery can't exceed what is still to come. The requester can withdraw a request; the Super Admin can reject, cancel, or stop waiting for the rest of a partial delivery.
+- Purchases without an order (e.g. from the market) are recorded directly as a Stock-in with vendor, price and date.
+- Opening count (Super Admin): one quantity per Item; entering an Item again replaces its count.
+- Purchases are not yet Expenses; that link comes with Phase 9.
 
 ### 5.9 Business Day & Day Close
 - Business Day starts at first open (14:00) and ends at Day Close, regardless of midnight. Until Day Close exists, activity before 06:00 Manila counts toward the previous day.

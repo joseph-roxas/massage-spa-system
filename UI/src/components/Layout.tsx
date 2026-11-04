@@ -10,6 +10,7 @@ const NAV: { to: string; label: string; capability?: Capability }[] = [
   { to: '/vouchers', label: 'Vouchers', capability: 'sales.manage' },
   { to: '/dtr', label: 'Time Records', capability: 'dtr.correct.therapist' },
   { to: '/payroll', label: 'Payroll', capability: 'payroll.therapist.generate' },
+  { to: '/inventory', label: 'Inventory', capability: 'inventory.stock_out' },
   { to: '/price-list', label: 'Price List' },
   { to: '/settings', label: 'Settings', capability: 'settings.manage' },
   { to: '/admin/users', label: 'Users', capability: 'users.manage' },

@@ -8,6 +8,7 @@ export * from './money';
 export * from './permissions';
 export * from './pricing';
 export * from './rotation';
+export * from './staff';
 export * from './vouchers';
 export * from './payroll';
 export * from './inventory';

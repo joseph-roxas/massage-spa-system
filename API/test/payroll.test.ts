@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { businessDayOf, daysOf, lastCompletedPayWeek, manilaInstant, payWeekOf } from '@spa/domain';
-import { loggedIn, type Client } from './helpers';
+import { loggedIn, PERSON, type Client } from './helpers';
 
 async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
@@ -16,7 +16,7 @@ const lastDays = () => daysOf(last());
 let n = 0;
 async function newStaff(admin: Client, fields: Record<string, unknown>): Promise<string> {
   const name = `P${++n}`;
-  const res = await admin.post('/settings/staff', { firstName: name, lastName: 'Test', displayName: name, ...fields });
+  const res = await admin.post('/settings/staff', { ...PERSON, firstName: name, lastName: 'Test', displayName: name, ...fields });
   expect(res.status).toBe(201);
   return (await json<{ id: string }>(res)).id;
 }
@@ -126,7 +126,7 @@ describe('therapist payroll', () => {
   it('waits for every day of the week to be closed, and regenerates drafts with new CAs', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');
-    const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'lmt' });
+    const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'lmt', qualification: 'doh' });
     const [, mon] = lastDays();
     await pastSales(mon!, t, [30000]);
     await env.DB.prepare(`UPDATE business_days SET closed_at = NULL WHERE date = ?`).bind(mon).run();

@@ -3,12 +3,19 @@ import { users } from './users';
 
 export const STAFF_KINDS = ['therapist', 'receptionist'] as const;
 export const THERAPIST_CLASSES = ['regular', 'lmt'] as const;
+export const GENDERS = ['female', 'male'] as const;
+export const CIVIL_STATUSES = ['single', 'married', 'widowed', 'separated'] as const;
+/** A Therapist's training level; only `doh` (DOH-licensed) may be an LMT. */
+export const QUALIFICATIONS = ['nc2', 'doh', 'nuat_thai_trained', 'experience'] as const;
+export const CERTIFICATE_TYPES = ['nc2', 'doh'] as const;
 
 /** A person who works at the shop. Separate from users: most Staff never log in. */
 export const staff = sqliteTable('staff', {
   id: text('id').primaryKey(),
   firstName: text('first_name').notNull(),
+  /** Surname. */
   lastName: text('last_name').notNull(),
+  middleName: text('middle_name'),
   /** Name shown on the Clock-in Screen and Rotation. */
   displayName: text('display_name').notNull(),
   kind: text('kind', { enum: STAFF_KINDS }).notNull(),
@@ -22,6 +29,21 @@ export const staff = sqliteTable('staff', {
   govSss: integer('gov_sss').notNull().default(0),
   govPhic: integer('gov_phic').notNull().default(0),
   govPagibig: integer('gov_pagibig').notNull().default(0),
+  // Personal record, Super Admin only. Required for new staff; older records are completed when next edited.
+  gender: text('gender', { enum: GENDERS }),
+  birthdate: text('birthdate'),
+  birthplace: text('birthplace'),
+  civilStatus: text('civil_status', { enum: CIVIL_STATUSES }),
+  religion: text('religion'),
+  address: text('address'),
+  email: text('email'),
+  sssNo: text('sss_no'),
+  phicNo: text('phic_no'),
+  tin: text('tin'),
+  pagibigNo: text('pagibig_no'),
+  hireDate: text('hire_date'),
+  /** Therapists only. */
+  qualification: text('qualification', { enum: QUALIFICATIONS }),
   /** Clock-in Screen PIN, hashed. Null until set. */
   pinHash: text('pin_hash'),
   /** Wrong PINs in a row; reaching the limit locks the PIN for a few minutes. */
@@ -54,4 +76,18 @@ export const payRules = sqliteTable('pay_rules', {
   valueJson: text('value_json').notNull(),
   updatedAt: text('updated_at').notNull(),
   updatedBy: text('updated_by'),
+});
+
+/** A dated credential a Therapist holds: TESDA NC-II or a DOH licence. */
+export const certificates = sqliteTable('certificates', {
+  id: text('id').primaryKey(),
+  staffId: text('staff_id')
+    .notNull()
+    .references(() => staff.id),
+  type: text('type', { enum: CERTIFICATE_TYPES }).notNull(),
+  number: text('number'),
+  issuedOn: text('issued_on'),
+  expiresOn: text('expires_on'),
+  createdAt: text('created_at').notNull(),
+  createdBy: text('created_by').references(() => users.id),
 });

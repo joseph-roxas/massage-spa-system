@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import { businessDayOf, manilaInstant } from '@spa/domain';
-import { client, loggedIn, type Client } from './helpers';
+import { client, loggedIn, PERSON, type Client } from './helpers';
 
 async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
@@ -15,7 +15,7 @@ async function addStaff(
 ): Promise<string> {
   const name = `P${++n}`;
   const { id } = await json<{ id: string }>(
-    await admin.post('/settings/staff', { firstName: name, lastName: 'Test', displayName: name, ...body }),
+    await admin.post('/settings/staff', { ...PERSON, firstName: name, lastName: 'Test', displayName: name, ...body }),
   );
   if (pin) await admin.post(`/settings/staff/${id}/pin`, { pin });
   return id;

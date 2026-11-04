@@ -470,6 +470,7 @@ Nothing below is built yet. Every decision here was confirmed with the owner on 
 2. Personal and government-ID fields are visible and editable by the Super Admin only.
 3. **Qualification** per Therapist: NC-II holder, DOH-licensed, Nuat Thai trained only, experience only. Only DOH-licensed Therapists can be LMT class.
 4. **Certificates** (new table): staffId, type (`nc2` | `doh`), number, issued, expires. Needs attention alert 60 days before expiry; an LMT whose DOH Certificate expired shows "licence expired" but isn't demoted automatically.
+5. **As built** (migration 0016): the whole Staff settings API and screen were already Super Admin only (`settings.manage`), so no extra field-level hiding was needed. The API requires gender, birthdate and hire date only when a staff member is created; older records show "Personal record incomplete" and the edit form asks for them. Existing LMTs were set to `qualification = 'doh'`. Expiry badges show on the Staff list now; the Needs attention alert comes in 12.7.
 
 **12.6 Employer Contributions, 2551Q and the Income Statement**
 

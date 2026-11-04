@@ -200,6 +200,15 @@ finish() {
 
 run_wizard() {
 
+# Git Bash on Windows: open pages with `start`, since explorer.exe reports
+# failure even when it opened the page.
+if command -v cmd.exe >/dev/null 2>&1; then
+  open_url() {
+    printf '  %s↗ opening%s %s\n' "$GREEN" "$RESET" "$1"
+    cmd.exe //c start "" "$1" >/dev/null 2>&1 || warn "couldn't open a browser, so visit it manually: $1"
+  }
+fi
+
 # Run from the repo root wherever the script is started from.
 cd "$(dirname "$0")/.."
 # PowerShell's plain `bash` is WSL, which has no Node; Git Bash shares Windows' Node.
@@ -261,8 +270,9 @@ stage "API token for GitHub"
 say "GitHub needs a token to deploy to Cloudflare for you."
 open_url "https://dash.cloudflare.com/profile/api-tokens"
 step "Click 'Create Token', then 'Use template' next to 'Edit Cloudflare Workers'."
-step "Under Permissions click '+ Add more' and add:  Account · D1 · Edit"
-step "Add one more:  Account · Cloudflare Pages · Edit"
+step "The template already lists Account · Cloudflare Pages · Edit. Check the rows:"
+step "   if there is no D1 row, click '+ Add more' and add:  Account · D1 · Edit"
+note "   A greyed-out Edit means that permission is already in the list: delete the extra row."
 step "Account Resources: Include · your account.  Zone Resources: Include · All zones."
 step "Click 'Continue to summary', then 'Create Token'."
 step "Copy the token now: Cloudflare shows it only once. Keep it copied for the next stage."

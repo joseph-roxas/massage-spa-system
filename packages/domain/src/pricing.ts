@@ -16,6 +16,11 @@ export type QuoteInput = {
   startDate: IsoDate;
   startTime: HhMm;
   promos: readonly (Promo & { id: string; name: string })[];
+  /**
+   * The Promo picked at checkout: an id, or null for none. Left out, the
+   * best Promo that applies is used (and a Statutory Discount beats it).
+   */
+  promoId?: string | null;
   /** The Guest showed a Senior Citizen or PWD ID. */
   statutory?: StatutoryKind | null;
   /** Super Admin is giving this Service free. */
@@ -38,8 +43,9 @@ export type Quote = {
 const NONE = { type: 'none', bp: 0, promoId: null, label: 'No discount' } as const;
 
 /**
- * Prices one Service: at most one Discount, the largest the Guest qualifies
- * for (Statutory wins a tie, since it is the Guest's legal entitlement).
+ * Prices one Service: at most one Discount. With no Promo picked, it is the
+ * largest the Guest qualifies for (Statutory wins a tie, since it is the
+ * Guest's legal entitlement); a picked Promo applies only if it covers the Service.
  * A Voucher or Complimentary Service covers the whole Service and excludes
  * every other Discount. Add-ons go on top and are never discounted.
  */
@@ -54,7 +60,8 @@ export function quoteSale(input: QuoteInput): Quote {
     best = { type: 'complimentary', bp: 10_000, promoId: null, label: 'Complimentary Service' };
   } else {
     const service = { serviceId: input.serviceId, startDate: input.startDate, startTime: input.startTime };
-    for (const p of input.promos) {
+    const candidates = input.promoId === undefined ? input.promos : input.promos.filter((p) => p.id === input.promoId);
+    for (const p of candidates) {
       if (promoApplies(p, service) && p.percentBp > best.bp) best = { type: 'promo', bp: p.percentBp, promoId: p.id, label: p.name };
     }
     if (input.statutory && STATUTORY_DISCOUNT_BP >= best.bp) {

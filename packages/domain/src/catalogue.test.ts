@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isHhMm, isIsoDate, toManila } from './calendar';
-import { commissionRateOn, effectiveOn, promoApplies, type CommissionRate, type Promo } from './catalogue';
+import { commissionRateOn, effectiveOn, promoApplies, promoProblem, type CommissionRate, type Promo } from './catalogue';
 import { pesos } from './money';
 
 describe('effectiveOn', () => {
@@ -63,6 +63,29 @@ describe('promoApplies (Happy Hours)', () => {
   it('applies only to its Service and only while active', () => {
     expect(at('2026-11-03', '15:00', 'thai-60')).toBe(false);
     expect(promoApplies({ ...happyHours, active: false }, { serviceId: 'swedish-60', startDate: '2026-11-03', startTime: '15:00' })).toBe(false);
+  });
+});
+
+describe('promoProblem', () => {
+  const happyHours = {
+    serviceId: 'swedish-60',
+    serviceName: 'Swedish Massage (1hr)',
+    percentBp: 1000,
+    startTime: '14:00',
+    endTime: '18:00',
+    validFrom: '2026-01-01',
+    validTo: '2026-11-30',
+    active: true,
+  };
+  const at = (startDate: string, startTime: string, serviceId = 'swedish-60') => promoProblem(happyHours, { serviceId, startDate, startTime });
+
+  it('says why Happy Hours does not apply', () => {
+    expect(at('2026-11-03', '15:00')).toBeNull();
+    expect(at('2026-11-03', '15:00', 'thai-60')).toBe('Only for Swedish Massage (1hr)');
+    expect(at('2026-11-03', '18:00')).toBe('Only for services starting 2:00pm–6:00pm');
+    expect(at('2026-12-01', '15:00')).toBe('Ended 2026-11-30');
+    expect(at('2025-12-31', '15:00')).toBe('Starts 2026-01-01');
+    expect(promoProblem({ ...happyHours, active: false }, { serviceId: 'swedish-60', startDate: '2026-11-03', startTime: '15:00' })).toBe('Not running');
   });
 });
 

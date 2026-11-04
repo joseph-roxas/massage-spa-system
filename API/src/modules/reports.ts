@@ -44,7 +44,7 @@ import { requireAuth } from '../auth/middleware';
 type Db = DrizzleD1Database;
 type Range = { from: string; to: string };
 
-const CASH_OUT_LABELS: Record<string, string> = { petty_cash: 'Petty cash', supplies: 'Supplies', food: 'Food / rice', transport: 'Transport', other: 'Other' };
+const CASH_OUT_LABELS: Record<string, string> = { petty_cash: 'Petty cash', laundry: 'Laundry', supplies: 'Supplies', food: 'Food / rice', transport: 'Transport', other: 'Other' };
 
 const col = (key: string, label: string, type: Column['type'] = 'text'): Column => ({ key, label, type });
 const n = (v: unknown) => Number(v ?? 0);

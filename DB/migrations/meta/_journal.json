@@ -85,6 +85,13 @@
       "when": 1793758967711,
       "tag": "0011_expenses_royalty",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793780662315,
+      "tag": "0012_cash_out_source",
+      "breakpoints": true
     }
   ]
 }

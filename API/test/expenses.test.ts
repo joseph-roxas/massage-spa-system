@@ -112,7 +112,7 @@ describe('expenses', () => {
     expect((await admin.post('/expenses', { categoryId: 'laundry', date: today(), amount: 35000, description: 'Towels' })).status).toBe(201);
     expect((await admin.post('/expenses', { categoryId: 'royalty', date: today(), amount: 100, description: 'Royalty' })).status).toBe(409);
 
-    expect((await desk.post('/cash-outs', { category: 'food', amount: 12000, purpose: 'Rice for staff' })).status).toBe(201);
+    expect((await desk.post('/cash-outs', { category: 'laundry', amount: 12000, purpose: 'Weekly laundry' })).status).toBe(201);
     const now = new Date().toISOString();
     await env.DB.prepare(`INSERT INTO cash_outs (id, business_day, category, amount, purpose, created_at) VALUES (?, ?, 'on_call_commission', 30000, 'On-call pay', ?)`)
       .bind(crypto.randomUUID(), today(), now)
@@ -123,7 +123,7 @@ describe('expenses', () => {
     expect((await desk.post('/inventory/stock-ins', { itemId: 'bleach', vendorId, qty: 1, unitPrice: 9000, purchaseDate: today() })).status).toBe(201);
 
     const m = await json<Month>(await admin.get(`/expenses?month=${thisMonth()}`));
-    expect(m.cashOuts.map((x) => x.category)).toEqual(['food']);
+    expect(m.cashOuts.map((x) => x.category)).toEqual(['laundry']);
     expect(m.purchases).toEqual(expect.arrayContaining([expect.objectContaining({ total: 80000, fromDrawer: true }), expect.objectContaining({ total: 9000, fromDrawer: false })]));
     expect(m.totals).toEqual({ confirmed: 35000, pending: 0, cashOuts: 12000, purchases: 89000 });
 

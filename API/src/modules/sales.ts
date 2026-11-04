@@ -9,13 +9,14 @@ import {
   effectiveOn,
   normalizeSerial,
   paymentProblem,
+  promoProblem,
   quoteSale,
   redemptionProblem,
   toManila,
   type Centavos,
   type Quote,
 } from '@spa/domain';
-import { addons, bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, saleAddons, sales, servicePrices, staff, vouchers } from '@spa/db';
+import { addons, bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, saleAddons, sales, servicePrices, services, staff, vouchers } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
@@ -28,6 +29,8 @@ import { requireAuth, requireCapability } from '../auth/middleware';
 const quoteBody = z.object({
   bookingId: z.string().min(1),
   statutory: z.enum(['senior', 'pwd']).nullable().default(null),
+  /** The Promo picked at checkout, or null for none; left out, the best that applies. */
+  promoId: z.string().min(1).nullish(),
   addonIds: z.array(z.string().min(1)).max(10).default([]),
   complimentary: z.boolean().default(false),
   voucherSerial: z.string().trim().max(40).nullable().default(null),
@@ -39,6 +42,7 @@ const checkout = z.object({
     .object({ kind: z.enum(['senior', 'pwd']), idNumber: z.string().trim().min(3, 'Enter the ID number.').max(40) })
     .nullable()
     .default(null),
+  promoId: z.string().min(1).nullish(),
   addonIds: z.array(z.string().min(1)).max(10).default([]),
   /** Super Admin only. */
   complimentaryReason: z.string().trim().min(3, 'Give a short reason.').max(300).nullable().default(null),
@@ -65,6 +69,8 @@ type Priced = {
   commission: { bp: number; amount: Centavos };
   isHoliday: boolean;
   voucher: typeof vouchers.$inferSelect | null;
+  /** Every running Promo, with why it doesn't cover this Service (null if it does). */
+  promoChoices: { id: string; name: string; percentBp: number; problem: string | null }[];
 };
 
 /** Prices a finished Booking from the catalogue in force on its Business Day. */
@@ -94,7 +100,11 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
   const day = booking.businessDay;
   const [prices, allPromos, chosenAddons, therapist, holiday, rates] = await Promise.all([
     db.select().from(servicePrices).where(eq(servicePrices.serviceId, booking.serviceId)),
-    db.select().from(promos),
+    db
+      .select({ promo: promos, serviceName: services.name })
+      .from(promos)
+      .innerJoin(services, eq(services.id, promos.serviceId))
+      .where(eq(promos.active, true)),
     input.addonIds.length ? db.select().from(addons).where(inArray(addons.id, input.addonIds)) : Promise.resolve([]),
     db.select().from(staff).where(eq(staff.id, booking.therapistId)).get(),
     db.select().from(holidays).where(eq(holidays.date, day)).get(),
@@ -109,6 +119,18 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
   if (!rate) return fail(c, 409, 'no_commission_rate', 'No Commission rate is set for this therapist. Ask the Super Admin.');
   const isHoliday = !!holiday?.raisesCommission;
   const started = toManila(new Date(booking.startedAt));
+  const startedService = { serviceId: booking.serviceId, startDate: started.date, startTime: started.time };
+  const promoChoices = allPromos.map(({ promo, serviceName }) => ({
+    id: promo.id,
+    name: promo.name,
+    percentBp: promo.percentBp,
+    problem: promoProblem({ ...promo, serviceName }, startedService),
+  }));
+  if (input.promoId) {
+    const picked = promoChoices.find((p) => p.id === input.promoId);
+    if (!picked) return fail(c, 409, 'promo_unusable', 'That Promo is not running.');
+    if (picked.problem) return fail(c, 409, 'promo_unusable', `${picked.name}: ${picked.problem}.`);
+  }
 
   return {
     booking,
@@ -117,7 +139,8 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
       regularPrice: regular.regularPrice as Centavos,
       startDate: started.date,
       startTime: started.time,
-      promos: allPromos,
+      promos: allPromos.map((p) => p.promo),
+      promoId: input.promoId,
       statutory: input.statutory,
       complimentary: input.complimentary,
       voucher: voucher && { serial: voucher.serial, isFree: voucher.isFree },
@@ -127,6 +150,7 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
     commission: commissionFor(regular.regularPrice as Centavos, rate, isHoliday),
     isHoliday,
     voucher,
+    promoChoices,
   };
 }
 
@@ -140,7 +164,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
   .post('/quote', zValidator('json', quoteBody, invalidInput), async (c) => {
     const priced = await price(c, c.req.valid('json'));
     if (priced instanceof Response) return priced;
-    return c.json({ ...priced.quote, addons: priced.addonLines });
+    return c.json({ ...priced.quote, addons: priced.addonLines, promos: priced.promoChoices });
   })
 
   .post('/', zValidator('json', sale, invalidInput), async (c) => {
@@ -148,6 +172,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
     const priced = await price(c, {
       bookingId: input.bookingId,
       statutory: input.statutory?.kind ?? null,
+      promoId: input.promoId,
       addonIds: input.addonIds,
       complimentary: !!input.complimentaryReason,
       voucherSerial: input.voucherSerial,

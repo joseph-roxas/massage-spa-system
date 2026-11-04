@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { businessDayOf, dayTotals, onCallOwed, SHOP_CLOSING_TIME, toManila, type Centavos } from '@spa/domain';
-import { bookings, businessDays, CASH_OUT_CATEGORIES, cashOuts, payments, sales, services, staff, stockIns, voucherPayments, voucherSales } from '@spa/db';
+import { bookings, businessDays, cashOuts, payments, sales, services, staff, stockIns, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays, requireOpenDay } from '../lib/business-days';
@@ -15,8 +15,11 @@ import { requireAuth, requireCapability } from '../auth/middleware';
 const reasonBody = z.object({ reason: z.string().trim().min(3, 'Give a short reason.').max(300) });
 const dateParam = z.object({ date: isoDate });
 
+/** The only Cash-outs the form records; Petty cash comes from the Petty Cash Fund, Laundry from Sales Cash. */
+const FORM_CASH_OUTS = { petty_cash: 'petty', laundry: 'sales' } as const;
+
 const newCashOut = z.object({
-  category: z.enum(CASH_OUT_CATEGORIES).exclude(['on_call_commission', 'cash_advance']),
+  category: z.enum(['petty_cash', 'laundry']),
   amount: z.number().int().min(1).max(10_000_000),
   purpose: z.string().trim().min(3, 'Say what the cash was for.').max(200),
 });
@@ -206,7 +209,9 @@ export const dayRoutes = new Hono<AuthedEnv>()
     if (blocked) return blocked;
     const input = c.req.valid('json');
     const id = crypto.randomUUID();
-    await c.var.db.insert(cashOuts).values({ id, businessDay: day, ...input, createdAt: nowIso(), createdBy: c.var.user.id });
+    await c.var.db
+      .insert(cashOuts)
+      .values({ id, businessDay: day, ...input, source: FORM_CASH_OUTS[input.category], createdAt: nowIso(), createdBy: c.var.user.id });
     return c.json({ id }, 201);
   })
 

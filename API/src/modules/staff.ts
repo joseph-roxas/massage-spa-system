@@ -2,12 +2,24 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { asc, eq } from 'drizzle-orm';
-import { commissionRates, payRules, staff, STAFF_KINDS, THERAPIST_CLASSES } from '@spa/db';
+import { lmtProblem } from '@spa/domain';
+import {
+  CERTIFICATE_TYPES,
+  certificates,
+  CIVIL_STATUSES,
+  commissionRates,
+  GENDERS,
+  payRules,
+  QUALIFICATIONS,
+  staff,
+  STAFF_KINDS,
+  THERAPIST_CLASSES,
+} from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
-import { basisPoints, centavos, hhmm, name, notInPast } from '../lib/validation';
+import { basisPoints, centavos, hhmm, isoDate, name, notInPast } from '../lib/validation';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { hashPassword } from '../auth/password';
 
@@ -40,10 +52,35 @@ const isPayRuleKey = (k: string): k is PayRuleKey => k in PAY_RULE_SCHEMAS;
 
 // ---- Staff ----
 
+/** Optional text: blank is stored as null. */
+const optText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((s) => s || null)
+    .nullable()
+    .optional();
+
 const staffFields = z.object({
   firstName: name,
   lastName: name,
+  middleName: optText(60),
   displayName: z.string().trim().min(1).max(40),
+  // Personal record. ID numbers are kept as typed; a wrong length is only a warning on screen.
+  gender: z.enum(GENDERS).nullable(),
+  birthdate: isoDate.nullable(),
+  birthplace: optText(120),
+  civilStatus: z.enum(CIVIL_STATUSES).nullable().optional(),
+  religion: optText(60),
+  address: optText(300),
+  email: z.string().trim().email('Enter a valid email address.').max(120).or(z.literal('')).transform((s) => s || null).nullable().optional(),
+  sssNo: optText(30),
+  phicNo: optText(30),
+  tin: optText(30),
+  pagibigNo: optText(30),
+  hireDate: isoDate.nullable(),
+  qualification: z.enum(QUALIFICATIONS).nullable().optional(),
   kind: z.enum(STAFF_KINDS),
   therapistClass: z.enum(THERAPIST_CLASSES).nullable(),
   isOnCall: z.boolean(),
@@ -59,6 +96,11 @@ type StaffFields = z.infer<typeof staffFields>;
 /** Rules that tie the fields together, checked on the merged record. */
 function staffProblem(s: StaffFields): string | null {
   if (s.kind === 'therapist' && !s.therapistClass) return 'Pick Regular Therapist or LMT.';
+  if (s.kind === 'therapist') {
+    const lmt = lmtProblem(s.therapistClass, s.qualification ?? null);
+    if (lmt) return lmt;
+  }
+  if (s.kind === 'receptionist' && s.qualification) return 'A receptionist has no therapist qualification.';
   if (s.kind === 'receptionist' && s.therapistClass) return 'A receptionist has no therapist class.';
   if (s.kind === 'receptionist' && s.isOnCall) return 'Only therapists can be on-call.';
   if (s.kind === 'receptionist' && s.dailyRate == null) return 'A receptionist needs a daily rate.';
@@ -68,7 +110,8 @@ function staffProblem(s: StaffFields): string | null {
   return null;
 }
 
-const newStaff = staffFields.partial({
+/** New staff need surname, first name, gender, birthdate and hire date; everything else is optional. */
+const newStaff = staffFields.extend({ gender: z.enum(GENDERS), birthdate: isoDate, hireDate: isoDate }).partial({
   isOnCall: true,
   dailyRate: true,
   therapistClass: true,
@@ -85,7 +128,21 @@ const staffColumns = {
   id: staff.id,
   firstName: staff.firstName,
   lastName: staff.lastName,
+  middleName: staff.middleName,
   displayName: staff.displayName,
+  gender: staff.gender,
+  birthdate: staff.birthdate,
+  birthplace: staff.birthplace,
+  civilStatus: staff.civilStatus,
+  religion: staff.religion,
+  address: staff.address,
+  email: staff.email,
+  sssNo: staff.sssNo,
+  phicNo: staff.phicNo,
+  tin: staff.tin,
+  pagibigNo: staff.pagibigNo,
+  hireDate: staff.hireDate,
+  qualification: staff.qualification,
   kind: staff.kind,
   therapistClass: staff.therapistClass,
   isOnCall: staff.isOnCall,
@@ -103,6 +160,13 @@ function withoutPin<T extends { pinHash: string | null }>({ pinHash, ...rest }: 
   return { ...rest, hasPin: pinHash !== null };
 }
 
+const certificateFields = z.object({
+  type: z.enum(CERTIFICATE_TYPES),
+  number: optText(60),
+  issuedOn: isoDate.nullable().optional(),
+  expiresOn: isoDate.nullable().optional(),
+});
+
 const newRate = z.object({
   therapistClass: z.enum(THERAPIST_CLASSES),
   normalBp: basisPoints,
@@ -113,8 +177,11 @@ const newRate = z.object({
 export const staffRoutes = new Hono<AuthedEnv>()
   .use(requireAuth, manage)
   .get('/staff', async (c) => {
-    const rows = await c.var.db.select(staffColumns).from(staff).orderBy(asc(staff.kind), asc(staff.displayName));
-    return c.json({ staff: rows.map(withoutPin) });
+    const [rows, certs] = await Promise.all([
+      c.var.db.select(staffColumns).from(staff).orderBy(asc(staff.kind), asc(staff.displayName)),
+      c.var.db.select().from(certificates).orderBy(asc(certificates.expiresOn)),
+    ]);
+    return c.json({ staff: rows.map((r) => ({ ...withoutPin(r), certificates: certs.filter((x) => x.staffId === r.id) })) });
   })
   .post('/staff', zValidator('json', newStaff, invalidInput), async (c) => {
     const input = c.req.valid('json');
@@ -128,6 +195,7 @@ export const staffRoutes = new Hono<AuthedEnv>()
     const record: StaffFields = {
       ...input,
       therapistClass: input.therapistClass ?? null,
+      qualification: input.qualification ?? null,
       isOnCall,
       dailyRate: input.dailyRate ?? null,
       govSss: input.govSss ?? (isOnCall ? 0 : defaults.sss),
@@ -158,6 +226,46 @@ export const staffRoutes = new Hono<AuthedEnv>()
     ]);
     return c.json({ ok: true });
   })
+  // ---- Certificates ----
+  .post('/staff/:id/certificates', zValidator('json', certificateFields, invalidInput), async (c) => {
+    const db = c.var.db;
+    const person = await db.select({ id: staff.id, kind: staff.kind }).from(staff).where(eq(staff.id, c.req.param('id'))).get();
+    if (!person) return fail(c, 404, 'not_found', 'Staff member not found.');
+    if (person.kind !== 'therapist') return fail(c, 400, 'not_therapist', 'Certificates are for therapists.');
+    const input = c.req.valid('json');
+    if (input.issuedOn && input.expiresOn && input.expiresOn < input.issuedOn) return fail(c, 400, 'bad_dates', 'It cannot expire before it was issued.');
+    const id = crypto.randomUUID();
+    const row = { id, staffId: person.id, ...input, number: input.number ?? null, issuedOn: input.issuedOn ?? null, expiresOn: input.expiresOn ?? null };
+    await db.batch([
+      db.insert(certificates).values({ ...row, createdAt: nowIso(), createdBy: c.var.user.id }),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'certificate.add', entity: 'staff', entityId: person.id, after: row }),
+    ]);
+    return c.json({ id }, 201);
+  })
+  .patch('/certificates/:id', zValidator('json', certificateFields.partial(), invalidInput), async (c) => {
+    const db = c.var.db;
+    const before = await db.select().from(certificates).where(eq(certificates.id, c.req.param('id'))).get();
+    if (!before) return fail(c, 404, 'not_found', 'Certificate not found.');
+    const changes = c.req.valid('json');
+    const after = { ...before, ...changes };
+    if (after.issuedOn && after.expiresOn && after.expiresOn < after.issuedOn) return fail(c, 400, 'bad_dates', 'It cannot expire before it was issued.');
+    await db.batch([
+      db.update(certificates).set(changes).where(eq(certificates.id, before.id)),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'certificate.update', entity: 'staff', entityId: before.staffId, before, after: changes }),
+    ]);
+    return c.json({ ok: true });
+  })
+  .delete('/certificates/:id', async (c) => {
+    const db = c.var.db;
+    const before = await db.select().from(certificates).where(eq(certificates.id, c.req.param('id'))).get();
+    if (!before) return fail(c, 404, 'not_found', 'Certificate not found.');
+    await db.batch([
+      db.delete(certificates).where(eq(certificates.id, before.id)),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'certificate.delete', entity: 'staff', entityId: before.staffId, before }),
+    ]);
+    return c.json({ ok: true });
+  })
+
   .post('/staff/:id/pin', zValidator('json', pinBody, invalidInput), async (c) => {
     const db = c.var.db;
     const id = c.req.param('id');

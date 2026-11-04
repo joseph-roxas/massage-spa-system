@@ -113,6 +113,13 @@
       "when": 1793786901067,
       "tag": "0015_storage_and_shop",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1793800481786,
+      "tag": "0016_staff_records",
+      "breakpoints": true
     }
   ]
 }

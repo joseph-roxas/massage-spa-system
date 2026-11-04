@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { loggedIn, type Client } from './helpers';
+import { loggedIn, PERSON, type Client } from './helpers';
 
 async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
@@ -18,7 +18,7 @@ let n = 0;
 async function therapist(admin: Client): Promise<string> {
   const name = `T${++n}`;
   const { id } = await json<{ id: string }>(
-    await admin.post('/settings/staff', { firstName: name, lastName: 'Test', displayName: name, kind: 'therapist', therapistClass: 'regular' }),
+    await admin.post('/settings/staff', { ...PERSON, firstName: name, lastName: 'Test', displayName: name, kind: 'therapist', therapistClass: 'regular' }),
   );
   await admin.post(`/settings/staff/${id}/pin`, { pin: '1234' });
   await admin.post('/clock/punch', { staffId: id, pin: '1234', action: 'in' });

@@ -18,6 +18,9 @@ export function uniqueEmail(prefix = 'user'): string {
   return `${prefix}${++counter}-${crypto.randomUUID().slice(0, 8)}@example.test`;
 }
 
+/** The personal fields every new staff member needs. */
+export const PERSON = { gender: 'female', birthdate: '1995-05-01', hireDate: '2026-01-05' } as const;
+
 export type Client = {
   cookie: string | null;
   get(path: string): Promise<Response>;

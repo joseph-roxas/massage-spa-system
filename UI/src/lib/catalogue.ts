@@ -36,11 +36,31 @@ export type Addon = { id: string; name: string; price: number; active: boolean }
 export type Room = { id: number; name: string; isFlex: boolean; active: boolean };
 export type Holiday = { date: string; name: string; type: 'regular' | 'special'; raisesCommission: boolean };
 
+export type Qualification = 'nc2' | 'doh' | 'nuat_thai_trained' | 'experience';
+
+export type Certificate = { id: string; staffId: string; type: 'nc2' | 'doh'; number: string | null; issuedOn: string | null; expiresOn: string | null };
+
 export type StaffMember = {
   id: string;
   firstName: string;
+  /** Surname. */
   lastName: string;
+  middleName: string | null;
   displayName: string;
+  gender: 'female' | 'male' | null;
+  birthdate: string | null;
+  birthplace: string | null;
+  civilStatus: 'single' | 'married' | 'widowed' | 'separated' | null;
+  religion: string | null;
+  address: string | null;
+  email: string | null;
+  sssNo: string | null;
+  phicNo: string | null;
+  tin: string | null;
+  pagibigNo: string | null;
+  hireDate: string | null;
+  qualification: Qualification | null;
+  certificates: Certificate[];
   kind: 'therapist' | 'receptionist';
   therapistClass: 'regular' | 'lmt' | null;
   isOnCall: boolean;

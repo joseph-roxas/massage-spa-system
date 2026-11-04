@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { toManila } from '@spa/domain';
-import { loggedIn } from './helpers';
+import { loggedIn, PERSON } from './helpers';
 
 type Service = {
   id: string;
@@ -138,12 +138,14 @@ describe('staff', () => {
 
   it('creates a therapist with the default deductions and sets a PIN', async () => {
     const admin = await loggedIn('super_admin');
-    const res = await admin.post('/settings/staff', {
+    const res = await admin.post('/settings/staff', { ...PERSON,
       firstName: 'Liza',
       lastName: 'Reyes',
       displayName: 'Liza',
       kind: 'therapist',
       therapistClass: 'lmt',
+      qualification: 'doh',
+      sssNo: '34-1234567-8',
     });
     expect(res.status).toBe(201);
     const { id } = await json<{ id: string }>(res);
@@ -159,10 +161,10 @@ describe('staff', () => {
   it('gives on-call therapists no deductions and receptionists their own bracket', async () => {
     const admin = await loggedIn('super_admin');
     const onCall = await json<{ id: string }>(
-      await admin.post('/settings/staff', { firstName: 'Jun', lastName: 'Dela Cruz', displayName: 'Jun', kind: 'therapist', therapistClass: 'regular', isOnCall: true }),
+      await admin.post('/settings/staff', { ...PERSON, firstName: 'Jun', lastName: 'Dela Cruz', displayName: 'Jun', kind: 'therapist', therapistClass: 'regular', isOnCall: true }),
     );
     const desk = await json<{ id: string }>(
-      await admin.post('/settings/staff', { firstName: 'Maria', lastName: 'Santos', displayName: 'Maria', kind: 'receptionist', dailyRate: 69200 }),
+      await admin.post('/settings/staff', { ...PERSON, firstName: 'Maria', lastName: 'Santos', displayName: 'Maria', kind: 'receptionist', dailyRate: 69200 }),
     );
     const { staff } = await json<{ staff: StaffRow[] }>(await admin.get('/settings/staff'));
     expect(staff.find((s) => s.id === onCall.id)).toMatchObject({ govSss: 0, govPhic: 0, govPagibig: 0 });
@@ -172,9 +174,38 @@ describe('staff', () => {
   it('enforces the staff rules', async () => {
     const admin = await loggedIn('super_admin');
     const base = { firstName: 'A', lastName: 'B', displayName: 'AB' };
-    expect((await admin.post('/settings/staff', { ...base, kind: 'therapist' })).status).toBe(400);
-    expect((await admin.post('/settings/staff', { ...base, kind: 'receptionist' })).status).toBe(400);
-    expect((await admin.post('/settings/staff', { ...base, kind: 'receptionist', dailyRate: 1, isOnCall: true })).status).toBe(400);
+    expect((await admin.post('/settings/staff', { ...PERSON, ...base, kind: 'therapist' })).status).toBe(400);
+    expect((await admin.post('/settings/staff', { ...PERSON, ...base, kind: 'receptionist' })).status).toBe(400);
+    expect((await admin.post('/settings/staff', { ...PERSON, ...base, kind: 'receptionist', dailyRate: 1, isOnCall: true })).status).toBe(400);
+    // Personal fields are required for new staff.
+    expect((await admin.post('/settings/staff', { ...base, kind: 'therapist', therapistClass: 'regular' })).status).toBe(400);
+    // Only a DOH-licensed therapist can be an LMT.
+    expect((await admin.post('/settings/staff', { ...PERSON, ...base, kind: 'therapist', therapistClass: 'lmt', qualification: 'nc2' })).status).toBe(400);
+    const { id } = await json<{ id: string }>(
+      await admin.post('/settings/staff', { ...PERSON, ...base, kind: 'therapist', therapistClass: 'regular', qualification: 'nc2' }),
+    );
+    expect((await admin.send('PATCH', `/settings/staff/${id}`, { therapistClass: 'lmt' })).status).toBe(400);
+    expect((await admin.send('PATCH', `/settings/staff/${id}`, { therapistClass: 'lmt', qualification: 'doh' })).status).toBe(200);
+  });
+
+  it('keeps each therapist\'s Certificates, Super Admin only', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const { id } = await json<{ id: string }>(
+      await admin.post('/settings/staff', { ...PERSON, firstName: 'Ana', lastName: 'Cruz', displayName: 'Ana C', kind: 'therapist', therapistClass: 'lmt', qualification: 'doh' }),
+    );
+    const doh = { type: 'doh', number: 'DOH-123', issuedOn: '2025-01-10', expiresOn: '2028-01-10' };
+    expect((await desk.post(`/settings/staff/${id}/certificates`, doh)).status).toBe(403);
+    expect((await admin.post(`/settings/staff/${id}/certificates`, { ...doh, expiresOn: '2024-01-01' })).status).toBe(400);
+    const { id: cert } = await json<{ id: string }>(await admin.post(`/settings/staff/${id}/certificates`, doh));
+    await admin.post(`/settings/staff/${id}/certificates`, { type: 'nc2', expiresOn: '2027-06-30' });
+
+    type Row = { id: string; certificates: { id: string; type: string; expiresOn: string }[] };
+    const mine = async () => (await json<{ staff: Row[] }>(await admin.get('/settings/staff'))).staff.find((s) => s.id === id)!;
+    expect((await mine()).certificates.map((x) => x.type)).toEqual(['nc2', 'doh']);
+    expect((await admin.send('PATCH', `/settings/certificates/${cert}`, { expiresOn: '2029-01-10' })).status).toBe(200);
+    expect((await admin.send('DELETE', `/settings/certificates/${cert}`)).status).toBe(200);
+    expect((await mine()).certificates).toHaveLength(1);
   });
 });
 

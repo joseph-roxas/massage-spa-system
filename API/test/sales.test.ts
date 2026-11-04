@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { businessDayOf, toManila } from '@spa/domain';
-import { client, loggedIn, seedUser, type Client } from './helpers';
+import { client, loggedIn, PERSON, seedUser, type Client } from './helpers';
 
 async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
@@ -18,7 +18,7 @@ let n = 0;
 async function therapist(admin: Client, opts: { isOnCall?: boolean } = {}): Promise<string> {
   const name = `S${++n}`;
   const { id } = await json<{ id: string }>(
-    await admin.post('/settings/staff', { firstName: name, lastName: 'Test', displayName: name, kind: 'therapist', therapistClass: 'regular', ...opts }),
+    await admin.post('/settings/staff', { ...PERSON, firstName: name, lastName: 'Test', displayName: name, kind: 'therapist', therapistClass: 'regular', ...opts }),
   );
   await admin.post(`/settings/staff/${id}/pin`, { pin: '1234' });
   await admin.post('/clock/punch', { staffId: id, pin: '1234', action: 'in' });

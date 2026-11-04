@@ -119,6 +119,8 @@ export function useSave<TInput>(
       const { path, method, body } = request(input);
       return api(path, { method: method ?? 'POST', body: body ?? {} });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: [invalidates] }),
+    onSuccess: () => {
+      for (const key of [invalidates, 'attention']) qc.invalidateQueries({ queryKey: [key] });
+    },
   });
 }

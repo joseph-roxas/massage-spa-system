@@ -54,7 +54,7 @@ export function useCashAction() {
   return useMutation({
     mutationFn: (req: { path: string; body?: unknown; method?: string }) => api<{ id?: string }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
     onSettled: () => {
-      for (const key of ['cash', 'cash-outs', 'close-preview', 'front-desk']) qc.invalidateQueries({ queryKey: [key] });
+      for (const key of ['cash', 'cash-outs', 'close-preview', 'front-desk', 'attention']) qc.invalidateQueries({ queryKey: [key] });
     },
   });
 }

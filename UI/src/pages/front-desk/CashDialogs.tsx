@@ -3,7 +3,7 @@ import { topUpNeeded } from '@spa/domain';
 import { Alert, Button, Field, Input } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useCashAction, useCashSummary } from '../../lib/cash';
-import { dueText, useTaxDue } from '../../lib/finance';
+import { useAttention } from '../../lib/attention';
 import { Link } from 'react-router';
 import { longDate, parsePesos, peso, pesosText } from '../../lib/format';
 
@@ -116,20 +116,25 @@ export function TopUpDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** From the day a quarter ends until it is filed: the 2551Q to pay, red in its last week. */
-export function TaxReminder({ enabled }: { enabled: boolean }) {
-  const { data } = useTaxDue(enabled);
-  const due = data?.due;
-  if (!enabled || !due) return null;
-  const urgent = due.daysLeft <= 7;
+/** Everything waiting on the owner, urgent first; each links to where it is done. */
+export function NeedsAttention({ enabled }: { enabled: boolean }) {
+  const { data } = useAttention(enabled);
+  const items = data?.items ?? [];
+  if (!enabled || !items.length) return null;
   return (
-    <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm ${urgent ? 'border-red-300 bg-red-50 text-red-900' : 'border-stone-200 bg-white text-stone-700'}`}>
-      <span className="flex-1">
-        <span className="font-semibold">2551Q for {due.quarter}: {peso(due.tax)}</span> {dueText(due)}.
-      </span>
-      <Link to="/finance" className="text-sm font-medium underline">
-        File it
-      </Link>
-    </div>
+    <section aria-label="Needs attention" className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm">
+      <h2 className="mb-2 font-semibold text-amber-900">Needs attention ({items.length})</h2>
+      <ul className="space-y-1.5">
+        {items.map((i) => (
+          <li key={i.key} className="flex flex-wrap items-baseline gap-x-2">
+            <span className={`h-2 w-2 shrink-0 translate-y-[-1px] rounded-full ${i.tone === 'urgent' ? 'bg-red-600' : 'bg-amber-500'}`} />
+            <Link to={i.link} className={`font-medium underline-offset-2 hover:underline ${i.tone === 'urgent' ? 'text-red-800' : 'text-stone-800'}`}>
+              {i.title}
+            </Link>
+            {i.detail && <span className="text-xs text-stone-600">{i.detail}</span>}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

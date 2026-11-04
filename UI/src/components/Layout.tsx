@@ -14,7 +14,9 @@ const NAV: { to: string; label: string; capability?: Capability }[] = [
   { to: '/expenses', label: 'Expenses', capability: 'expenses.manage' },
   { to: '/reports', label: 'Reports', capability: 'reports.daily' },
   { to: '/price-list', label: 'Price List' },
+  { to: '/paper-sheet', label: 'Paper backup', capability: 'bookings.manage' },
   { to: '/settings', label: 'Settings', capability: 'settings.manage' },
+  { to: '/admin/go-live', label: 'Go-live', capability: 'settings.manage' },
   { to: '/admin/users', label: 'Users', capability: 'users.manage' },
 ];
 

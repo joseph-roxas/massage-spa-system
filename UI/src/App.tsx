@@ -14,6 +14,8 @@ import { PayrollPage } from './pages/PayrollPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { ExpensesPage } from './pages/ExpensesPage';
 import { ReportsPage } from './pages/ReportsPage';
+import { GoLivePage } from './pages/GoLivePage';
+import { PaperSheetPage } from './pages/PaperSheetPage';
 import { PayslipPage } from './pages/payroll/PayslipPage';
 import { SettingsLayout } from './pages/settings/SettingsLayout';
 import { ServicesSettings } from './pages/settings/ServicesSettings';
@@ -60,6 +62,22 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="sales.manage">
             <VouchersPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/admin/go-live',
+        element: (
+          <RequireCapability capability="settings.manage">
+            <GoLivePage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/paper-sheet',
+        element: (
+          <RequireCapability capability="bookings.manage">
+            <PaperSheetPage />
           </RequireCapability>
         ),
       },

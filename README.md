@@ -56,6 +56,15 @@ Migrations must stay backwards-compatible with the running API, since DB and API
 
 ### One-time Cloudflare setup
 
+The easy way: run the guided setup in Git Bash from the repo folder. It opens each page, says what to click, and runs the commands for you:
+
+```bash
+bash scripts/go-live-setup.sh
+```
+
+It saves the account and database ids (not the token) to `.deploy.env`, which is never committed. The same steps by hand:
+
+
 1. Create a free Cloudflare account.
 2. Create the database and note its id:
    ```bash
@@ -72,6 +81,7 @@ Migrations must stay backwards-compatible with the running API, since DB and API
    D1_DATABASE_ID=<id from step 2> npm run admin:create -w API -- --remote
    ```
    Run it again any time to reset the Super Admin password.
+7. Log in and open **Go-live** in the menu: it lists what is left (staff and PINs, the receptionist's rate and login, stock count, Cash Advance balances, paper vouchers) and the Sunday to start on. **Paper backup** in the menu prints the sheet for days the internet is down.
 
 ### Approval emails (optional)
 

@@ -5,6 +5,7 @@ import {
   dayKind,
   defaultRepayment,
   lastCompletedPayWeek,
+  nextPayWeekStart,
   payWeekOf,
   receptionistDay,
   receptionistPayroll,
@@ -53,6 +54,11 @@ describe('Pay Week', () => {
     expect(payWeekOf('2026-11-04')).toEqual({ start: '2026-11-01', end: '2026-11-07' });
     expect(payWeekOf('2026-11-01')).toEqual({ start: '2026-11-01', end: '2026-11-07' });
     expect(payWeekOf('2026-11-07')).toEqual({ start: '2026-11-01', end: '2026-11-07' });
+  });
+  it('goes live on the next Sunday', () => {
+    expect(nextPayWeekStart('2026-11-04')).toBe('2026-11-08');
+    expect(nextPayWeekStart('2026-11-08')).toBe('2026-11-08');
+    expect(nextPayWeekStart('2026-11-07')).toBe('2026-11-08');
   });
   it('last completed week is the one before', () => {
     expect(lastCompletedPayWeek('2026-11-04')).toEqual({ start: '2026-10-25', end: '2026-10-31' });

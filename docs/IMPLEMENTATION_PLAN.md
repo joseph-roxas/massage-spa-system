@@ -260,6 +260,11 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - "Requested" in Sales per therapist counts Guests who asked for that therapist and were served by them.
 - Receptionist: Daily sales and Guests per day, for today only.
 
+### 5.8c Go-live
+- `scripts/go-live-setup.sh` walks the owner through Cloudflare + GitHub setup (account, wrangler login, D1 create, token, secrets, Deploy all, production Super Admin).
+- The **Go-live** screen (Super Admin) checks readiness from live data: staff and PINs, receptionist rate and login, prices, holidays, stock count; paper vouchers and CA balances are "if needed". It names the next Sunday to start on, so the first Pay Week is whole.
+- **Paper backup** (Receptionist and Super Admin) prints an A4 landscape log: guests (start/done, service code, therapist, requested, room, discount/ID/serial, oil, paid, cash/GCash ref, "entered" tick), staff in/out in arrival order, Cash-outs, counted cash, and the price list by code. Paper lines are entered in the system once it is back, before that day's Day Close. Entering a day that was never opened online (a whole day offline) is not supported yet.
+
 ### 5.9 Business Day & Day Close
 - Business Day starts at first open (14:00) and ends at Day Close, regardless of midnight. Until Day Close exists, activity before 06:00 Manila counts toward the previous day.
 - Day Close shows expected Cash (cash payments − Cash-outs) and expected GCash; receptionist enters counted cash; variance stored. Day becomes read-only.

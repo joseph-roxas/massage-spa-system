@@ -25,6 +25,11 @@ export function lastCompletedPayWeek(date: IsoDate): PayWeek {
   return payWeekOf(addDays(payWeekOf(date).start, -1));
 }
 
+/** The first Pay Week that starts on or after `date`: a good day to go live. */
+export function nextPayWeekStart(date: IsoDate): IsoDate {
+  return weekdayOf(date) === 0 ? date : addDays(payWeekOf(date).end, 1);
+}
+
 export function daysOf(week: PayWeek): IsoDate[] {
   return Array.from({ length: 7 }, (_, i) => addDays(week.start, i));
 }

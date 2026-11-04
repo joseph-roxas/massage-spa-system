@@ -7,3 +7,4 @@ dist/
 .DS_Store
 API/.super-admin.sql
 API/.wrangler-remote.toml
+.deploy.env

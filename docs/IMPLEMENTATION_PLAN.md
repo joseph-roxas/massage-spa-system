@@ -254,6 +254,12 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 - Opening count (Super Admin): one quantity per Item; entering an Item again replaces its count.
 - Purchases are not yet Expenses; that link comes with Phase 9.
 
+### 5.8b Reports
+- Every report is one table for a date range (max one year) by Business Day, with a totals row, a short note, and Excel/CSV download of exactly that table. Charts: daily Services-paid bars, commission/spending ranked bars, and a Service × start-hour heatmap.
+- FOC report groups: Senior, PWD, Promo, Voucher paid (Prepaid FOC), Voucher free 5+1 (Real FOC), Complimentary (Real FOC), with what the shop covered and the commission still paid.
+- "Requested" in Sales per therapist counts Guests who asked for that therapist and were served by them.
+- Receptionist: Daily sales and Guests per day, for today only.
+
 ### 5.9 Business Day & Day Close
 - Business Day starts at first open (14:00) and ends at Day Close, regardless of midnight. Until Day Close exists, activity before 06:00 Manila counts toward the previous day.
 - Day Close shows expected Cash (cash payments − Cash-outs) and expected GCash; receptionist enters counted cash; variance stored. Day becomes read-only.
@@ -285,7 +291,7 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 | inventory | items, vendors, `POST /stock-outs`, purchase orders (request/approve/receive → stock-in), `GET /inventory/on-hand` |
 | expenses | CRUD, recurring templates, confirm pending |
 | royalty | `GET /royalty?month=`, `POST /royalty/:id/confirm` |
-| reports | `GET /reports/{daily-sales|therapist-sales|guests|service-time-heatmap|foc|addons|royalty|payroll|inventory|expenses}?from=&to=&format=json|xlsx|csv` |
+| reports | `GET /reports/{daily-sales|therapist-sales|guests|service-times|foc|addons|payroll|inventory|expenses}?from=&to=` → one table (typed columns, rows, totals). Excel/CSV are made in the browser from that table (keeps the Worker light); Royalty lives on the Expenses screen. |
 | settings | services & prices, promos, holidays, commission rates, pay rules, rooms |
 
 **Cron Trigger** — one daily `0 22 * * *` (06:00 Manila, after even late closings):

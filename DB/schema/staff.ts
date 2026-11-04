@@ -25,6 +25,13 @@ export const staff = sqliteTable('staff', {
   isOnCall: integer('is_on_call', { mode: 'boolean' }).notNull().default(false),
   /** Receptionist only, centavos. */
   dailyRate: integer('daily_rate'),
+  /**
+   * Monthly salary basis for SSS, PhilHealth and Pag-IBIG, centavos. When set,
+   * Payroll deducts the bracket's monthly employee share split over the month's
+   * Pay Weeks, and the employer share is drafted as an Expense. When null, the
+   * fixed weekly amounts below are used (records from before brackets).
+   */
+  contributionBase: integer('contribution_base'),
   /** Weekly employee share, centavos. */
   govSss: integer('gov_sss').notNull().default(0),
   govPhic: integer('gov_phic').notNull().default(0),

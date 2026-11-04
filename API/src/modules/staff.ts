@@ -45,6 +45,11 @@ export const PAY_RULE_SCHEMAS = {
     regularUnworkedPct: z.number().min(0).max(1000),
   }),
   gov_deduction_defaults: z.object({ therapist: govShares, receptionist: govShares }),
+  contribution_rates: z.object({
+    sss: z.object({ eeBp: basisPoints, erBp: basisPoints, mscMin: centavos, mscMax: centavos, mscStep: centavos.min(1), ecLow: centavos, ecHigh: centavos, ecHighFromMsc: centavos }),
+    phic: z.object({ bp: basisPoints, floor: centavos, ceiling: centavos }),
+    pagibig: z.object({ eeBp: basisPoints, eeLowBp: basisPoints, lowUpTo: centavos, erBp: basisPoints, fundSalaryMax: centavos }),
+  }),
 } as const;
 
 type PayRuleKey = keyof typeof PAY_RULE_SCHEMAS;
@@ -85,6 +90,8 @@ const staffFields = z.object({
   therapistClass: z.enum(THERAPIST_CLASSES).nullable(),
   isOnCall: z.boolean(),
   dailyRate: centavos.nullable(),
+  /** Monthly salary basis for SSS, PhilHealth and Pag-IBIG brackets. */
+  contributionBase: centavos.nullable().optional(),
   govSss: centavos,
   govPhic: centavos,
   govPagibig: centavos,
@@ -104,6 +111,7 @@ function staffProblem(s: StaffFields): string | null {
   if (s.kind === 'receptionist' && s.therapistClass) return 'A receptionist has no therapist class.';
   if (s.kind === 'receptionist' && s.isOnCall) return 'Only therapists can be on-call.';
   if (s.kind === 'receptionist' && s.dailyRate == null) return 'A receptionist needs a daily rate.';
+  if (s.isOnCall && s.contributionBase != null) return 'On-call therapists have no government contributions.';
   if (s.isOnCall && s.govSss + s.govPhic + s.govPagibig > 0) {
     return 'On-call therapists have no government deductions.';
   }
@@ -147,6 +155,7 @@ const staffColumns = {
   therapistClass: staff.therapistClass,
   isOnCall: staff.isOnCall,
   dailyRate: staff.dailyRate,
+  contributionBase: staff.contributionBase,
   govSss: staff.govSss,
   govPhic: staff.govPhic,
   govPagibig: staff.govPagibig,

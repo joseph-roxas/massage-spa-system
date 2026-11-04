@@ -19,6 +19,7 @@ import { expenseRoutes } from './modules/expenses';
 import { reportRoutes } from './modules/reports';
 import { goLiveRoutes } from './modules/golive';
 import { cashRoutes } from './modules/cash';
+import { financeRoutes } from './modules/finance';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
 
@@ -57,6 +58,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/', reportRoutes)
     .route('/', goLiveRoutes)
     .route('/', cashRoutes)
+    .route('/', financeRoutes)
     .notFound((c) => fail(c, 404, 'not_found', 'No such endpoint.'))
     .onError((err, c) => {
       console.error(err);

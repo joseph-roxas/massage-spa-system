@@ -29,6 +29,7 @@ import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
 import { fail, invalidInput } from '../lib/http';
+import { contributionRates, weeklyDeductions } from '../lib/contributions';
 import { currentTransferDay } from '../lib/sales-cash';
 import { nowIso } from '../lib/time';
 import { centavos, isoDate } from '../lib/validation';
@@ -49,7 +50,6 @@ const APPROVE: Record<Kind, Capability> = { therapist: 'payroll.therapist.approv
 const ADVANCE: Record<Kind, Capability> = { therapist: 'cash_advance.therapist', receptionist: 'payroll.receptionist.manage' };
 
 const kindOf = (s: Staff): Kind => (s.kind === 'receptionist' ? 'receptionist' : 'therapist');
-const govOf = (s: Staff) => ({ sss: s.govSss, phic: s.govPhic, pagibig: s.govPagibig });
 const today = () => businessDayOf(new Date());
 
 async function receptionistRules(db: Db): Promise<ReceptionistRules> {
@@ -74,7 +74,7 @@ async function caBalance(db: Db, staffId: string) {
 
 /** A Therapist's week as it stands now, from sales, DTR and CAs taken against it. */
 async function therapistWeek(db: Db, person: Staff, week: PayWeek) {
-  const [commissions, worked, advances] = await Promise.all([
+  const [commissions, worked, advances, rates] = await Promise.all([
     db
       .select({ businessDay: sales.businessDay, amount: sales.commissionAmount })
       .from(sales)
@@ -84,9 +84,10 @@ async function therapistWeek(db: Db, person: Staff, week: PayWeek) {
       .from(dtr)
       .where(and(eq(dtr.staffId, person.id), gte(dtr.businessDay, week.start), lte(dtr.businessDay, week.end))),
     db.select().from(cashAdvances).where(and(eq(cashAdvances.staffId, person.id), eq(cashAdvances.againstWeekStart, week.start))),
+    contributionRates(db),
   ]);
   const taken = advances.reduce((s, a) => s + a.amount, 0);
-  const pay = therapistPayroll({ week, commissions, daysWorked: worked.map((w) => w.day), gov: govOf(person), cashAdvances: taken });
+  const pay = therapistPayroll({ week, commissions, daysWorked: worked.map((w) => w.day), gov: weeklyDeductions(person, rates, week.end), cashAdvances: taken });
   return { pay, taken, advances };
 }
 
@@ -212,6 +213,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     } else {
       const rules = await receptionistRules(db);
       const balances = await caBalances(db);
+      const rates = await contributionRates(db);
       for (const person of people.filter((p) => !fixed.has(p.id))) {
         const result = await receptionistDays(db, person, week, rules);
         if (!result.days) return fail(c, 409, 'dtr_open', `${person.displayName} has no clock-out on ${result.openEntryDay}. Fix the DTR first.`);
@@ -225,7 +227,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
           .orderBy(desc(payrolls.weekStart))
           .get();
         const repayment = Math.min(draft ? draft.caDeduction : defaultRepayment(previous?.caDeduction ?? 0, balance), balance);
-        const { basic, ...pay } = receptionistPayroll({ days: result.days, gov: govOf(person), caRepayment: repayment });
+        const { basic, ...pay } = receptionistPayroll({ days: result.days, gov: weeklyDeductions(person, rates, week.end), caRepayment: repayment });
         rows.push({ id: crypto.randomUUID(), weekStart: week.start, staffId: person.id, kind, ...pay, basic, breakdownJson: JSON.stringify(result.days), generatedAt: now, generatedBy: c.var.user.id });
       }
     }

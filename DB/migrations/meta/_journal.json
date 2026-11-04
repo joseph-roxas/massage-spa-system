@@ -120,6 +120,13 @@
       "when": 1793800481786,
       "tag": "0016_staff_records",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1793801184967,
+      "tag": "0017_contributions_and_tax",
+      "breakpoints": true
     }
   ]
 }

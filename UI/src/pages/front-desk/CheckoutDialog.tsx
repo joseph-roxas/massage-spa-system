@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from 'react';
-import { Alert, Button, Checkbox, Field, Input, Select } from '../../components/ui';
+import { Alert, Badge, Button, Checkbox, Field, Input, Select } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useCan } from '../../lib/auth';
 import { useAddons } from '../../lib/catalogue';
-import { peso, percent } from '../../lib/format';
+import { longDate, peso, percent } from '../../lib/format';
 import { guestLabel, type Booking } from '../../lib/front-desk';
 import { useDayAction, useQuote } from '../../lib/sales';
+import { useVouchers, type VoucherBundle } from '../../lib/vouchers';
+import { toManila } from '@spa/domain';
 import { usePayment } from './PaymentFields';
 
 /** A Discount dropdown value: `promo:<id>` for a Promo. */
@@ -16,6 +18,32 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
     <div className={`flex justify-between ${strong ? 'border-t border-stone-200 pt-2 text-base font-semibold' : 'text-sm'}`}>
       <span>{label}</span>
       <span className="tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+/** Who bought the Voucher's Bundle, when, and how many are used, so the desk can double-check. */
+function BundlePanel({ bundle }: { bundle: VoucherBundle }) {
+  const used = bundle.vouchers.filter((v) => v.redeemedAt);
+  return (
+    <div className="space-y-2 rounded-lg border border-stone-200 p-3 text-sm">
+      <p>
+        Bought by <span className="font-medium">{bundle.buyerName ?? 'unknown'}</span>
+        {bundle.buyerPhone && ` (${bundle.buyerPhone})`}
+        {bundle.soldOn ? ` on ${longDate(bundle.soldOn)}` : ' before the system'}
+        {bundle.qtyPaid !== null && ` · ${used.length} of ${bundle.vouchers.length} used`}
+      </p>
+      {used.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-stone-600">
+          {used.map((v) => (
+            <li key={v.serial} className="font-mono">
+              {v.serial} · used {longDate(toManila(new Date(v.redeemedAt!)).date)}
+              {v.free && ' · Free'}
+            </li>
+          ))}
+        </ul>
+      )}
+      {bundle.thisIsFree && <Badge tone="teal">This one is free (Real FOC)</Badge>}
     </div>
   );
 }
@@ -42,6 +70,7 @@ export function CheckoutDialog({ booking, onClose }: { booking: Booking; onClose
   // Until a voucher is found, a quote without one must not stand in for it. (Submit also waits while re-pricing.)
   const q = chosen === 'voucher' && (!voucherSerial || quote.isError || quote.data?.discount.type !== 'voucher') ? undefined : quote.data;
   const due = q?.amountDue ?? 0;
+  const unused = useVouchers({ serviceId: booking.serviceId, status: 'unused' }, chosen === 'voucher');
   const pay = usePayment(due);
 
   function submit(e: FormEvent) {
@@ -98,10 +127,20 @@ export function CheckoutDialog({ booking, onClose }: { booking: Booking; onClose
           </Field>
         )}
         {chosen === 'voucher' && (
-          <Field label="Voucher serial number" hint="Only for this exact service; no upgrades">
-            <Input required autoFocus value={serial} onChange={(e) => setSerial(e.target.value)} placeholder="E.g. SWE-7K3M9P" />
+          <Field label="Voucher serial number" hint="Only for this exact service; no upgrades. Dashes and case don't matter.">
+            <Input required autoFocus list="unused-vouchers" value={serial} onChange={(e) => setSerial(e.target.value)} placeholder="E.g. NTL-SM-0271" />
+            <datalist id="unused-vouchers">
+              {(unused.data?.vouchers ?? [])
+                .filter((v) => v.serviceId === booking.serviceId)
+                .map((v) => (
+                  <option key={v.id} value={v.serial}>
+                    {v.buyerName ?? ''}
+                  </option>
+                ))}
+            </datalist>
           </Field>
         )}
+        {chosen === 'voucher' && q?.voucherBundle && <BundlePanel bundle={q.voucherBundle} />}
         {chosen === 'complimentary' && (
           <Field label="Why is this complimentary?" hint="Counted as a Real FOC; the therapist still earns Commission">
             <Input required minLength={3} autoFocus value={reason} onChange={(e) => setReason(e.target.value)} />

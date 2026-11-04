@@ -11,6 +11,8 @@ export type Service = {
   kind: 'single' | 'combo';
   isFootType: boolean;
   voucherEligible: boolean;
+  /** Printed before each Voucher card's number, e.g. "NTL-SM". */
+  voucherPrefix: string | null;
   active: boolean;
   sortOrder: number;
   currentPrice: number | null;

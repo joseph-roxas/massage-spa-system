@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
+import type { VoucherBundle } from './vouchers';
 
 export type DiscountType = 'none' | 'senior' | 'pwd' | 'promo' | 'voucher' | 'complimentary';
 
@@ -23,6 +24,7 @@ export type Quote = {
   addons: { id: string; name: string; price: number }[];
   /** Every running Promo, with why it doesn't cover this Service (null if it does). */
   promos: { id: string; name: string; percentBp: number; problem: string | null }[];
+  voucherBundle: VoucherBundle | null;
 };
 
 export type PaymentLine = { method: 'cash' | 'gcash'; amount: number; gcashRef?: string | null };
@@ -96,7 +98,7 @@ export function useDayAction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (req: { path: string; body?: unknown; method?: string }) =>
-      api<{ id?: string; total?: number; serials?: { serial: string; isFree: boolean }[] }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
+      api<{ id?: string; total?: number; serials?: string[] }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
     onSettled: () => {
       for (const key of ['front-desk', 'cash-outs', 'close-preview', 'voucher-sales', 'vouchers']) qc.invalidateQueries({ queryKey: [key] });
     },

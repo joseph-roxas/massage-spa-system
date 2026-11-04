@@ -12,6 +12,8 @@ export const services = sqliteTable('services', {
   /** May be done on the Flex Room recliner. */
   isFootType: integer('is_foot_type', { mode: 'boolean' }).notNull().default(false),
   voucherEligible: integer('voucher_eligible', { mode: 'boolean' }).notNull().default(false),
+  /** Branch and Service code printed before a Voucher card's number, e.g. "NTL-SM". */
+  voucherPrefix: text('voucher_prefix').unique(),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),

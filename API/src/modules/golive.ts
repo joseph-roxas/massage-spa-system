@@ -14,13 +14,14 @@ export const goLiveRoutes = new Hono<AuthedEnv>().get('/go-live/status', require
   const db = c.var.db;
   const today = businessDayOf(new Date());
   const year = today.slice(0, 4);
-  const [people, desks, svc, priced, hols, imported, openings, counted] = await Promise.all([
+  const [people, desks, svc, priced, hols, imported, cards, openings, counted] = await Promise.all([
     db.select({ kind: staff.kind, isOnCall: staff.isOnCall, hasPin: sql<number>`${staff.pinHash} is not null`, dailyRate: staff.dailyRate }).from(staff).where(eq(staff.active, true)),
     db.select({ n: count }).from(users).where(and(eq(users.role, 'receptionist'), eq(users.status, 'active'))).get(),
     db.select({ n: count }).from(services).where(eq(services.active, true)).get(),
     db.select({ n: sql<number>`count(distinct ${servicePrices.serviceId})` }).from(servicePrices).get(),
     db.select({ n: count }).from(holidays).where(gte(holidays.date, `${year}-01-01`)).get(),
     db.select({ n: count }).from(vouchers).where(and(eq(vouchers.imported, true), isNull(vouchers.redeemedSaleId))).get(),
+    db.select({ n: count }).from(vouchers).where(eq(vouchers.status, 'in_shop')).get(),
     db.select({ n: count }).from(caLedger).where(eq(caLedger.entry, 'opening')).get(),
     db.select({ n: count }).from(stockIns).where(eq(stockIns.kind, 'opening')).get(),
   ]);
@@ -76,9 +77,9 @@ export const goLiveRoutes = new Hono<AuthedEnv>().get('/go-live/status', require
     },
     {
       key: 'vouchers',
-      label: 'Enter unused paper vouchers',
-      status: n(imported) > 0 ? 'done' : 'optional',
-      detail: n(imported) ? `${n(imported)} paper voucher(s) entered` : 'Only if guests still hold paper vouchers',
+      label: 'Count voucher cards: unsold ones at the shop, and sold ones not yet used',
+      status: n(cards) > 0 ? 'done' : 'todo',
+      detail: `${n(cards)} unsold card(s) at the shop, ${n(imported)} sold paper voucher(s) still unused`,
       link: '/vouchers',
     },
     {

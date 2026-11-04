@@ -426,11 +426,12 @@ Nothing below is built yet. Every decision here was confirmed with the owner on 
 **12.2 Vouchers: serials, endorsements, sales history, last-used free rule**
 
 1. **Voucher Serial format** is `NTL-SM-0271`: branch code, Service voucher code, 4-digit counter.
-   - New setting: branch code (`NTL`). New per-Service field `voucherCode` (AM, SM, VM, TB), separate from the existing `services.code`.
+   - Built as one per-Service field `voucherPrefix` holding branch + Service code (`NTL-AM`, `NTL-SM`, `NTL-VM`, `NTL-TB`, seeded by migration 0013), separate from `services.code`; no separate branch setting.
    - `normalizeSerial()` accepts `NTLSM0271`, `ntl-sm 0271`, etc., and checkout searches serials as you type.
    - Retire `newSerial()` random generation; nobody generates serials in the app.
 2. **Voucher Endorsement**: the Super Admin records Service + counter range (e.g. SM 0271–0320, date). It appears on the Receptionist's For Receiving list (shared with Turnovers, 12.4); receiving creates the serials as `in_shop`.
-   - Voucher statuses become `in_shop` → `sold` → `redeemed`, plus `voided` (damaged/lost card, Super Admin only).
+   - Voucher statuses are `in_shop` → `unused` (sold) → `redeemed`, plus `voided` (damaged/lost card, Super Admin only). Cancelling a voucher sale puts its cards back `in_shop`.
+   - Until 12.4 builds the shared For Receiving list, pending Endorsements show at the top of `VouchersPage`.
 3. **Sell dialog** (`SellVouchersDialog.tsx`): the Receptionist picks **each** serial from a dropdown of received, unsold serials for that Service; no auto-fill, no generate. Buyer name required, phone optional. API checks every serial is `in_shop` and for the right Service.
 4. **Voucher sales history** on `VouchersPage`: filter by date range, buyer or serial. Each Bundle row shows date sold, buyer, phone, each serial, how many used and when each was used. Also an "In shop" count per Service.
 5. **Free = last redeemed.** At redemption, count the Bundle's already-redeemed Vouchers; it is a Real FOC when that count ≥ `qtyPaid` (in 10+2, the 11th and 12th). Migration: `UPDATE vouchers SET is_free = 0 WHERE voucher_sale_id IS NOT NULL`. Imported paper vouchers keep `isFree`. Update `price()` in `API/src/modules/sales.ts`, the "Free" badges and domain tests.

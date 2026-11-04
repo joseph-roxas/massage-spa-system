@@ -1,22 +1,24 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
   can,
   commissionFor,
   commissionRateOn,
+  bundleUse,
+  compactSerial,
   effectiveOn,
-  normalizeSerial,
   paymentProblem,
   promoProblem,
   quoteSale,
+  redemptionIsFree,
   redemptionProblem,
   toManila,
   type Centavos,
   type Quote,
 } from '@spa/domain';
-import { addons, bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, saleAddons, sales, servicePrices, services, staff, vouchers } from '@spa/db';
+import { addons, bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, saleAddons, sales, servicePrices, services, staff, vouchers, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
@@ -62,6 +64,16 @@ const sale = checkout.extend({
 
 type PriceInput = z.infer<typeof quoteBody>;
 
+type VoucherBundle = {
+  buyerName: string | null;
+  buyerPhone: string | null;
+  soldOn: string | null;
+  qtyPaid: number | null;
+  vouchers: { serial: string; redeemedAt: string | null; free: boolean }[];
+  /** This Redemption is a Real FOC. */
+  thisIsFree: boolean;
+};
+
 type Priced = {
   booking: typeof bookings.$inferSelect;
   quote: Quote;
@@ -69,6 +81,8 @@ type Priced = {
   commission: { bp: number; amount: Centavos };
   isHoliday: boolean;
   voucher: typeof vouchers.$inferSelect | null;
+  /** The Voucher's Bundle, so checkout can see who bought it, when, and how many are used. */
+  voucherBundle: VoucherBundle | null;
   /** Every running Promo, with why it doesn't cover this Service (null if it does). */
   promoChoices: { id: string; name: string; percentBp: number; problem: string | null }[];
 };
@@ -91,11 +105,17 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
     return fail(c, 403, 'forbidden', 'Only the Super Admin can give a Complimentary Service.');
   }
   let voucher: typeof vouchers.$inferSelect | null = null;
+  let voucherBundle: VoucherBundle | null = null;
   if (input.voucherSerial) {
-    const serial = normalizeSerial(input.voucherSerial);
-    voucher = (await db.select().from(vouchers).where(eq(vouchers.serial, serial)).get()) ?? null;
+    voucher =
+      (await db
+        .select()
+        .from(vouchers)
+        .where(sql`replace(${vouchers.serial}, '-', '') = ${compactSerial(input.voucherSerial)}`)
+        .get()) ?? null;
     const problem = redemptionProblem(voucher, booking.serviceId);
     if (problem) return fail(c, 409, 'voucher_unusable', problem);
+    voucherBundle = await bundleOf(c, voucher!);
   }
   const day = booking.businessDay;
   const [prices, allPromos, chosenAddons, therapist, holiday, rates] = await Promise.all([
@@ -143,14 +163,34 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
       promoId: input.promoId,
       statutory: input.statutory,
       complimentary: input.complimentary,
-      voucher: voucher && { serial: voucher.serial, isFree: voucher.isFree },
+      voucher: voucher && { serial: voucher.serial, isFree: voucherBundle!.thisIsFree },
       addonPrices: addonLines.map((a) => a!.price as Centavos),
     }),
     addonLines: addonLines.map((a) => ({ id: a!.id, name: a!.name, price: a!.price })),
     commission: commissionFor(regular.regularPrice as Centavos, rate, isHoliday),
     isHoliday,
     voucher,
+    voucherBundle,
     promoChoices,
+  };
+}
+
+/** The Bundle a Voucher was sold in (or its paper record), and whether redeeming it now is a Real FOC. */
+async function bundleOf(c: Context<AuthedEnv>, voucher: typeof vouchers.$inferSelect): Promise<VoucherBundle> {
+  const db = c.var.db;
+  const sale = voucher.voucherSaleId ? await db.select().from(voucherSales).where(eq(voucherSales.id, voucher.voucherSaleId)).get() : undefined;
+  const siblings = sale ? await db.select().from(vouchers).where(eq(vouchers.voucherSaleId, sale.id)).orderBy(asc(vouchers.serial)) : [voucher];
+  const redeemedBefore = siblings.filter((v) => v.status === 'redeemed').length;
+  return {
+    buyerName: sale?.buyerName ?? voucher.importedBuyer,
+    buyerPhone: sale?.buyerPhone ?? null,
+    soldOn: sale?.businessDay ?? voucher.importedSoldOn,
+    qtyPaid: sale?.qtyPaid ?? null,
+    vouchers: bundleUse(
+      sale?.qtyPaid ?? (voucher.isFree ? 0 : 1),
+      siblings.map((v) => ({ serial: v.serial, redeemedAt: v.redeemedAt })),
+    ),
+    thisIsFree: redemptionIsFree({ imported: !sale, isFree: voucher.isFree, qtyPaid: sale?.qtyPaid ?? null, redeemedBefore }),
   };
 }
 
@@ -164,7 +204,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
   .post('/quote', zValidator('json', quoteBody, invalidInput), async (c) => {
     const priced = await price(c, c.req.valid('json'));
     if (priced instanceof Response) return priced;
-    return c.json({ ...priced.quote, addons: priced.addonLines, promos: priced.promoChoices });
+    return c.json({ ...priced.quote, addons: priced.addonLines, promos: priced.promoChoices, voucherBundle: priced.voucherBundle });
   })
 
   .post('/', zValidator('json', sale, invalidInput), async (c) => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { quoteSale } from './pricing';
 import { pesos } from './money';
-import { newSerial, normalizeSerial, redemptionProblem, voucherOrder } from './vouchers';
+import { bundleUse, cardSerial, compactSerial, normalizeSerial, parseCardNumbers, redemptionIsFree, redemptionProblem, voucherOrder } from './vouchers';
 
 describe('voucherOrder', () => {
   it.each([
@@ -16,13 +16,48 @@ describe('voucherOrder', () => {
 });
 
 describe('serials', () => {
-  it('builds a readable serial from the Service code', () => {
-    expect(newSerial('swe', new Uint8Array([0, 1, 2, 3, 4, 30, 99]))).toBe('SWE-23456Z');
-    expect(newSerial('SWE', new Uint8Array(6)).length).toBe('SWE-'.length + 6);
+  it('prints the card number after the branch and Service code', () => {
+    expect(cardSerial('NTL-SM', 271)).toBe('NTL-SM-0271');
+    expect(cardSerial('NTL-TB', 9)).toBe('NTL-TB-0009');
   });
 
-  it('ignores case and spaces when typed back in', () => {
+  it('matches a serial however it is typed', () => {
+    for (const typed of ['NTL-SM-0271', 'NTLSM0271', 'ntl-sm 0271', ' ntl sm-0271 ']) expect(compactSerial(typed)).toBe('NTLSM0271');
     expect(normalizeSerial('  swe-7k3 m9p ')).toBe('SWE-7K3M9P');
+  });
+
+  it('reads card numbers and ranges', () => {
+    expect(parseCardNumbers('271-273, 280 0275')).toEqual([271, 272, 273, 275, 280]);
+    expect(parseCardNumbers('92-142')).toHaveLength(51);
+    expect(parseCardNumbers('320-271')).toMatch(/not a valid range/);
+    expect(parseCardNumbers('271-3200')).toMatch(/more than 500/);
+    expect(parseCardNumbers('SM-271')).toMatch(/not a card number/);
+    expect(parseCardNumbers('  ')).toMatch(/at least one/);
+  });
+});
+
+describe('free Vouchers of a Bundle', () => {
+  it('are the ones redeemed after all the paid ones, whichever serial', () => {
+    const sold = { imported: false, isFree: false, qtyPaid: 10 };
+    expect(redemptionIsFree({ ...sold, redeemedBefore: 9 })).toBe(false);
+    expect(redemptionIsFree({ ...sold, redeemedBefore: 10 })).toBe(true);
+    expect(redemptionIsFree({ ...sold, redeemedBefore: 11 })).toBe(true);
+  });
+
+  it('keep the flag entered for imported paper Vouchers', () => {
+    expect(redemptionIsFree({ imported: true, isFree: true, qtyPaid: null, redeemedBefore: 0 })).toBe(true);
+    expect(redemptionIsFree({ imported: true, isFree: false, qtyPaid: null, redeemedBefore: 0 })).toBe(false);
+  });
+
+  it('show in the order used', () => {
+    const v = (serial: string, redeemedAt: string | null) => ({ serial, redeemedAt });
+    const use = bundleUse(2, [v('A', '2026-11-03T10:00:00Z'), v('B', null), v('C', '2026-11-01T10:00:00Z'), v('D', '2026-11-04T10:00:00Z')]);
+    expect(use.map((x) => [x.serial, x.free])).toEqual([
+      ['C', false],
+      ['A', false],
+      ['D', true],
+      ['B', false],
+    ]);
   });
 });
 
@@ -34,6 +69,7 @@ describe('redemption', () => {
     expect(redemptionProblem(unused, 'aroma-90')).toMatch(/different service/);
     expect(redemptionProblem({ ...unused, status: 'redeemed' }, 'swedish-60')).toMatch(/already been used/);
     expect(redemptionProblem(null, 'swedish-60')).toMatch(/No voucher/);
+    expect(redemptionProblem({ ...unused, status: 'in_shop' }, 'swedish-60')).toMatch(/never sold/);
   });
 
   const quote = (isFree: boolean) =>
@@ -54,7 +90,7 @@ describe('redemption', () => {
     expect(q).toMatchObject({ serviceAmount: 0, amountDue: pesos(50), focKind: 'prepaid' });
   });
 
-  it('makes the free sixth Voucher a Real FOC', () => {
+  it('makes a free Voucher a Real FOC', () => {
     expect(quote(true).focKind).toBe('real');
   });
 });

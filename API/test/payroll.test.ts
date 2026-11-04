@@ -63,6 +63,7 @@ beforeEach(async () => {
   const w = last();
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM ca_ledger`),
+    env.DB.prepare(`DELETE FROM cash_transfers`),
     env.DB.prepare(`DELETE FROM cash_advances`),
     env.DB.prepare(`DELETE FROM cash_outs`),
     env.DB.prepare(`DELETE FROM payrolls`),
@@ -111,6 +112,9 @@ describe('therapist payroll', () => {
     expect((await desk.post(`/payrolls/${p.id}/approve`)).status).toBe(403);
     expect((await admin.post(`/payrolls/${p.id}/approve`)).status).toBe(200);
     expect((await desk.post(`/payrolls/${p.id}/release`)).status).toBe(200);
+    // Paid from the shop's Sales Cash by default.
+    const paid = await env.DB.prepare(`SELECT amount FROM cash_transfers WHERE kind = 'payroll' AND payroll_id = ?`).bind(p.id).first<{ amount: number }>();
+    expect(paid?.amount).toBe(10750);
 
     // Repaid in full; the next CA counts against this week.
     const after = await json<{ balances: { staffId: string; balance: number; cap: { week: { start: string } } }[] }>(await desk.get('/cash-advances/balances'));

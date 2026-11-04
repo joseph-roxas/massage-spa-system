@@ -71,7 +71,7 @@ export type ClosePreview = {
   day: BusinessDay;
   blockers: { bookingId: string; guest: string; service: string; problem: string }[];
   owed: { staffId: string; displayName: string; amount: number }[];
-  totals: { cashIn: number; gcashIn: number; cashOut: number; expectedCash: number; expectedGcash: number };
+  totals: { carriedIn: number; cashIn: number; gcashIn: number; cashOut: number; transfersOut: number; expectedCash: number; expectedGcash: number };
   /** Paid into the drawer for Vouchers sold today; already in the cash and GCash totals. */
   vouchersSold: number;
   cashOuts: CashOut[];
@@ -100,7 +100,7 @@ export function useDayAction() {
     mutationFn: (req: { path: string; body?: unknown; method?: string }) =>
       api<{ id?: string; total?: number; serials?: string[] }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
     onSettled: () => {
-      for (const key of ['front-desk', 'cash-outs', 'close-preview', 'voucher-sales', 'vouchers']) qc.invalidateQueries({ queryKey: [key] });
+      for (const key of ['front-desk', 'cash-outs', 'close-preview', 'voucher-sales', 'vouchers', 'cash']) qc.invalidateQueries({ queryKey: [key] });
     },
   });
 }

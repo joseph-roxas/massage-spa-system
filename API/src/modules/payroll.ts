@@ -24,11 +24,12 @@ import {
   type ReceptionistRules,
   type ShiftHours,
 } from '@spa/domain';
-import { bonuses, businessDays, caLedger, cashAdvances, cashOuts, dtr, holidays, payRules, payrolls, PAYROLL_KINDS, sales, staff } from '@spa/db';
+import { bonuses, businessDays, caLedger, cashAdvances, cashOuts, cashTransfers, dtr, holidays, payRules, payrolls, PAYROLL_KINDS, sales, staff } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
 import { fail, invalidInput } from '../lib/http';
+import { currentTransferDay } from '../lib/sales-cash';
 import { nowIso } from '../lib/time';
 import { centavos, isoDate } from '../lib/validation';
 import { requireAuth } from '../auth/middleware';
@@ -295,15 +296,21 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     return c.json({ ok: true });
   })
 
-  /** Paid out. The CA deduction is now repaid. */
-  .post('/payrolls/:id/release', async (c) => {
+  /** Paid out, by default from Sales Cash at the shop. The CA deduction is now repaid. */
+  .post('/payrolls/:id/release', zValidator('json', z.object({ fromShopCash: z.boolean().default(true) }).default({ fromShopCash: true }), invalidInput), async (c) => {
     const db = c.var.db;
+    const { fromShopCash } = c.req.valid('json');
     const row = await db.select().from(payrolls).where(eq(payrolls.id, c.req.param('id'))).get();
     if (!row || !canSee(c, row.kind)) return fail(c, 404, 'not_found', 'Payroll not found.');
     if (row.status !== 'approved') return fail(c, 409, 'not_approved', row.status === 'draft' ? 'The Super Admin must approve this Payroll first.' : 'Already released.');
     const now = nowIso();
+    const paidFromShop = fromShopCash && row.net > 0;
+    const day = paidFromShop ? await currentTransferDay(db) : null;
     await db.batch([
       db.update(payrolls).set({ status: 'released', releasedAt: now, releasedBy: c.var.user.id }).where(and(eq(payrolls.id, row.id), eq(payrolls.status, 'approved'))),
+      ...(paidFromShop
+        ? [db.insert(cashTransfers).values({ id: crypto.randomUUID(), kind: 'payroll', amount: row.net, businessDay: day!, payrollId: row.id, createdAt: now, createdBy: c.var.user.id })]
+        : []),
       auditInsert(db, { actorUserId: c.var.user.id, action: 'payroll.release', entity: 'payroll', entityId: row.id, after: { net: row.net } }),
       ...(row.caDeduction > 0
         ? [db.insert(caLedger).values({ id: crypto.randomUUID(), staffId: row.staffId, entry: 'repayment', amount: row.caDeduction, payrollId: row.id, createdAt: now, createdBy: c.var.user.id })]

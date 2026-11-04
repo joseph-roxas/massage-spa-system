@@ -1,12 +1,13 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import { businessDayOf, dayTotals, onCallOwed, SHOP_CLOSING_TIME, toManila, type Centavos } from '@spa/domain';
-import { bookings, businessDays, cashOuts, payments, sales, services, staff, stockIns, voucherPayments, voucherSales } from '@spa/db';
+import { bookings, businessDays, cashOuts, cashTransfers, payments, sales, services, staff, stockIns, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays, requireOpenDay } from '../lib/business-days';
+import { pettyCashNow, salesCashAtStartOf } from '../lib/sales-cash';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { isoDate } from '../lib/validation';
@@ -27,7 +28,7 @@ const newCashOut = z.object({
 /** Everything Day Close needs to know about a day: what's unfinished, what's owed, what's in the drawer. */
 async function closingState(c: Context<AuthedEnv>, day: string) {
   const db = c.var.db;
-  const [row, dayBookings, paidSales, dayPayments, voucherPays, dayCashOuts, onCallStaff, svc] = await Promise.all([
+  const [row, dayBookings, paidSales, dayPayments, voucherPays, dayCashOuts, onCallStaff, svc, carriedIn, moved] = await Promise.all([
     db.select().from(businessDays).where(eq(businessDays.date, day)).get(),
     db.select().from(bookings).where(eq(bookings.businessDay, day)),
     db.select().from(sales).where(and(eq(sales.businessDay, day), eq(sales.status, 'paid'))),
@@ -44,6 +45,12 @@ async function closingState(c: Context<AuthedEnv>, day: string) {
     db.select().from(cashOuts).where(eq(cashOuts.businessDay, day)).orderBy(asc(cashOuts.createdAt)),
     db.select({ id: staff.id, displayName: staff.displayName }).from(staff).where(eq(staff.isOnCall, true)),
     db.select({ id: services.id, name: services.name }).from(services),
+    salesCashAtStartOf(db, day),
+    db
+      .select({ s: sql<number>`sum(${cashTransfers.amount})` })
+      .from(cashTransfers)
+      .where(and(eq(cashTransfers.businessDay, day), ne(cashTransfers.kind, 'opening')))
+      .get(),
   ]);
 
   const paidBookingIds = new Set(paidSales.map((s) => s.bookingId));
@@ -70,9 +77,13 @@ async function closingState(c: Context<AuthedEnv>, day: string) {
     dayCashOuts.filter((x) => x.category === 'on_call_commission' && x.staffId).map((x) => ({ staffId: x.staffId!, amount: x.amount })),
   ).map((o) => ({ ...o, displayName: onCallStaff.find((s) => s.id === o.staffId)!.displayName }));
 
-  // On-call pay comes out of the drawer at close, so expect it gone.
-  // Voucher sales are paid into the same drawer.
-  const totals = dayTotals([...dayPayments, ...voucherPays], [...dayCashOuts, ...owed]);
+  // All Sales Cash in the shop is counted (ADR 0003): what was there, plus today's cash, less what left it.
+  // On-call pay comes out at close, so expect it gone. Petty cash comes from its own fund.
+  const totals = dayTotals(
+    [...dayPayments, ...voucherPays],
+    [...dayCashOuts.filter((x) => x.source === 'sales'), ...owed],
+    { carriedIn, transfersOut: Number(moved?.s ?? 0) },
+  );
   const vouchersSold = voucherPays.reduce((s, p) => s + p.amount, 0) as Centavos;
   return { row, blockers, owed, totals, vouchersSold, cashOuts: dayCashOuts, guests: paidSales.length };
 }
@@ -208,6 +219,10 @@ export const dayRoutes = new Hono<AuthedEnv>()
     const blocked = await openDayFor(c, day);
     if (blocked) return blocked;
     const input = c.req.valid('json');
+    if (input.category === 'petty_cash') {
+      const balance = await pettyCashNow(c.var.db);
+      if (input.amount > balance) return fail(c, 409, 'petty_cash_short', `Only ${(balance / 100).toFixed(2)} is left in petty cash. Top it up from sales cash first.`);
+    }
     const id = crypto.randomUUID();
     await c.var.db
       .insert(cashOuts)

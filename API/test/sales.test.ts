@@ -53,6 +53,7 @@ beforeEach(async () => {
     env.DB.prepare(`DELETE FROM sale_addons`),
     env.DB.prepare(`DELETE FROM sales`),
     env.DB.prepare(`DELETE FROM cash_outs`),
+    env.DB.prepare(`DELETE FROM cash_transfers`),
     env.DB.prepare(`DELETE FROM business_days`),
     env.DB.prepare(`DELETE FROM bookings`),
     env.DB.prepare(`DELETE FROM vouchers`),
@@ -170,7 +171,7 @@ describe('Day Close', () => {
     const b1 = await served(desk, t, 'thai-60');
     const day = today();
 
-    expect((await desk.post('/cash-outs', { category: 'petty_cash', amount: 15000, purpose: 'Rice for staff' })).status).toBe(201);
+    expect((await desk.post('/cash-outs', { category: 'laundry', amount: 15000, purpose: 'Laundry' })).status).toBe(201);
 
     let preview = await json<Preview>(await desk.get(`/days/${day}/close-preview`));
     expect(preview.blockers).toEqual([expect.objectContaining({ bookingId: b1, problem: 'Done but not checked out' })]);
@@ -443,5 +444,63 @@ describe('vouchers', () => {
     const b = await served(desk, await therapist(admin), 'ventosa-90');
     const q = await json<Quote & { voucherBundle: Bundle }>(await desk.post('/sales/quote', { bookingId: b, voucherSerial: 'NTL-VM-0001' }));
     expect(q).toMatchObject({ focKind: 'real', voucherBundle: { buyerName: 'Old guest', soldOn: '2026-02-01', thisIsFree: true } });
+  });
+});
+
+type Summary = { day: string; salesCash: number; pettyCash: number; reminder: string; waiting: { id: string; amount: number }[] };
+
+describe('Sales Cash, petty cash and handovers', () => {
+  it('keeps petty cash apart from Sales Cash, at most ₱800', async () => {
+    const desk = await loggedIn('receptionist');
+    const admin = await loggedIn('super_admin');
+    const b = await served(desk, await therapist(admin), 'thai-60');
+    await desk.post('/sales', { bookingId: b, payments: cash(50000) });
+
+    expect((await desk.post('/cash-outs', { category: 'petty_cash', amount: 30000, purpose: 'Rice 5 kg' })).status).toBe(201);
+    expect((await desk.post('/cash-outs', { category: 'petty_cash', amount: 60000, purpose: 'Too much' })).status).toBe(409);
+    let s = await json<Summary>(await desk.get('/cash/summary'));
+    expect(s).toMatchObject({ salesCash: 50000, pettyCash: 50000 });
+
+    expect((await desk.post('/cash/petty-topups', { amount: 40000 })).status).toBe(409); // only 300 needed
+    expect((await desk.post('/cash/petty-topups', { amount: 30000 })).status).toBe(201);
+    s = await json<Summary>(await desk.get('/cash/summary'));
+    expect(s).toMatchObject({ salesCash: 20000, pettyCash: 80000 });
+
+    // Day Close expects Sales Cash only: the petty Cash-out is not in it, the Top-up is.
+    const p = await json<Preview>(await desk.get(`/days/${today()}/close-preview`));
+    expect(p.totals).toMatchObject({ cashIn: 50000, cashOut: 0, expectedCash: 20000 });
+  });
+
+  it('hands Sales Cash to the owner, who confirms receipt and who received it', async () => {
+    const desk = await loggedIn('receptionist');
+    const admin = await loggedIn('super_admin');
+    expect((await desk.post('/cash/opening', { amount: 500000 })).status).toBe(403);
+    expect((await admin.post('/cash/opening', { amount: 500000 })).status).toBe(201);
+    const b = await served(desk, await therapist(admin), 'thai-60');
+    await desk.post('/sales', { bookingId: b, payments: cash(50000) });
+    expect((await json<Summary>(await desk.get('/cash/summary'))).salesCash).toBe(550000);
+
+    expect((await desk.post('/cash/handovers', { amount: 600000 })).status).toBe(409); // more than in the shop
+    const { id } = await json<{ id: string }>(await desk.post('/cash/handovers', { amount: 550000 }));
+    let s = await json<Summary>(await desk.get('/cash/summary'));
+    expect(s.salesCash).toBe(0);
+    expect(s.waiting.map((w) => w.id)).toEqual([id]);
+
+    const receipt = { receivedAmount: 549000, receivedOn: today(), receivedByName: 'Marites (sister)', note: 'Short 10' };
+    expect((await desk.post(`/cash/handovers/${id}/receive`, receipt)).status).toBe(403);
+    expect((await admin.post(`/cash/handovers/${id}/receive`, receipt)).status).toBe(200);
+    expect((await admin.post(`/cash/handovers/${id}/receive`, receipt)).status).toBe(409);
+    expect((await desk.send('DELETE', `/cash/transfers/${id}`)).status).toBe(409);
+    s = await json<Summary>(await desk.get('/cash/summary'));
+    expect(s.waiting).toEqual([]);
+
+    const { transfers } = await json<{ transfers: { kind: string; receivedByName: string | null; receivedAmount: number | null }[] }>(
+      await admin.get(`/cash/transfers?from=${today()}&to=${today()}`),
+    );
+    expect(transfers.find((t) => t.kind === 'handover')).toMatchObject({ receivedByName: 'Marites (sister)', receivedAmount: 549000 });
+
+    // Day Close counts everything in the shop: the opening count, today's cash, less the handover.
+    const p = await json<Preview>(await desk.get(`/days/${today()}/close-preview`));
+    expect(p.totals).toMatchObject({ carriedIn: 500000, cashIn: 50000, transfersOut: 550000, expectedCash: 0 });
   });
 });

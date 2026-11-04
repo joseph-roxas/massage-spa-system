@@ -10,6 +10,7 @@ import { PriceListPage } from './pages/PriceListPage';
 import { ClockInPage } from './pages/ClockInPage';
 import { DtrPage } from './pages/DtrPage';
 import { VouchersPage } from './pages/VouchersPage';
+import { CashPage } from './pages/CashPage';
 import { PayrollPage } from './pages/PayrollPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { ExpensesPage } from './pages/ExpensesPage';
@@ -62,6 +63,14 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="sales.manage">
             <VouchersPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/cash',
+        element: (
+          <RequireCapability capability="cashouts.record">
+            <CashPage />
           </RequireCapability>
         ),
       },

@@ -8,6 +8,7 @@ import { ROLE_LABELS, useCurrentUser, useLogout } from '../lib/auth';
 const NAV: { to: string; label: string; capability?: Capability }[] = [
   { to: '/', label: 'Front Desk' },
   { to: '/vouchers', label: 'Vouchers', capability: 'sales.manage' },
+  { to: '/cash', label: 'Cash', capability: 'cashouts.record' },
   { to: '/dtr', label: 'Time Records', capability: 'dtr.correct.therapist' },
   { to: '/payroll', label: 'Payroll', capability: 'payroll.therapist.generate' },
   { to: '/inventory', label: 'Inventory', capability: 'inventory.stock_out' },

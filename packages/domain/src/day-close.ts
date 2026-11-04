@@ -5,10 +5,15 @@ import type { PaymentMethod } from './pricing';
 export const SHOP_CLOSING_TIME = '23:00';
 
 export type DayTotals = {
+  /** Sales Cash already in the shop when this count started (ADR 0003). */
+  carriedIn: Centavos;
   cashIn: Centavos;
   gcashIn: Centavos;
+  /** Cash-outs paid from Sales Cash; petty cash comes from its own fund. */
   cashOut: Centavos;
-  /** Cash that should be in the drawer: cash received minus Cash-outs. */
+  /** Payroll paid from the shop, Petty Cash Top-ups and Cash Handovers. */
+  transfersOut: Centavos;
+  /** All Sales Cash that should be in the shop. */
   expectedCash: Centavos;
   expectedGcash: Centavos;
 };
@@ -16,12 +21,23 @@ export type DayTotals = {
 export function dayTotals(
   payments: readonly { method: PaymentMethod; amount: number }[],
   cashOuts: readonly { amount: number }[],
+  carry: { carriedIn?: number; transfersOut?: number } = {},
 ): DayTotals {
   const sum = (xs: readonly { amount: number }[]) => xs.reduce((s, x) => s + x.amount, 0) as Centavos;
   const cashIn = sum(payments.filter((p) => p.method === 'cash'));
   const gcashIn = sum(payments.filter((p) => p.method === 'gcash'));
   const cashOut = sum(cashOuts);
-  return { cashIn, gcashIn, cashOut, expectedCash: (cashIn - cashOut) as Centavos, expectedGcash: gcashIn };
+  const carriedIn = (carry.carriedIn ?? 0) as Centavos;
+  const transfersOut = (carry.transfersOut ?? 0) as Centavos;
+  return {
+    carriedIn,
+    cashIn,
+    gcashIn,
+    cashOut,
+    transfersOut,
+    expectedCash: (carriedIn + cashIn - cashOut - transfersOut) as Centavos,
+    expectedGcash: gcashIn,
+  };
 }
 
 /**

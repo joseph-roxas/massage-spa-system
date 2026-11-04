@@ -1,4 +1,5 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { cashOuts } from './days';
 import { staff } from './staff';
 import { users } from './users';
 
@@ -81,6 +82,8 @@ export const stockIns = sqliteTable(
     /** Centavos per unit. */
     unitPrice: integer('unit_price'),
     purchaseDate: text('purchase_date').notNull(),
+    /** The Cash-out when it was paid from the drawer; Expenses then count it once, as a purchase. */
+    cashOutId: text('cash_out_id').references(() => cashOuts.id),
     createdAt: text('created_at').notNull(),
     receivedBy: text('received_by').references(() => users.id),
   },

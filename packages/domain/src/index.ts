@@ -10,3 +10,4 @@ export * from './rotation';
 export * from './vouchers';
 export * from './payroll';
 export * from './inventory';
+export * from './expenses';

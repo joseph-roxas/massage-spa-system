@@ -1,12 +1,13 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import { businessDayOf, isLowStock, poCan, receiveProblem, statusAfterDelivery, stockOutProblem, type PoStatus } from '@spa/domain';
-import { items, PO_STATUSES, purchaseOrderLines, purchaseOrders, staff, stockIns, stockOuts, users, vendors } from '@spa/db';
+import { cashOuts, items, PO_STATUSES, purchaseOrderLines, purchaseOrders, staff, stockIns, stockOuts, users, vendors } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
+import { openDayFor } from '../lib/business-days';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { centavos, isoDate, name } from '../lib/validation';
@@ -73,6 +74,14 @@ async function ordersWithLines(db: Db, rows: (typeof purchaseOrders.$inferSelect
       .filter((l) => l.line.poId === po.id)
       .map((l) => ({ ...l.line, itemName: l.itemName, unit: l.unit, received: got.get(l.line.id) ?? 0 })),
   }));
+}
+
+/** A supplies Cash-out on today's Business Day for a purchase paid from the drawer, or the refusal. */
+async function drawerCashOut(c: Context<AuthedEnv>, amount: number, purpose: string) {
+  const day = businessDayOf(new Date());
+  const blocked = await openDayFor(c, day);
+  if (blocked) return blocked;
+  return { id: crypto.randomUUID(), businessDay: day, category: 'supplies' as const, amount, purpose, createdAt: nowIso(), createdBy: c.var.user.id };
 }
 
 export const inventoryRoutes = new Hono<AuthedEnv>()
@@ -219,19 +228,30 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
   .post(
     '/inventory/stock-ins',
     requireCapability('inventory.receive'),
-    zValidator('json', z.object({ itemId: z.string().min(1), vendorId: z.string().min(1), qty, unitPrice: centavos, purchaseDate: isoDate }), invalidInput),
+    zValidator(
+      'json',
+      z.object({ itemId: z.string().min(1), vendorId: z.string().min(1), qty, unitPrice: centavos, purchaseDate: isoDate, fromDrawer: z.boolean().default(false) }),
+      invalidInput,
+    ),
     async (c) => {
       const db = c.var.db;
       const input = c.req.valid('json');
       if (input.purchaseDate > businessDayOf(new Date())) return fail(c, 400, 'future_date', 'The purchase date cannot be in the future.');
       const [item, vendor] = await Promise.all([
-        db.select({ id: items.id }).from(items).where(eq(items.id, input.itemId)).get(),
+        db.select({ id: items.id, name: items.name }).from(items).where(eq(items.id, input.itemId)).get(),
         db.select({ id: vendors.id }).from(vendors).where(eq(vendors.id, input.vendorId)).get(),
       ]);
       if (!item || !vendor) return fail(c, 404, 'not_found', 'Item or vendor not found.');
+      const drawer = input.fromDrawer ? await drawerCashOut(c, input.qty * input.unitPrice, `Inventory: ${item.name}`) : null;
+      if (drawer instanceof Response) return drawer;
       const id = crypto.randomUUID();
-      const row = { id, ...input, kind: 'purchase' as const, createdAt: nowIso(), receivedBy: c.var.user.id };
-      await db.batch([db.insert(stockIns).values(row), auditInsert(db, { actorUserId: c.var.user.id, action: 'stock_in.create', entity: 'stock_in', entityId: id, after: row })]);
+      const { fromDrawer: _, ...fields } = input;
+      const row = { id, ...fields, kind: 'purchase' as const, cashOutId: drawer?.id ?? null, createdAt: nowIso(), receivedBy: c.var.user.id };
+      await db.batch([
+        auditInsert(db, { actorUserId: c.var.user.id, action: 'stock_in.create', entity: 'stock_in', entityId: id, after: row }),
+        ...(drawer ? [db.insert(cashOuts).values(drawer)] : []),
+        db.insert(stockIns).values(row),
+      ]);
       return c.json({ id }, 201);
     },
   )
@@ -342,6 +362,7 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
       z.object({
         purchaseDate: isoDate,
         lines: z.array(z.object({ lineId: z.string().min(1), qty: z.number().int().min(0).max(100_000), unitPrice: centavos })).min(1).max(40),
+        fromDrawer: z.boolean().default(false),
       }),
       invalidInput,
     ),
@@ -362,9 +383,13 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
 
       const after = lines.map((l) => ({ ...l, received: l.received + (delivery.find((d) => d.lineId === l.id)?.qty ?? 0) }));
       const status = statusAfterDelivery(after);
+      const total = delivery.reduce((sum, d) => sum + d.qty * d.unitPrice, 0);
+      const drawer = input.fromDrawer && total > 0 ? await drawerCashOut(c, total, `Inventory delivery: ${order!.vendorName}`) : null;
+      if (drawer instanceof Response) return drawer;
       const now = nowIso();
       await db.batch([
         db.update(purchaseOrders).set({ status }).where(eq(purchaseOrders.id, po.id)),
+        ...(drawer ? [db.insert(cashOuts).values(drawer)] : []),
         auditInsert(db, { actorUserId: c.var.user.id, action: 'po.receive', entity: 'purchase_order', entityId: po.id, after: input }),
         ...delivery.map((d) =>
           db.insert(stockIns).values({
@@ -376,6 +401,7 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
             qty: d.qty,
             unitPrice: d.unitPrice,
             purchaseDate: input.purchaseDate,
+            cashOutId: drawer?.id ?? null,
             createdAt: now,
             receivedBy: c.var.user.id,
           }),

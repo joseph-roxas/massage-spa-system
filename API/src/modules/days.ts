@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq } from 'drizzle-orm';
 import { businessDayOf, dayTotals, onCallOwed, SHOP_CLOSING_TIME, toManila, type Centavos } from '@spa/domain';
-import { bookings, businessDays, CASH_OUT_CATEGORIES, cashOuts, payments, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
+import { bookings, businessDays, CASH_OUT_CATEGORIES, cashOuts, payments, sales, services, staff, stockIns, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays, requireOpenDay } from '../lib/business-days';
@@ -217,6 +217,8 @@ export const dayRoutes = new Hono<AuthedEnv>()
     if (!row) return fail(c, 404, 'not_found', 'Cash-out not found.');
     if (row.category === 'on_call_commission') return fail(c, 409, 'on_call_pay', 'On-call pay is recorded by Day Close.');
     if (row.category === 'cash_advance') return fail(c, 409, 'cash_advance', 'Remove the Cash Advance itself instead.');
+    const stocked = await db.select({ id: stockIns.id }).from(stockIns).where(eq(stockIns.cashOutId, row.id)).get();
+    if (stocked) return fail(c, 409, 'inventory_purchase', 'This paid for an inventory purchase. Ask the Super Admin to correct it.');
     const blocked = await requireOpenDay(c, row.businessDay);
     if (blocked) return blocked;
     await db.batch([

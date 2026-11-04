@@ -1,6 +1,6 @@
 import { Fragment, useState, type FormEvent } from 'react';
 import { businessDayOf } from '@spa/domain';
-import { Alert, Badge, Button, Card, Field, Input, Select, td, th } from '../../components/ui';
+import { Alert, Badge, Button, Card, Checkbox, Field, Input, Select, td, th } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useClockStaff } from '../../lib/attendance';
 import { useCan } from '../../lib/auth';
@@ -58,14 +58,14 @@ function TakeOutDialog({ item, onClose }: { item: Item; onClose: () => void }) {
 /** A purchase made without a Purchase Order, e.g. bought at the market. */
 function PurchaseDialog({ items, onClose }: { items: Item[]; onClose: () => void }) {
   const act = useInventoryAction();
-  const [d, setD] = useState({ itemId: '', vendorId: '', qty: '1', price: '', date: todayManila() });
+  const [d, setD] = useState({ itemId: '', vendorId: '', qty: '1', price: '', date: todayManila(), fromDrawer: false });
   const price = parsePesos(d.price);
   const n = Number(d.qty);
 
   function submit(e: FormEvent) {
     e.preventDefault();
     if (price === null) return;
-    act.mutate({ path: '/inventory/stock-ins', body: { itemId: d.itemId, vendorId: d.vendorId, qty: n, unitPrice: price, purchaseDate: d.date } }, { onSuccess: onClose });
+    act.mutate({ path: '/inventory/stock-ins', body: { itemId: d.itemId, vendorId: d.vendorId, qty: n, unitPrice: price, purchaseDate: d.date, fromDrawer: d.fromDrawer } }, { onSuccess: onClose });
   }
 
   return (
@@ -98,6 +98,7 @@ function PurchaseDialog({ items, onClose }: { items: Item[]; onClose: () => void
           </Field>
         </div>
         {price !== null && Number.isInteger(n) && n > 0 && <p className="text-sm text-stone-600">Total {peso(price * n)}</p>}
+        <Checkbox label="Paid from the cash drawer today (counted at Day Close)" checked={d.fromDrawer} onChange={(e) => setD({ ...d, fromDrawer: e.target.checked })} />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!d.itemId || !d.vendorId || price === null || !Number.isInteger(n) || n < 1 || act.isPending}>

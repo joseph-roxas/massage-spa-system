@@ -12,6 +12,7 @@ import { DtrPage } from './pages/DtrPage';
 import { VouchersPage } from './pages/VouchersPage';
 import { PayrollPage } from './pages/PayrollPage';
 import { InventoryPage } from './pages/InventoryPage';
+import { ExpensesPage } from './pages/ExpensesPage';
 import { PayslipPage } from './pages/payroll/PayslipPage';
 import { SettingsLayout } from './pages/settings/SettingsLayout';
 import { ServicesSettings } from './pages/settings/ServicesSettings';
@@ -58,6 +59,14 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="sales.manage">
             <VouchersPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/expenses',
+        element: (
+          <RequireCapability capability="expenses.manage">
+            <ExpensesPage />
           </RequireCapability>
         ),
       },

@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
+# 01:00 Manila daily: recurring Expense drafts and the monthly Royalty draft (both idempotent).
+[triggers]
+crons = ["0 17 * * *"]
+
 # The database_id placeholder is replaced in CI from the D1_DATABASE_ID
 # repository variable; locally any value works.
 [[d1_databases]]

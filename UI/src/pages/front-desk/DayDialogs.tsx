@@ -43,7 +43,7 @@ export function CashOutDialog({ day, onClose }: { day: string; onClose: () => vo
         <Field label="Category">
           <Select value={category} onChange={(e) => setCategory(e.target.value)}>
             {Object.entries(CASH_OUT_CATEGORIES)
-              .filter(([k]) => k !== 'on_call_commission')
+              .filter(([k]) => k !== 'on_call_commission' && k !== 'cash_advance')
               .map(([k, label]) => (
                 <option key={k} value={k}>
                   {label}
@@ -69,7 +69,7 @@ export function CashOutDialog({ day, onClose }: { day: string; onClose: () => vo
                 {r.purpose} <span className="text-xs text-stone-500">· {CASH_OUT_CATEGORIES[r.category]}</span>
               </span>
               <span className="tabular-nums">{peso(r.amount)}</span>
-              {r.category !== 'on_call_commission' && (
+              {r.category !== 'on_call_commission' && r.category !== 'cash_advance' && (
                 <button
                   type="button"
                   className="text-xs text-stone-500 underline"

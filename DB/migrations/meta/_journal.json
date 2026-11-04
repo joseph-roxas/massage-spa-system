@@ -78,6 +78,13 @@
       "when": 1793758423943,
       "tag": "0010_inventory",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793758967711,
+      "tag": "0011_expenses_royalty",
+      "breakpoints": true
     }
   ]
 }

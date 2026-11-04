@@ -150,9 +150,9 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 
 **Expenses & royalty**
 - `expense_categories` — laundry, petty cash, rice allowance, bookkeeping, electricity, BIR (2551Q, FS), business permit, supplies & tools, phone load, AC cleaning, other.
-- `expenses` — category_id, amount, date, description, status (`pending|confirmed`), recurring_template_id.
+- `expenses` — category_id, amount, date, description, status (`pending|confirmed`), recurring_expense_id + recurring_month (one draft per month), royalty_month.
 - `recurring_expenses` — category_id, amount, day_of_month, description. (Seed: Bookkeeping 1,250.00 monthly.)
-- `royalty_statements` — month_start, month_end, gross_sales, pct (3%), amount, expense_id.
+- `royalty_statements` — month (YYYY-MM, key), month_start, month_end, service_sales, voucher_sales, gross_sales, bp, amount, status (`draft|confirmed`). Its Expense points back via `expenses.royalty_month`.
 
 ## 5. Core business rules (all in `packages/domain`, all unit-tested)
 
@@ -195,6 +195,15 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 ### 5.6 Royalty
 - Monthly (calendar month start–end): Σ(payments for Services, after discounts, excluding add-on amounts) + Σ(voucher sales by sale day). Excludes Redemptions and Real FOCs.
 - Royalty = 3% → draft statement + pending expense created by monthly cron; Super Admin confirms.
+- As built: Σ `sales.service_amount` of paid sales (Redemptions and Real FOCs are 0 there) + Σ paid `voucher_sales.total`, by Business Day. Rate defaults to the last statement's (3% at first) and can be changed per draft. A draft is recomputable until marked paid; its pending Expense follows it.
+- A daily Worker cron (01:00 Manila) drafts the month's recurring Expenses and, once a month has ended, its Royalty statement. Both are idempotent; the Expenses screen can also run them on demand.
+
+### 5.6a Expenses
+- Categories seeded from the owner's list (+ Royalty, Other); the Super Admin can add or hide them. Bookkeeping ₱1,250 is seeded as a monthly expense on the 1st.
+- Recurring expenses are drafted as `pending`; the amount can be edited (varying bills) and then confirmed when paid. Only confirmed ones count in the month's total.
+- A month's spending = recorded Expenses + drawer Cash-outs (petty cash, supplies, food, transport, other) + inventory purchases (Stock-ins × price). On-call pay and Cash Advances are Payroll, not spending.
+- Inventory purchases and deliveries can be marked "paid from the drawer": that makes a `supplies` Cash-out on today's Business Day (so Day Close expects it gone) linked to the Stock-in, and spending counts it once, as the purchase. Such a Cash-out can't be removed on its own.
+- Expenses, Royalty and their settings are Super Admin only.
 
 ### 5.7 Payroll — Therapists
 - Pay Week Sun–Sat; generated after the week ends, released the following Wed–Fri.

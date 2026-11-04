@@ -42,6 +42,7 @@ export const CASH_OUT_CATEGORIES = {
   transport: 'Transport',
   other: 'Other',
   on_call_commission: 'On-call pay',
+  cash_advance: 'Cash Advance',
 } as const;
 
 export type CashOut = {

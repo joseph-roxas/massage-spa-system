@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Alert, Badge, Button, Card, Field, Input, Select } from '../../components/ui';
+import { Alert, Badge, Button, Card, Checkbox, Field, Input, Select } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useCan, useCurrentUser } from '../../lib/auth';
 import { longDate, parsePesos, peso, pesosText, todayManila } from '../../lib/format';
@@ -79,6 +79,7 @@ function ReceiveDialog({ po, onClose }: { po: PurchaseOrder; onClose: () => void
   const items = useItems();
   const act = useInventoryAction();
   const [date, setDate] = useState(todayManila());
+  const [fromDrawer, setFromDrawer] = useState(false);
   const open = po.lines.filter((l) => l.received < l.qty);
   const lastPrice = (itemId: string) => items.data?.items.find((i) => i.id === itemId)?.latestPurchase?.unitPrice ?? null;
   const [got, setGot] = useState(() =>
@@ -91,7 +92,7 @@ function ReceiveDialog({ po, onClose }: { po: PurchaseOrder; onClose: () => void
   function submit(e: FormEvent) {
     e.preventDefault();
     act.mutate(
-      { path: `/inventory/purchase-orders/${po.id}/receive`, body: { purchaseDate: date, lines: rows.map((r) => ({ lineId: r.line.id, qty: r.qty, unitPrice: r.price })) } },
+      { path: `/inventory/purchase-orders/${po.id}/receive`, body: { purchaseDate: date, fromDrawer, lines: rows.map((r) => ({ lineId: r.line.id, qty: r.qty, unitPrice: r.price })) } },
       { onSuccess: onClose },
     );
   }
@@ -122,6 +123,7 @@ function ReceiveDialog({ po, onClose }: { po: PurchaseOrder; onClose: () => void
           </Field>
           <p className="pb-2 text-sm font-medium">Total {peso(total)}</p>
         </div>
+        <Checkbox label="Paid from the cash drawer today (counted at Day Close)" checked={fromDrawer} onChange={(e) => setFromDrawer(e.target.checked)} />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!valid || act.isPending}>Add to stock</Button>

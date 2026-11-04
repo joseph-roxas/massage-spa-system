@@ -44,8 +44,6 @@ const RECEPTIONIST: readonly Capability[] = [
   'payroll.therapist.generate',
   'cash_advance.therapist',
   'inventory.stock_out',
-  'inventory.po.request',
-  'inventory.receive',
   'reports.daily',
 ];
 

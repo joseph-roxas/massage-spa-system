@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { isLowStock, onHand, poCan, receiveProblem, statusAfterDelivery, stockOutProblem } from './inventory';
+import {
+  isLowStock,
+  onHand,
+  poCan,
+  receiveProblem,
+  receiveTurnoverProblem,
+  statusAfterDelivery,
+  stockLevels,
+  stockOutProblem,
+  takeOutProblem,
+  turnoverProblem,
+} from './inventory';
 
 describe('on hand', () => {
   it('is everything in less everything out', () => {
@@ -46,5 +57,30 @@ describe('purchase orders', () => {
     expect(poCan('partially_received', 'cancel')).toBe(true);
     expect(poCan('received', 'cancel')).toBe(false);
     expect(poCan('cancelled', 'approve')).toBe(false);
+  });
+});
+
+describe('Storage and Shop Stock', () => {
+  it('counts a Turnover in transit until received; a shortfall stays in Storage', () => {
+    const base = { storageIns: 20, shopIns: 3, inTransit: 0, received: 0, storageOuts: 0, shopOuts: 1 };
+    expect(stockLevels(base)).toEqual({ storage: 20, inTransit: 0, shop: 2 });
+    expect(stockLevels({ ...base, inTransit: 10 })).toEqual({ storage: 10, inTransit: 10, shop: 2 });
+    // 10 sent, 8 received: the 2 short are back in Storage.
+    expect(stockLevels({ ...base, received: 8 })).toEqual({ storage: 12, inTransit: 0, shop: 10 });
+  });
+
+  it('uses only Consumables and discards only the rest', () => {
+    expect(takeOutProblem('use', 'consumable', 2, 5)).toBeNull();
+    expect(takeOutProblem('use', 'reusable', 1, 5)).toMatch(/Discard/);
+    expect(takeOutProblem('discard', 'consumable', 1, 5)).toMatch(/used, not discarded/);
+    expect(takeOutProblem('discard', 'equipment', 1, 1)).toBeNull();
+    expect(takeOutProblem('discard', 'reusable', 3, 2)).toMatch(/Only 2 at the shop/);
+  });
+
+  it('sends only what Storage has, and receives no more than was sent', () => {
+    expect(turnoverProblem(5, 5)).toBeNull();
+    expect(turnoverProblem(6, 5)).toMatch(/Only 5 in storage/);
+    expect(receiveTurnoverProblem(8, 10)).toBeNull();
+    expect(receiveTurnoverProblem(11, 10)).toMatch(/Only 10/);
   });
 });

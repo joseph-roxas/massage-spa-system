@@ -202,6 +202,13 @@ run_wizard() {
 
 # Run from the repo root wherever the script is started from.
 cd "$(dirname "$0")/.."
+# PowerShell's plain `bash` is WSL, which has no Node; Git Bash shares Windows' Node.
+if ! command -v node >/dev/null 2>&1 || ! command -v npx >/dev/null 2>&1; then
+  printf '\n  Node.js is not available in this shell, so the setup cannot run here.\n'
+  printf '  From PowerShell, start it with Git Bash instead:\n\n'
+  printf '    & "C:\\Program Files\\Git\\bin\\bash.exe" scripts/go-live-setup.sh\n\n'
+  exit 1
+fi
 # Non-secret ids only; the API token never touches disk.
 ENV_FILE=".deploy.env"
 REPO_URL="https://github.com/joseph-roxas/massage-spa-system"

@@ -6,6 +6,8 @@ export type DiscountType = 'none' | 'senior' | 'pwd' | 'promo' | 'voucher' | 'co
 export type PriceChoice = {
   bookingId: string;
   statutory: 'senior' | 'pwd' | null;
+  /** The Promo picked, or null for none; left out, the server uses the best that applies. */
+  promoId?: string | null;
   addonIds: string[];
   complimentary: boolean;
   voucherSerial: string | null;
@@ -13,12 +15,14 @@ export type PriceChoice = {
 
 export type Quote = {
   regularPrice: number;
-  discount: { type: DiscountType; bp: number; amount: number; label: string };
+  discount: { type: DiscountType; bp: number; amount: number; promoId: string | null; label: string };
   serviceAmount: number;
   addonsTotal: number;
   amountDue: number;
   focKind: 'none' | 'prepaid' | 'real';
   addons: { id: string; name: string; price: number }[];
+  /** Every running Promo, with why it doesn't cover this Service (null if it does). */
+  promos: { id: string; name: string; percentBp: number; problem: string | null }[];
 };
 
 export type PaymentLine = { method: 'cash' | 'gcash'; amount: number; gcashRef?: string | null };
@@ -37,6 +41,7 @@ export type BusinessDay = {
 
 export const CASH_OUT_CATEGORIES = {
   petty_cash: 'Petty cash',
+  laundry: 'Laundry',
   supplies: 'Supplies',
   food: 'Food / rice',
   transport: 'Transport',
@@ -45,9 +50,16 @@ export const CASH_OUT_CATEGORIES = {
   cash_advance: 'Cash Advance',
 } as const;
 
+/** What the Cash-out form offers, and where each one's cash comes from. */
+export const FORM_CASH_OUTS = {
+  petty_cash: { hint: 'From the petty cash fund: rice, ballpens, paper, tape, phone load' },
+  laundry: { hint: 'From sales cash' },
+} as const;
+
 export type CashOut = {
   id: string;
   category: keyof typeof CASH_OUT_CATEGORIES;
+  source: 'sales' | 'petty';
   amount: number;
   purpose: string;
   createdAt: string;

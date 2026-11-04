@@ -48,17 +48,31 @@ export type Promo = {
   active: boolean;
 };
 
-/** Whether a Promo covers a Service starting at the given Manila date and time. */
-export function promoApplies(
-  promo: Promo,
+/** "14:00" → "2:00pm". */
+function clock(t: HhMm): string {
+  const [h, m] = t.split(':').map(Number) as [number, number];
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}`;
+}
+
+/**
+ * Why a Promo doesn't cover a Service starting at the given Manila date and
+ * time, or null if it does. `serviceName` names the Promo's own Service.
+ */
+export function promoProblem(
+  promo: Promo & { serviceName?: string },
   service: { serviceId: string; startDate: IsoDate; startTime: HhMm },
-): boolean {
-  return (
-    promo.active &&
-    promo.serviceId === service.serviceId &&
-    service.startDate >= promo.validFrom &&
-    service.startDate <= promo.validTo &&
-    service.startTime >= promo.startTime &&
-    service.startTime < promo.endTime
-  );
+): string | null {
+  if (!promo.active) return 'Not running';
+  if (promo.serviceId !== service.serviceId) return `Only for ${promo.serviceName ?? 'another service'}`;
+  if (service.startDate < promo.validFrom) return `Starts ${promo.validFrom}`;
+  if (service.startDate > promo.validTo) return `Ended ${promo.validTo}`;
+  if (service.startTime < promo.startTime || service.startTime >= promo.endTime) {
+    return `Only for services starting ${clock(promo.startTime)}–${clock(promo.endTime)}`;
+  }
+  return null;
+}
+
+/** Whether a Promo covers a Service starting at the given Manila date and time. */
+export function promoApplies(promo: Promo, service: { serviceId: string; startDate: IsoDate; startTime: HhMm }): boolean {
+  return promoProblem(promo, service) === null;
 }

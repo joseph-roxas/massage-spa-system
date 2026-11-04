@@ -28,7 +28,10 @@ export const businessDays = sqliteTable('business_days', {
   reopenedBy: text('reopened_by').references(() => users.id),
 });
 
-export const CASH_OUT_CATEGORIES = ['on_call_commission', 'cash_advance', 'petty_cash', 'supplies', 'food', 'transport', 'other'] as const;
+/** `supplies`, `food`, `transport`, `other` are history only; the form offers Petty cash and Laundry. */
+export const CASH_OUT_CATEGORIES = ['on_call_commission', 'cash_advance', 'petty_cash', 'laundry', 'supplies', 'food', 'transport', 'other'] as const;
+/** Which cash a Cash-out came from: Sales Cash or the Petty Cash Fund. */
+export const CASH_OUT_SOURCES = ['sales', 'petty'] as const;
 
 /** Cash taken from the drawer during a Business Day. */
 export const cashOuts = sqliteTable(
@@ -37,6 +40,7 @@ export const cashOuts = sqliteTable(
     id: text('id').primaryKey(),
     businessDay: text('business_day').notNull(),
     category: text('category', { enum: CASH_OUT_CATEGORIES }).notNull(),
+    source: text('source', { enum: CASH_OUT_SOURCES }).notNull().default('sales'),
     amount: integer('amount').notNull(),
     purpose: text('purpose').notNull(),
     /** Who received it, e.g. the On-call Therapist paid for the day. */

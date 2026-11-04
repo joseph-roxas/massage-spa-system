@@ -95,6 +95,35 @@ describe('checkout', () => {
     expect((await desk.post('/sales', { bookingId: booking, payments: cash(50000) })).status).toBe(409);
   });
 
+  it('lists running Promos with why each does not apply, and applies only the one picked', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO promos (id, name, service_id, percent_bp, start_time, end_time, valid_from, valid_to, active, created_at)
+         VALUES ('all-day', 'All-day 15%', 'swedish-60', 1500, '00:00', '24:00', '2000-01-01', '2999-12-31', 1, '2026-11-04T00:00:00.000Z'),
+                ('thai-only', 'Thai 5%', 'thai-60', 500, '00:00', '24:00', '2000-01-01', '2999-12-31', 1, '2026-11-04T00:00:00.000Z')`,
+      ),
+    ]);
+    try {
+      const booking = await served(desk, await therapist(admin));
+      type Q = Quote & { promos: { id: string; problem: string | null }[] };
+
+      const auto = await json<Q>(await desk.post('/sales/quote', { bookingId: booking }));
+      expect(auto.discount).toMatchObject({ type: 'promo', promoId: 'all-day', amount: 7500 });
+      expect(auto.promos.find((p) => p.id === 'all-day')!.problem).toBeNull();
+      expect(auto.promos.find((p) => p.id === 'thai-only')!.problem).toMatch(/^Only for /);
+
+      const none = await json<Q>(await desk.post('/sales/quote', { bookingId: booking, promoId: null }));
+      expect(none.discount.type).toBe('none');
+      expect((await desk.post('/sales/quote', { bookingId: booking, promoId: 'thai-only' })).status).toBe(409);
+
+      expect((await desk.post('/sales', { bookingId: booking, promoId: null, payments: cash(50000) })).status).toBe(201);
+    } finally {
+      await env.DB.prepare(`DELETE FROM promos WHERE id IN ('all-day', 'thai-only')`).run();
+    }
+  });
+
   it('refuses payments that do not settle the amount due', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');
@@ -140,7 +169,7 @@ describe('Day Close', () => {
     const b1 = await served(desk, t, 'thai-60');
     const day = today();
 
-    expect((await desk.post('/cash-outs', { category: 'food', amount: 15000, purpose: 'Rice for staff' })).status).toBe(201);
+    expect((await desk.post('/cash-outs', { category: 'petty_cash', amount: 15000, purpose: 'Rice for staff' })).status).toBe(201);
 
     let preview = await json<Preview>(await desk.get(`/days/${day}/close-preview`));
     expect(preview.blockers).toEqual([expect.objectContaining({ bookingId: b1, problem: 'Done but not checked out' })]);
@@ -159,7 +188,7 @@ describe('Day Close', () => {
 
     // Locked: no new walk-ins, sales, or Cash-outs.
     expect((await desk.post('/bookings', { kind: 'walk_in', serviceId: 'thai-60' })).status).toBe(409);
-    expect((await desk.post('/cash-outs', { category: 'food', amount: 100, purpose: 'More rice' })).status).toBe(409);
+    expect((await desk.post('/cash-outs', { category: 'petty_cash', amount: 100, purpose: 'More rice' })).status).toBe(409);
 
     // Only the Super Admin reopens.
     expect((await desk.post(`/days/${day}/reopen`, { reason: 'Late guest' })).status).toBe(403);
@@ -229,10 +258,23 @@ describe('Early Close and Cash-outs', () => {
   it('records and removes Cash-outs, but on-call pay only through Day Close', async () => {
     const desk = await loggedIn('receptionist');
     expect((await desk.post('/cash-outs', { category: 'on_call_commission', amount: 100, purpose: 'Pay Ana' })).status).toBe(400);
-    const { id } = await json<{ id: string }>(await desk.post('/cash-outs', { category: 'supplies', amount: 4500, purpose: 'Tissue rolls' }));
+    const { id } = await json<{ id: string }>(await desk.post('/cash-outs', { category: 'petty_cash', amount: 4500, purpose: 'Tissue rolls' }));
     expect((await json<{ cashOuts: unknown[] }>(await desk.get(`/cash-outs?day=${today()}`))).cashOuts).toHaveLength(1);
     expect((await desk.send('DELETE', `/cash-outs/${id}`)).status).toBe(200);
     expect((await json<{ cashOuts: unknown[] }>(await desk.get(`/cash-outs?day=${today()}`))).cashOuts).toHaveLength(0);
+  });
+
+  it('offers only Petty cash (from the fund) and Laundry (from Sales Cash) on the form', async () => {
+    const desk = await loggedIn('receptionist');
+    for (const category of ['supplies', 'food', 'transport', 'other'])
+      expect((await desk.post('/cash-outs', { category, amount: 100, purpose: 'Something' })).status).toBe(400);
+    await desk.post('/cash-outs', { category: 'petty_cash', amount: 5000, purpose: 'Rice 1 kg' });
+    await desk.post('/cash-outs', { category: 'laundry', amount: 120000, purpose: 'Weekly laundry' });
+    const { cashOuts } = await json<{ cashOuts: { category: string; source: string }[] }>(await desk.get(`/cash-outs?day=${today()}`));
+    expect(cashOuts.map((x) => [x.category, x.source])).toEqual([
+      ['petty_cash', 'petty'],
+      ['laundry', 'sales'],
+    ]);
   });
 });
 

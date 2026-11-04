@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Alert, Button, Checkbox, Field, Input } from '../../components/ui';
+import { Alert, Button, Checkbox, Field, Input, Select } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useCan } from '../../lib/auth';
 import { useAddons } from '../../lib/catalogue';
@@ -8,7 +8,8 @@ import { guestLabel, type Booking } from '../../lib/front-desk';
 import { useDayAction, useQuote } from '../../lib/sales';
 import { usePayment } from './PaymentFields';
 
-type DiscountPick = 'auto' | 'senior' | 'pwd' | 'voucher' | 'complimentary';
+/** A Discount dropdown value: `promo:<id>` for a Promo. */
+type DiscountPick = 'none' | `promo:${string}` | 'senior' | 'pwd' | 'voucher' | 'complimentary';
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
@@ -23,19 +24,23 @@ export function CheckoutDialog({ booking, onClose }: { booking: Booking; onClose
   const canComp = useCan('sales.complimentary');
   const addons = useAddons();
   const save = useDayAction();
-  const [pick, setPick] = useState<DiscountPick>('auto');
+  // Null until the Receptionist chooses: the server then applies the best Promo, and the dropdown shows it.
+  const [chosen, setChosen] = useState<DiscountPick | null>(null);
   const [idNumber, setIdNumber] = useState('');
   const [reason, setReason] = useState('');
   const [serial, setSerial] = useState('');
   const [addonIds, setAddonIds] = useState<string[]>([]);
   const [invoiceNo, setInvoiceNo] = useState('');
 
-  const statutory = pick === 'senior' || pick === 'pwd' ? pick : null;
+  const statutory = chosen === 'senior' || chosen === 'pwd' ? chosen : null;
+  const promoId = chosen === null ? undefined : chosen.startsWith('promo:') ? chosen.slice('promo:'.length) : null;
   // Look the serial up only once it could be one.
-  const voucherSerial = pick === 'voucher' && serial.trim().length >= 3 ? serial.trim() : null;
-  const quote = useQuote({ bookingId: booking.id, statutory, addonIds, complimentary: pick === 'complimentary', voucherSerial });
+  const voucherSerial = chosen === 'voucher' && serial.trim().length >= 3 ? serial.trim() : null;
+  const quote = useQuote({ bookingId: booking.id, statutory, promoId, addonIds, complimentary: chosen === 'complimentary', voucherSerial });
+  const autoPromo = chosen === null ? quote.data?.discount.promoId : null;
+  const pick: DiscountPick = chosen ?? (autoPromo ? `promo:${autoPromo}` : 'none');
   // Until a voucher is found, a quote without one must not stand in for it. (Submit also waits while re-pricing.)
-  const q = pick === 'voucher' && (!voucherSerial || quote.isError || quote.data?.discount.type !== 'voucher') ? undefined : quote.data;
+  const q = chosen === 'voucher' && (!voucherSerial || quote.isError || quote.data?.discount.type !== 'voucher') ? undefined : quote.data;
   const due = q?.amountDue ?? 0;
   const pay = usePayment(due);
 
@@ -47,8 +52,9 @@ export function CheckoutDialog({ booking, onClose }: { booking: Booking; onClose
         body: {
           bookingId: booking.id,
           statutory: statutory ? { kind: statutory, idNumber } : null,
+          promoId: promoId === undefined ? autoPromo ?? null : promoId,
           addonIds,
-          complimentaryReason: pick === 'complimentary' ? reason : null,
+          complimentaryReason: chosen === 'complimentary' ? reason : null,
           voucherSerial,
           payments: pay.payments,
           bookletInvoiceNo: invoiceNo || null,
@@ -58,11 +64,7 @@ export function CheckoutDialog({ booking, onClose }: { booking: Booking; onClose
     );
   }
 
-  const choice = (value: DiscountPick, label: string) => (
-    <label className="flex items-center gap-2">
-      <input type="radio" name="discount" checked={pick === value} onChange={() => setPick(value)} /> {label}
-    </label>
-  );
+  const promoOptions = quote.data?.promos ?? [];
 
   return (
     <Modal title={`Checkout · ${guestLabel(booking)}`} onClose={onClose}>
@@ -72,28 +74,35 @@ export function CheckoutDialog({ booking, onClose }: { booking: Booking; onClose
         </p>
         {(save.error || quote.error) && <Alert>{(save.error ?? quote.error)?.message}</Alert>}
 
-        <fieldset className="space-y-2 text-sm">
-          <legend className="mb-1 font-medium text-stone-700">Discount</legend>
-          <div className="flex flex-wrap gap-x-6 gap-y-2">
-            {choice('auto', 'Promo if any')}
-            {choice('senior', 'Senior Citizen')}
-            {choice('pwd', 'PWD')}
-            {choice('voucher', 'Voucher')}
-            {canComp && choice('complimentary', 'Complimentary')}
-          </div>
-          <p className="text-xs text-stone-500">The guest gets one discount only: whichever is larger.</p>
-        </fieldset>
+        <Field label="Discount" hint="One discount per service. Greyed-out Promos don't apply to this service.">
+          <Select value={pick} onChange={(e) => setChosen(e.target.value as DiscountPick)}>
+            <option value="none">No discount</option>
+            {promoOptions.length > 0 && (
+              <optgroup label="Promos">
+                {promoOptions.map((p) => (
+                  <option key={p.id} value={`promo:${p.id}`} disabled={!!p.problem}>
+                    {p.name} ({percent(p.percentBp)}){p.problem ? ` · ${p.problem}` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <option value="senior">Senior Citizen (20%)</option>
+            <option value="pwd">PWD (20%)</option>
+            <option value="voucher">Voucher</option>
+            {canComp && <option value="complimentary">Complimentary (Real FOC)</option>}
+          </Select>
+        </Field>
         {statutory && (
           <Field label={`${statutory === 'senior' ? 'Senior Citizen' : 'PWD'} ID number`}>
             <Input required minLength={3} autoFocus value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
           </Field>
         )}
-        {pick === 'voucher' && (
+        {chosen === 'voucher' && (
           <Field label="Voucher serial number" hint="Only for this exact service; no upgrades">
             <Input required autoFocus value={serial} onChange={(e) => setSerial(e.target.value)} placeholder="E.g. SWE-7K3M9P" />
           </Field>
         )}
-        {pick === 'complimentary' && (
+        {chosen === 'complimentary' && (
           <Field label="Why is this complimentary?" hint="Counted as a Real FOC; the therapist still earns Commission">
             <Input required minLength={3} autoFocus value={reason} onChange={(e) => setReason(e.target.value)} />
           </Field>

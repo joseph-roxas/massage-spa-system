@@ -3,13 +3,13 @@ import { Alert, Button, Field, Input, Select } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { manilaTime } from '../../lib/attendance';
 import { longDate, parsePesos, peso } from '../../lib/format';
-import { CASH_OUT_CATEGORIES, useCashOuts, useClosePreview, useDayAction } from '../../lib/sales';
+import { CASH_OUT_CATEGORIES, FORM_CASH_OUTS, useCashOuts, useClosePreview, useDayAction } from '../../lib/sales';
 
 export function CashOutDialog({ day, onClose }: { day: string; onClose: () => void }) {
   const list = useCashOuts(day);
   const save = useDayAction();
   const remove = useDayAction();
-  const [category, setCategory] = useState('petty_cash');
+  const [category, setCategory] = useState<keyof typeof FORM_CASH_OUTS>('petty_cash');
   const [amount, setAmount] = useState('');
   const [purpose, setPurpose] = useState('');
   const centavos = parsePesos(amount);
@@ -40,15 +40,13 @@ export function CashOutDialog({ day, onClose }: { day: string; onClose: () => vo
             <Input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </Field>
         </div>
-        <Field label="Category">
-          <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-            {Object.entries(CASH_OUT_CATEGORIES)
-              .filter(([k]) => k !== 'on_call_commission' && k !== 'cash_advance')
-              .map(([k, label]) => (
-                <option key={k} value={k}>
-                  {label}
-                </option>
-              ))}
+        <Field label="Category" hint={FORM_CASH_OUTS[category].hint}>
+          <Select value={category} onChange={(e) => setCategory(e.target.value as keyof typeof FORM_CASH_OUTS)}>
+            {Object.keys(FORM_CASH_OUTS).map((k) => (
+              <option key={k} value={k}>
+                {CASH_OUT_CATEGORIES[k as keyof typeof FORM_CASH_OUTS]}
+              </option>
+            ))}
           </Select>
         </Field>
         <div className="flex justify-end gap-2">

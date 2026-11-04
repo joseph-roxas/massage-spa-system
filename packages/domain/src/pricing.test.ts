@@ -50,6 +50,18 @@ describe('quoteSale', () => {
     expect(quoteSale(swedish({ promos: [big], statutory: 'pwd' })).discount.type).toBe('pwd');
   });
 
+  it('applies only the Promo picked at checkout, or none', () => {
+    expect(quoteSale(swedish({ promoId: 'hh' })).discount).toMatchObject({ type: 'promo', promoId: 'hh', amount: pesos(50) });
+    expect(quoteSale(swedish({ promoId: null })).discount.type).toBe('none');
+    expect(quoteSale(swedish({ promoId: 'hh', startTime: '19:00' })).discount.type).toBe('none');
+    expect(quoteSale(swedish({ promoId: 'other' })).discount.type).toBe('none');
+  });
+
+  it('gives the Statutory Discount when it is picked instead of a Promo', () => {
+    const big = { ...happyHours, percentBp: 3000 };
+    expect(quoteSale(swedish({ promos: [big], promoId: null, statutory: 'senior' })).discount).toMatchObject({ type: 'senior', bp: 2000 });
+  });
+
   it('adds Add-ons on top, undiscounted', () => {
     const q = quoteSale(swedish({ statutory: 'pwd', addonPrices: [pesos(50)] }));
     expect(q).toMatchObject({ serviceAmount: pesos(400), addonsTotal: pesos(50), amountDue: pesos(450) });

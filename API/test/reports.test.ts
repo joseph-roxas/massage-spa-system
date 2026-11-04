@@ -51,7 +51,7 @@ describe('reports', () => {
     expect((await desk.post('/sales', { bookingId: b1, addonIds: ['extra-oil'], payments: [{ method: 'cash', amount: 55000 }] })).status).toBe(201);
     const b2 = await served(desk, t.id);
     expect((await desk.post('/sales', { bookingId: b2, statutory: { kind: 'senior', idNumber: 'SC-1' }, payments: [{ method: 'gcash', amount: 40000, gcashRef: '123' }] })).status).toBe(201);
-    await desk.post('/cash-outs', { category: 'food', amount: 10000, purpose: 'Rice' });
+    await desk.post('/cash-outs', { category: 'petty_cash', amount: 10000, purpose: 'Rice' });
 
     const daily = (await json<{ report: Report }>(await report(desk, 'daily-sales'))).report;
     expect(daily.rows).toEqual([

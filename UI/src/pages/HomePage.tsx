@@ -51,7 +51,9 @@ function RoomTile({ room, now, onDone }: { room: Board['rooms'][number]; now: nu
       <p className="font-medium">
         {room.name} {b.flexMode === 'recliner' && <span className="text-xs text-stone-500">(recliner)</span>}
       </p>
-      <p className="truncate">{guestLabel(b)}</p>
+      <p className="truncate">
+        {guestLabel(b)} {b.guestIsRegular && <Badge tone="teal">Regular</Badge>}
+      </p>
       <p className="truncate text-xs text-stone-600">
         {b.serviceCode} · {b.therapistName}
       </p>
@@ -104,7 +106,7 @@ function QueueLine({ b, onStart }: { b: Booking; onStart: (b: Booking) => void }
       <div className="w-16 text-sm tabular-nums text-stone-500">{b.scheduledAt ? manilaTime(b.scheduledAt) : manilaTime(b.createdAt)}</div>
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">
-          {guestLabel(b)} {b.status === 'scheduled' && <Badge tone="amber">Booked</Badge>}
+          {guestLabel(b)} {b.guestIsRegular && <Badge tone="teal">Regular</Badge>} {b.status === 'scheduled' && <Badge tone="amber">Booked</Badge>}
         </p>
         <p className="truncate text-xs text-stone-500">
           {b.serviceName} · {duration(b.durationMin)}

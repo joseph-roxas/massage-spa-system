@@ -64,6 +64,7 @@ async function closingState(c: Context<AuthedEnv>, day: string) {
       status: b.status,
       guest: b.guestName || 'Walk-in guest',
       guestName: b.guestName,
+      guestId: b.guestId,
       serviceId: b.serviceId,
       service: serviceName(b.serviceId),
       therapistName: allStaff.find((s) => s.id === b.therapistId)?.displayName ?? null,

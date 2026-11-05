@@ -21,6 +21,7 @@ import { goLiveRoutes } from './modules/golive';
 import { cashRoutes } from './modules/cash';
 import { financeRoutes } from './modules/finance';
 import { attentionRoutes } from './modules/attention';
+import { guestRoutes } from './modules/guests';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
 
@@ -61,6 +62,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/', cashRoutes)
     .route('/', financeRoutes)
     .route('/', attentionRoutes)
+    .route('/', guestRoutes)
     .notFound((c) => fail(c, 404, 'not_found', 'No such endpoint.'))
     .onError((err, c) => {
       console.error(err);

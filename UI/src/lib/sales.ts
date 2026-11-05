@@ -75,6 +75,7 @@ export type ClosePreview = {
     status: BookingStatus;
     guest: string;
     guestName: string | null;
+    guestId: string | null;
     serviceId: string;
     service: string;
     therapistName: string | null;

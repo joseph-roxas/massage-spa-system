@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Alert, Button, Checkbox, Field, Input, Select } from '../../components/ui';
+import { GuestPicker, guestBody, NO_GUEST, type GuestChoice } from '../../components/GuestPicker';
 import { Modal } from '../../components/Modal';
 import { fromLocalInput, useClockStaff } from '../../lib/attendance';
 import { useServices } from '../../lib/catalogue';
@@ -20,10 +21,9 @@ export function NewBookingDialog({
   const staff = useClockStaff();
   const create = useDeskAction();
   const start = useDeskAction();
+  const [guest, setGuest] = useState<GuestChoice>(NO_GUEST);
   const [form, setForm] = useState({
     serviceId: '',
-    guestName: '',
-    guestPhone: '',
     requestedTherapistId: '',
     scheduledAt: '',
     notes: '',
@@ -39,8 +39,7 @@ export function NewBookingDialog({
     const body = {
       kind,
       serviceId: form.serviceId,
-      guestName: form.guestName,
-      guestPhone: form.guestPhone,
+      ...guestBody(guest),
       requestedTherapistId: form.requestedTherapistId || null,
       notes: form.notes,
       ...(kind === 'scheduled' ? { scheduledAt: fromLocalInput(form.scheduledAt) } : {}),
@@ -84,14 +83,7 @@ export function NewBookingDialog({
             </optgroup>
           </Select>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={kind === 'walk_in' ? 'Guest name (optional)' : 'Guest name'}>
-            <Input required={kind === 'scheduled'} value={form.guestName} onChange={(e) => set('guestName', e.target.value)} />
-          </Field>
-          <Field label="Phone (optional)">
-            <Input inputMode="tel" value={form.guestPhone} onChange={(e) => set('guestPhone', e.target.value)} />
-          </Field>
-        </div>
+        <GuestPicker value={guest} onChange={setGuest} nameLabel={kind === 'walk_in' ? 'Guest name (optional)' : 'Guest name'} required={kind === 'scheduled'} />
         <div className="grid grid-cols-2 gap-3">
           <Field label="Requested therapist" hint="Leave as Rotation unless the guest asks for someone">
             <Select value={form.requestedTherapistId} onChange={(e) => set('requestedTherapistId', e.target.value)}>

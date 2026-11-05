@@ -47,6 +47,7 @@ export const PAY_RULE_SCHEMAS = {
     regularUnworkedPct: z.number().min(0).max(1000),
   }),
   minimum_wage_daily: centavos.min(1),
+  regular_guest_rule: z.object({ visits: z.number().int().min(1).max(50), days: z.number().int().min(7).max(730) }),
   gov_deduction_defaults: z.object({ therapist: govShares, receptionist: govShares }),
   contribution_rates: z.object({
     sss: z.object({ eeBp: basisPoints, erBp: basisPoints, mscMin: centavos, mscMax: centavos, mscStep: centavos.min(1), ecLow: centavos, ecHigh: centavos, ecHighFromMsc: centavos }),

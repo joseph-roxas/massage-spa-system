@@ -8,6 +8,7 @@ import { useAttention } from '../lib/attention';
 /** Menu entries appear only for roles that hold the capability. */
 const NAV: { to: string; label: string; capability?: Capability; hideFor?: Role }[] = [
   { to: '/', label: 'Front Desk' },
+  { to: '/guests', label: 'Guests', capability: 'bookings.manage' },
   { to: '/vouchers', label: 'Vouchers', capability: 'sales.manage' },
   { to: '/cash', label: 'Cash', capability: 'cashouts.record' },
   { to: '/dtr', label: 'Time Records', capability: 'dtr.correct.therapist' },

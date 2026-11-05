@@ -18,6 +18,7 @@ import { PAYMENT_METHODS, servicePrices, services, VOUCHER_STATUSES, voucherEndo
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
+import { resolveGuest } from '../lib/guests';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { centavos, isoDate, todayInManila } from '../lib/validation';
@@ -31,6 +32,9 @@ const sellBody = z.object({
   serials: z.array(z.string().trim().min(3).max(40)).min(1).max(60),
   buyerName: z.string().trim().min(2, 'Enter the buyer’s name.').max(120),
   buyerPhone: z.string().trim().max(30).optional(),
+  /** The buyer's Guest Record, picked; or `saveGuest` to make one from the typed name. */
+  guestId: z.string().min(1).nullable().optional(),
+  saveGuest: z.boolean().optional(),
   payments: z
     .array(z.object({ method: z.enum(PAYMENT_METHODS), amount: centavos, gcashRef: z.string().trim().max(40).nullable().optional() }))
     .min(1)
@@ -129,15 +133,20 @@ export const voucherRoutes = new Hono<AuthedEnv>()
     const problem = paymentProblem(order.total, lines);
     if (problem) return fail(c, 400, 'payment_mismatch', problem);
 
+    const guest = await resolveGuest(db, { guestId: input.guestId, saveGuest: input.saveGuest, name: input.buyerName, phone: input.buyerPhone || null }, c.var.user.id);
+    if (!guest.ok) return fail(c, 400, 'unknown_guest', guest.problem);
     const id = crypto.randomUUID();
     const now = nowIso();
+    // A new Guest Record goes in first so the sale can point at it.
+    if (guest.insert) await guest.insert;
     await db.batch([
       db.insert(voucherSales).values({
         id,
         businessDay: day,
         serviceId: service.id,
-        buyerName: input.buyerName,
-        buyerPhone: input.buyerPhone || null,
+        guestId: guest.guestId,
+        buyerName: guest.name ?? input.buyerName,
+        buyerPhone: guest.phone,
         qtyPaid: order.paid,
         qtyFree: order.free,
         unitPrice: regular.regularPrice,

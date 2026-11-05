@@ -8,6 +8,7 @@ import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays } from '../lib/business-days';
 import { activeBookingsFor, bookingSpan, frontDeskState, type BookingRow } from '../lib/front-desk';
+import { resolveGuest, visitStatsFor } from '../lib/guests';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { requireAuth, requireCapability } from '../auth/middleware';
@@ -26,6 +27,10 @@ const bookingFields = z.object({
   serviceId: z.string().min(1),
   guestName: optionalText(80),
   guestPhone: optionalText(30),
+  /** A picked Guest Record; its name and phone are copied onto the Booking. */
+  guestId: z.string().min(1).nullable().optional(),
+  /** Save the typed name (and phone) as a new Guest Record. */
+  saveGuest: z.boolean().optional(),
   requestedTherapistId: z.string().min(1).nullable().optional(),
   notes: optionalText(300),
 });
@@ -92,6 +97,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       openDays(c.var.db),
     ]);
     const svcById = new Map(svc.map((s) => [s.id, s]));
+    const guestIds = [...new Set(state.dayBookings.map((b) => b.guestId).filter((g): g is string => !!g))];
+    const guestStats = guestIds.length ? await visitStatsFor(c.var.db, guestIds) : new Map();
     const nameOf = (id: string | null) => (id ? (people.find((p) => p.id === id)?.displayName ?? null) : null);
     const list = state.dayBookings
       .map((b) => ({
@@ -102,6 +109,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
         requestedTherapistName: nameOf(b.requestedTherapistId),
         endsAt: b.startedAt ? addMinutes(b.startedAt, b.durationMin) : null,
         sale: daySales.find((x) => x.bookingId === b.id) ?? null,
+        guestVisits: b.guestId ? (guestStats.get(b.guestId)?.visits ?? 0) : null,
+        guestIsRegular: b.guestId ? (guestStats.get(b.guestId)?.isRegular ?? false) : false,
       }))
       .sort((a, b) => (a.startedAt ?? a.scheduledAt ?? a.createdAt).localeCompare(b.startedAt ?? b.scheduledAt ?? b.createdAt));
     const byId = new Map(state.therapists.map((t) => [t.id, t]));
@@ -140,14 +149,17 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       const blocked = await openDayFor(c, businessDayOf(new Date(now)));
       if (blocked) return blocked;
     }
+    const guest = await resolveGuest(db, { guestId: input.guestId, saveGuest: input.saveGuest, name: input.guestName ?? null, phone: input.guestPhone ?? null }, c.var.user.id);
+    if (!guest.ok) return fail(c, 400, 'unknown_guest', guest.problem);
     const id = crypto.randomUUID();
-    await db.insert(bookings).values({
+    const row = {
       id,
       businessDay: businessDayOf(new Date(scheduledAt ?? now)),
       kind: input.kind,
-      status: input.kind === 'scheduled' ? 'scheduled' : 'waiting',
-      guestName: input.guestName ?? null,
-      guestPhone: input.guestPhone ?? null,
+      status: input.kind === 'scheduled' ? ('scheduled' as const) : ('waiting' as const),
+      guestId: guest.guestId,
+      guestName: guest.name,
+      guestPhone: guest.phone,
       serviceId: service.id,
       durationMin: service.durationMin,
       scheduledAt,
@@ -155,8 +167,10 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       notes: input.notes ?? null,
       createdAt: now,
       createdBy: c.var.user.id,
-    });
-    return c.json({ id }, 201);
+    };
+    if (guest.insert) await db.batch([guest.insert, db.insert(bookings).values(row)]);
+    else await db.insert(bookings).values(row);
+    return c.json({ id, guestId: guest.guestId }, 201);
   })
 
   .patch('/bookings/:id', zValidator('json', editBooking, invalidInput), async (c) => {
@@ -170,6 +184,17 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const changes: Partial<BookingRow> = {};
     if (input.guestName !== undefined) changes.guestName = input.guestName;
     if (input.guestPhone !== undefined) changes.guestPhone = input.guestPhone;
+    let newGuest = null;
+    if (input.guestId !== undefined || input.saveGuest) {
+      const guest = await resolveGuest(
+        db,
+        { guestId: input.guestId, saveGuest: input.saveGuest, name: changes.guestName ?? booking.guestName, phone: changes.guestPhone ?? booking.guestPhone },
+        c.var.user.id,
+      );
+      if (!guest.ok) return fail(c, 400, 'unknown_guest', guest.problem);
+      Object.assign(changes, { guestId: guest.guestId, guestName: guest.name, guestPhone: guest.phone });
+      newGuest = guest.insert;
+    }
     if (input.notes !== undefined) changes.notes = input.notes;
     if (input.requestedTherapistId !== undefined) changes.requestedTherapistId = input.requestedTherapistId;
     if (input.serviceId && input.serviceId !== booking.serviceId) {
@@ -188,11 +213,35 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       const clash = await requestClash(c, merged.requestedTherapistId, span, booking.id);
       if (clash) return fail(c, 409, 'therapist_booked', clash);
     }
+    // The new Guest Record goes in first so the Booking can point at it.
     await db.batch([
-      db.update(bookings).set(changes).where(eq(bookings.id, booking.id)),
       auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.update', entity: 'booking', entityId: booking.id, before: booking, after: changes }),
+      ...(newGuest ? [newGuest] : []),
+      db.update(bookings).set(changes).where(eq(bookings.id, booking.id)),
     ]);
     return c.json({ ok: true });
+  })
+
+  /** Links a Guest Record at any point before or after checkout, e.g. a walk-in who gives their name at the counter. */
+  .put('/bookings/:id/guest', zValidator('json', z.object({ guestId: z.string().min(1).nullable(), saveGuest: z.boolean().optional(), guestName: optionalText(80), guestPhone: optionalText(30) }), invalidInput), async (c) => {
+    const db = c.var.db;
+    const booking = await loadBooking(c);
+    if (!booking) return fail(c, 404, 'not_found', 'Booking not found.');
+    if (booking.status === 'cancelled' || booking.status === 'no_show') return fail(c, 409, 'not_served', 'This booking was not served.');
+    const input = c.req.valid('json');
+    const guest = await resolveGuest(
+      db,
+      { guestId: input.guestId, saveGuest: input.saveGuest, name: input.guestName ?? booking.guestName, phone: input.guestPhone ?? booking.guestPhone },
+      c.var.user.id,
+    );
+    if (!guest.ok) return fail(c, 400, 'unknown_guest', guest.problem);
+    const changes = { guestId: guest.guestId, guestName: guest.name, guestPhone: guest.phone };
+    await db.batch([
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.guest', entity: 'booking', entityId: booking.id, before: { guestId: booking.guestId }, after: changes }),
+      ...(guest.insert ? [guest.insert] : []),
+      db.update(bookings).set(changes).where(eq(bookings.id, booking.id)),
+    ]);
+    return c.json({ guestId: guest.guestId });
   })
 
   /** Who and where the system would put this Guest right now. */

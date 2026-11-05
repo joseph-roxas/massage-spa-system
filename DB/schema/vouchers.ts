@@ -1,5 +1,6 @@
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { services } from './catalogue';
+import { guests } from './guests';
 import { PAYMENT_METHODS, sales } from './sales';
 import { users } from './users';
 
@@ -17,6 +18,8 @@ export const voucherSales = sqliteTable(
     serviceId: text('service_id')
       .notNull()
       .references(() => services.id),
+    /** The buyer's Guest Record; name and phone are copied as at the sale. */
+    guestId: text('guest_id').references(() => guests.id),
     buyerName: text('buyer_name'),
     buyerPhone: text('buyer_phone'),
     qtyPaid: integer('qty_paid').notNull(),

@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { Alert, Badge, Button, Checkbox, Field, Input, Select } from '../../components/ui';
+import { GuestPicker, guestBody, type GuestChoice } from '../../components/GuestPicker';
 import { Modal } from '../../components/Modal';
 import { useCan } from '../../lib/auth';
 import { useAddons } from '../../lib/catalogue';
 import { longDate, peso, percent } from '../../lib/format';
 import { guestLabel, type Booking } from '../../lib/front-desk';
+import { STATUTORY_LABEL, useGuest, useGuestAction, visitsLabel } from '../../lib/guests';
 import { useDayAction, useQuote } from '../../lib/sales';
 import { useVouchers, type VoucherBundle } from '../../lib/vouchers';
 import { toManila } from '@spa/domain';
@@ -49,21 +51,34 @@ function BundlePanel({ bundle }: { bundle: VoucherBundle }) {
 }
 
 /** What checkout needs of a booking; the Day Close dialog passes one from an earlier day. */
-export type CheckoutBooking = Pick<Booking, 'id' | 'guestName' | 'serviceId' | 'serviceName' | 'therapistName'>;
+export type CheckoutBooking = Pick<Booking, 'id' | 'guestName' | 'serviceId' | 'serviceName' | 'therapistName'> & { guestId?: string | null };
 
 export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking; onClose: () => void }) {
   const canComp = useCan('sales.complimentary');
   const addons = useAddons();
   const save = useDayAction();
   // Null until the Receptionist chooses: the server then applies the best Promo, and the dropdown shows it.
-  const [chosen, setChosen] = useState<DiscountPick | null>(null);
-  const [idNumber, setIdNumber] = useState('');
+  const [picked, setChosen] = useState<DiscountPick | null>(null);
+  // Null until typed: the Guest Record's saved ID fills it in.
+  const [typedId, setIdNumber] = useState<string | null>(null);
+  const [saveId, setSaveId] = useState(true);
+  const [linking, setLinking] = useState(false);
+  const [link, setLink] = useState<GuestChoice>({ guestId: null, guestName: booking.guestName ?? '', guestPhone: '', saveGuest: false });
+  const guestAction = useGuestAction();
+  const saved = useGuest(booking.guestId).data?.guest;
+  // A Guest with a saved SC/PWD ID gets that Discount unless the Receptionist picks another.
+  const chosen: DiscountPick | null = picked ?? saved?.statutoryType ?? null;
   const [reason, setReason] = useState('');
   const [serial, setSerial] = useState('');
   const [addonIds, setAddonIds] = useState<string[]>([]);
   const [invoiceNo, setInvoiceNo] = useState('');
 
   const statutory = chosen === 'senior' || chosen === 'pwd' ? chosen : null;
+  const savedId = saved && saved.statutoryType === statutory ? saved.statutoryIdNo : null;
+  const idNumber = typedId ?? savedId ?? '';
+  // Offer to keep a new or changed ID on the Guest Record being checked out.
+  const willHaveGuest = !!booking.guestId || (linking && (!!link.guestId || (link.saveGuest && !!link.guestName.trim())));
+  const canSaveId = !!statutory && willHaveGuest && idNumber.trim().length >= 3 && idNumber.trim() !== savedId;
   const promoId = chosen === null ? undefined : chosen.startsWith('promo:') ? chosen.slice('promo:'.length) : null;
   // Look the serial up only once it could be one.
   const voucherSerial = chosen === 'voucher' && serial.trim().length >= 3 ? serial.trim() : null;
@@ -75,6 +90,18 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
   const due = q?.amountDue ?? 0;
   const unused = useVouchers({ serviceId: booking.serviceId, status: 'unused' }, chosen === 'voucher');
   const pay = usePayment(due);
+
+  /** After the sale: link the Guest Record and keep the ID on it, if asked. */
+  async function afterSale() {
+    let guestId = booking.guestId ?? null;
+    if (!guestId && linking && (link.guestId || link.saveGuest)) {
+      guestId = (await guestAction.mutateAsync({ path: `/bookings/${booking.id}/guest`, method: 'PUT', body: guestBody(link) }).catch(() => null))?.guestId ?? null;
+    }
+    if (guestId && canSaveId && saveId) {
+      await guestAction.mutateAsync({ path: `/guests/${guestId}`, method: 'PATCH', body: { statutoryType: statutory, statutoryIdNo: idNumber.trim() } }).catch(() => null);
+    }
+    onClose();
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -92,7 +119,7 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
           bookletInvoiceNo: invoiceNo || null,
         },
       },
-      { onSuccess: onClose },
+      { onSuccess: () => void afterSale() },
     );
   }
 
@@ -103,7 +130,22 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
       <form onSubmit={submit} className="space-y-5">
         <p className="text-sm text-stone-600">
           {booking.serviceName} with {booking.therapistName}
+          {saved && (
+            <>
+              {' · '}
+              {saved.isRegular && <Badge tone="teal">Regular</Badge>} {visitsLabel(saved)}
+              {saved.statutoryType && ` · ${STATUTORY_LABEL[saved.statutoryType]} ID on file`}
+            </>
+          )}
         </p>
+        {!booking.guestId &&
+          (linking ? (
+            <GuestPicker value={link} onChange={setLink} />
+          ) : (
+            <button type="button" className="text-sm text-teal-800 underline" onClick={() => setLinking(true)}>
+              Link a Guest Record (to count the visit or keep an SC/PWD ID)
+            </button>
+          ))}
         {(save.error || quote.error) && <Alert>{(save.error ?? quote.error)?.message}</Alert>}
 
         <Field label="Discount" hint="One discount per service. Greyed-out Promos don't apply to this service.">
@@ -129,6 +171,7 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
             <Input required minLength={3} autoFocus value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
           </Field>
         )}
+        {canSaveId && <Checkbox label={savedId === null && !saved?.statutoryIdNo ? 'Save this ID to the Guest Record' : 'Replace the ID saved on the Guest Record'} checked={saveId} onChange={(e) => setSaveId(e.target.checked)} />}
         {chosen === 'voucher' && (
           <Field label="Voucher serial number" hint="Only for this exact service; no upgrades. Dashes and case don't matter.">
             <Input required autoFocus list="unused-vouchers" value={serial} onChange={(e) => setSerial(e.target.value)} placeholder="E.g. NTL-SM-0271" />
@@ -190,7 +233,7 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
 
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Not yet</Button>
-          <Button type="submit" disabled={!q || save.isPending || pay.invalid || quote.isFetching}>
+          <Button type="submit" disabled={!q || save.isPending || guestAction.isPending || pay.invalid || quote.isFetching}>
             {due === 0 ? 'Record' : `Paid ${peso(due)}`}
           </Button>
         </div>

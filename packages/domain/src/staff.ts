@@ -35,3 +35,14 @@ export function lmtProblem(therapistClass: 'regular' | 'lmt' | null, qualificati
   if (therapistClass === 'lmt' && qualification !== 'doh') return 'Only a DOH-licensed therapist can be a Licensed Massage Therapist.';
   return null;
 }
+
+/** Whether `date` is the birthday of someone born on `birthdate`; a 29 February birthday falls on the 28th in other years. */
+export function isBirthday(birthdate: IsoDate | null | undefined, date: IsoDate): boolean {
+  if (!birthdate) return false;
+  const born = birthdate.slice(5);
+  const today = date.slice(5);
+  if (born === today) return true;
+  const year = Number(date.slice(0, 4));
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  return born === '02-29' && today === '02-28' && !leap;
+}

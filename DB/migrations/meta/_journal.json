@@ -148,6 +148,13 @@
       "when": 1793868523670,
       "tag": "0020_added_services",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1793869215357,
+      "tag": "0021_front_desk_device",
+      "breakpoints": true
     }
   ]
 }

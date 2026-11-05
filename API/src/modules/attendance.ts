@@ -2,14 +2,15 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
-import { businessDayOf, can, payWeekOf, type Capability } from '@spa/domain';
-import { dtr, sales, staff } from '@spa/db';
+import { businessDayOf, can, isBirthday, payWeekOf, type Capability } from '@spa/domain';
+import { dtr, holidays, sales, staff } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { frontDeskState } from '../lib/front-desk';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { isoDate } from '../lib/validation';
+import { requireSessionOrDevice } from '../auth/device';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { verifyPassword } from '../auth/password';
 
@@ -76,15 +77,17 @@ async function entryProblem(
 
 // Mounted at the API root, so login is required per path rather than for everything.
 export const attendanceRoutes = new Hono<AuthedEnv>()
-  .use('/clock/*', requireAuth)
+  // The Front-desk Device reaches the Clock-in Screen with no one logged in (ADR 0004).
+  .use('/clock/*', requireSessionOrDevice as unknown as typeof requireAuth)
   .use('/dtr', requireAuth)
   .use('/dtr/*', requireAuth)
   .use('/rotation', requireAuth)
 
-  // ---- Clock-in Screen (on the logged-in front-desk device) ----
+  // ---- Clock-in Screen (logged in, or on the Front-desk Device) ----
   .get('/clock/staff', async (c) => {
     const db = c.var.db;
-    const [people, open] = await Promise.all([
+    const day = businessDayOf(new Date());
+    const [people, open, holiday] = await Promise.all([
       db
         .select({
           id: staff.id,
@@ -98,8 +101,10 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         .where(eq(staff.active, true))
         .orderBy(asc(staff.kind), asc(staff.displayName)),
       db.select({ staffId: dtr.staffId, clockIn: dtr.clockIn }).from(dtr).where(isNull(dtr.clockOut)),
+      db.select({ name: holidays.name, type: holidays.type }).from(holidays).where(eq(holidays.date, day)).get(),
     ]);
     return c.json({
+      today: { day, holiday: holiday ?? null },
       staff: people.map(({ pinHash, ...p }) => ({
         ...p,
         hasPin: pinHash !== null,
@@ -140,8 +145,17 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
       .get();
     const reset = db.update(staff).set({ pinFailedCount: 0, pinLockedUntil: null }).where(eq(staff.id, staffId));
 
+    // A birthday greeting on the first clock-in of the day only.
+    let birthday = false;
     if (action === 'in') {
       if (open) return fail(c, 409, 'already_in', `${person.displayName} is already clocked in.`);
+      const day = businessDayOf(new Date(now));
+      const earlier = await db
+        .select({ id: dtr.id })
+        .from(dtr)
+        .where(and(eq(dtr.staffId, staffId), eq(dtr.businessDay, day)))
+        .get();
+      birthday = !earlier && isBirthday(person.birthdate, day);
       await db.batch([
         reset,
         db.insert(dtr).values({
@@ -169,7 +183,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         .get();
       earnings = { from, commission: Number(row?.commission ?? 0), services: Number(row?.services ?? 0) };
     }
-    return c.json({ staffId, displayName: person.displayName, action, at: now, earnings });
+    return c.json({ staffId, displayName: person.displayName, firstName: person.firstName, action, at: now, earnings, birthday });
   })
 
   // ---- DTR review and corrections ----

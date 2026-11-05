@@ -28,6 +28,7 @@ import { HolidaysSettings } from './pages/settings/HolidaysSettings';
 import { RoomsSettings } from './pages/settings/RoomsSettings';
 import { StaffSettings } from './pages/settings/StaffSettings';
 import { PaySettings } from './pages/settings/PaySettings';
+import { FrontDeskSettings } from './pages/settings/FrontDeskSettings';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -45,12 +46,9 @@ const router = createBrowserRouter([
     ),
   },
   {
+    // Logged in, or on the Front-desk Device with no one logged in; the page sends anyone else to log in.
     path: '/clock',
-    element: (
-      <RequireAuth>
-        <ClockInPage />
-      </RequireAuth>
-    ),
+    element: <ClockInPage />,
   },
   {
     element: (
@@ -196,6 +194,7 @@ const router = createBrowserRouter([
           { path: 'rooms', element: <RoomsSettings /> },
           { path: 'staff', element: <StaffSettings /> },
           { path: 'pay', element: <PaySettings /> },
+          { path: 'front-desk', element: <FrontDeskSettings /> },
         ],
       },
       {

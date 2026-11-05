@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { addMinutes, businessDayOf, overlaps, roomFits, stayOf, suggestRoom, suggestTherapist } from '@spa/domain';
+import { addMinutes, businessDayOf, isBirthday, overlaps, roomFits, stayOf, suggestRoom, suggestTherapist } from '@spa/domain';
 import { bookings, businessDays, FLEX_MODES, rooms, sales, services, staff } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
@@ -96,7 +96,7 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const state = await frontDeskState(c.var.db, day, now);
     const [svc, people, daySales, dayRow, unclosed] = await Promise.all([
       c.var.db.select({ id: services.id, code: services.code, name: services.name }).from(services),
-      c.var.db.select({ id: staff.id, displayName: staff.displayName }).from(staff),
+      c.var.db.select({ id: staff.id, displayName: staff.displayName, birthdate: staff.birthdate, active: staff.active }).from(staff),
       c.var.db
         .select({ id: sales.id, bookingId: sales.bookingId, amountDue: sales.amountDue, discountType: sales.discountType })
         .from(sales)
@@ -128,6 +128,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       businessDay: dayRow ?? null,
       unclosed: unclosed.filter((d) => d.date < day).map((d) => d.date),
       next: state.next?.staffId ?? null,
+      // Staff celebrating today, for the Front Desk banner.
+      birthdays: people.filter((p) => p.active && isBirthday(p.birthdate, day)).map((p) => p.displayName),
       rotation: state.rotation.map((r) => ({ ...r, ...byId.get(r.staffId)! })),
       rooms: state.rooms
         .sort((a, b) => a.id - b.id)

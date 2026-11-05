@@ -1,12 +1,67 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router';
-import { manilaTime, useClockStaff, usePunch, type ClockStaff } from '../lib/attendance';
+import { Link, Navigate } from 'react-router';
+import { ApiError } from '../lib/api';
+import { manilaTime, useClockStaff, usePunch, type ClockStaff, type ClockToday } from '../lib/attendance';
+import { useCurrentUser } from '../lib/auth';
 import { peso } from '../lib/format';
+
+/** Today's date and a running clock, Manila time, and whether today is a Holiday. */
+function TodayPanel({ today }: { today: ClockToday | undefined }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const opts = { timeZone: 'Asia/Manila' } as const;
+  return (
+    <div className="text-right">
+      <p className="text-4xl font-semibold tabular-nums">{now.toLocaleTimeString('en-PH', { ...opts, hour: 'numeric', minute: '2-digit', second: '2-digit' })}</p>
+      <p className="text-lg text-stone-600">{now.toLocaleDateString('en-PH', { ...opts, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
+      {today &&
+        (today.holiday ? (
+          <p className="mt-1 inline-block rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900">
+            {today.holiday.type === 'regular' ? 'Regular Holiday' : 'Special Day'}: {today.holiday.name}
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-stone-500">Regular day, not a holiday</p>
+        ))}
+    </div>
+  );
+}
+
+const CONFETTI = ['#0f766e', '#f59e0b', '#e11d48', '#6366f1', '#16a34a', '#f97316'];
+
+/** A full-screen celebration on a staff member's first clock-in on their birthday; any tap closes it. */
+function BirthdayCard({ name, onClose }: { name: string; onClose: () => void }) {
+  return (
+    <div role="dialog" aria-label="Happy birthday" className="fixed inset-0 z-20 flex cursor-pointer items-center justify-center overflow-hidden bg-teal-900/80 p-6" onClick={onClose}>
+      <style>{`@keyframes spa-confetti { from { transform: translateY(-10vh) rotate(0deg); } to { transform: translateY(110vh) rotate(720deg); } }`}</style>
+      {Array.from({ length: 60 }, (_, i) => (
+        <span
+          key={i}
+          aria-hidden
+          className="absolute top-0 h-3 w-2 rounded-sm"
+          style={{
+            left: `${(i * 37) % 100}%`,
+            background: CONFETTI[i % CONFETTI.length],
+            animation: `spa-confetti ${3 + (i % 5)}s linear ${(i % 10) * 0.3}s infinite`,
+          }}
+        />
+      ))}
+      <div className="relative max-w-lg rounded-3xl bg-white px-10 py-12 text-center shadow-2xl">
+        <p className="text-7xl">🎂</p>
+        <p className="mt-4 text-4xl font-bold text-teal-800">Happy birthday, {name}!</p>
+        <p className="mt-3 text-lg text-stone-600">Everyone at the shop wishes you a wonderful day.</p>
+        <p className="mt-8 text-sm text-stone-400">Tap anywhere to continue</p>
+      </div>
+    </div>
+  );
+}
 
 const ROLE = (s: ClockStaff) =>
   s.kind === 'receptionist' ? 'Receptionist' : `${s.therapistClass === 'lmt' ? 'LMT' : 'Therapist'}${s.isOnCall ? ' · On-call' : ''}`;
 
-function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () => void; onDone: (msg: string) => void }) {
+function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () => void; onDone: (msg: string, birthdayName: string | null) => void }) {
   const [pin, setPin] = useState('');
   const punch = usePunch();
   const action = person.clockedInAt ? 'out' : 'in';
@@ -21,6 +76,7 @@ function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () =
           onDone(
             `${r.displayName} clocked ${r.action} at ${manilaTime(r.at)}` +
               (r.earnings ? ` · ${person.isOnCall ? 'Today' : 'This week'} so far: ${peso(r.earnings.commission)} from ${r.earnings.services} guest${r.earnings.services === 1 ? '' : 's'}` : ''),
+            r.birthday ? r.firstName : null,
           ),
         onError: () => setPin(''),
       },
@@ -75,8 +131,10 @@ function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () =
 
 export function ClockInPage() {
   const { data, error } = useClockStaff();
+  const { data: user } = useCurrentUser();
   const [selected, setSelected] = useState<ClockStaff | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [birthday, setBirthday] = useState<string | null>(null);
 
   useEffect(() => {
     if (!message) return;
@@ -85,17 +143,20 @@ export function ClockInPage() {
   }, [message]);
 
   const people = data?.staff ?? [];
+  // Neither logged in nor the Front-desk Device.
+  if (error instanceof ApiError && error.status === 401) return <Navigate to="/login" replace />;
 
   return (
     <main className="min-h-screen bg-stone-100 p-8 text-stone-800">
-      <header className="mb-8 flex items-center justify-between">
+      <header className="mb-8 flex items-start justify-between gap-6">
         <div>
           <p className="text-sm font-semibold uppercase tracking-widest text-teal-700">Clock-in Screen</p>
           <h1 className="text-3xl font-semibold">Tap your name</h1>
+          <Link to={user ? '/' : '/login'} className="mt-3 inline-block rounded-md border border-stone-300 bg-white px-4 py-2 text-sm hover:bg-stone-50">
+            {user ? 'Back to Front Desk' : 'Back to log in'}
+          </Link>
         </div>
-        <Link to="/" className="rounded-md border border-stone-300 bg-white px-4 py-2 text-sm hover:bg-stone-50">
-          Back to Front Desk
-        </Link>
+        <TodayPanel today={data?.today} />
       </header>
 
       {message && (
@@ -130,12 +191,14 @@ export function ClockInPage() {
         <PinPad
           person={selected}
           onClose={() => setSelected(null)}
-          onDone={(msg) => {
+          onDone={(msg, birthdayName) => {
             setSelected(null);
             setMessage(msg);
+            setBirthday(birthdayName);
           }}
         />
       )}
+      {birthday && <BirthdayCard name={birthday} onClose={() => setBirthday(null)} />}
     </main>
   );
 }

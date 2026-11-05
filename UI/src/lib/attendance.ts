@@ -11,6 +11,12 @@ export type ClockStaff = {
   clockedInAt: string | null;
 };
 
+/** The Business Day the Clock-in Screen counts toward, and its Holiday if any. */
+export type ClockToday = { day: string; holiday: { name: string; type: 'regular' | 'special' } | null };
+
+/** Whether this browser is the marked Front-desk Device (asked with no one logged in). */
+export const useDevice = () => useQuery({ queryKey: ['device'], queryFn: () => api<{ frontDesk: boolean; label: string | null }>('/device'), staleTime: 60_000 });
+
 export type RotationRow = {
   staffId: string;
   displayName: string;
@@ -38,7 +44,7 @@ export type DtrEntry = {
 export const useClockStaff = () =>
   useQuery({
     queryKey: ['attendance', 'clock-staff'],
-    queryFn: () => api<{ staff: ClockStaff[] }>('/clock/staff'),
+    queryFn: () => api<{ today: ClockToday; staff: ClockStaff[] }>('/clock/staff'),
     refetchInterval: 30_000,
   });
 
@@ -59,7 +65,15 @@ export function usePunch() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { staffId: string; pin: string; action: 'in' | 'out' }) =>
-      api<{ displayName: string; action: 'in' | 'out'; at: string; earnings: { from: string; commission: number; services: number } | null }>('/clock/punch', {
+      api<{
+        displayName: string;
+        firstName: string;
+        action: 'in' | 'out';
+        at: string;
+        earnings: { from: string; commission: number; services: number } | null;
+        /** First clock-in of the day on their birthday. */
+        birthday: boolean;
+      }>('/clock/punch', {
         body,
       }),
     onSettled: () => qc.invalidateQueries({ queryKey: ['attendance'] }),

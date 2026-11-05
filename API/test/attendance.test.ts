@@ -151,3 +151,47 @@ describe('DTR corrections', () => {
     expect(entries.some((e) => e.staffId === id)).toBe(true);
   });
 });
+
+describe('Front-desk Device', () => {
+  it('lets the marked PC open the Clock-in Screen with no one logged in, until it is removed', async () => {
+    const owner = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const id = await addStaff(owner);
+    const stranger = client();
+    expect(await json(await stranger.get('/device'))).toEqual({ frontDesk: false, label: null });
+    expect((await stranger.get('/clock/staff')).status).toBe(401);
+
+    expect((await desk.post('/front-desk-devices', { label: 'Reception PC' })).status).toBe(403);
+    // The owner marks the PC they are using; that browser then keeps only the device cookie, like after logging out.
+    const pc = await loggedIn('super_admin');
+    expect((await pc.post('/front-desk-devices', { label: 'Reception PC' })).status).toBe(201);
+    expect(pc.cookie).toMatch(/spa_device=/);
+    expect(await json(await pc.get('/device'))).toEqual({ frontDesk: true, label: 'Reception PC' });
+    expect((await pc.get('/auth/me')).status).toBe(401);
+
+    const staffRes = await json<{ today: { day: string; holiday: unknown } }>(await pc.get('/clock/staff'));
+    expect(staffRes.today.day).toBe(businessDayOf(new Date()));
+    expect((await pc.post('/clock/punch', { staffId: id, pin: '1234', action: 'in' })).status).toBe(200);
+    // Nothing else opens for it.
+    expect((await pc.get('/front-desk')).status).toBe(401);
+    expect((await pc.get('/dtr')).status).toBe(401);
+
+    const { devices } = await json<{ devices: { id: string; label: string }[] }>(await owner.get('/front-desk-devices'));
+    const marked = devices.find((d) => d.label === 'Reception PC')!;
+    expect((await owner.send('DELETE', `/front-desk-devices/${marked.id}`)).status).toBe(200);
+    expect((await pc.get('/clock/staff')).status).toBe(401);
+    await owner.post('/clock/punch', { staffId: id, pin: '1234', action: 'out' });
+  });
+
+  it('greets a staff member on their birthday, on the first clock-in of the day only', async () => {
+    const owner = await loggedIn('super_admin');
+    const today = businessDayOf(new Date());
+    const id = await addStaff(owner, { kind: 'therapist', therapistClass: 'regular', birthdate: `1995-${today.slice(5)}` });
+    const first = await json<{ birthday: boolean; firstName: string }>(await owner.post('/clock/punch', { staffId: id, pin: '1234', action: 'in' }));
+    expect(first.birthday).toBe(true);
+    expect((await json<{ birthdays: string[] }>(await owner.get('/front-desk'))).birthdays).toContain(first.firstName);
+    await owner.post('/clock/punch', { staffId: id, pin: '1234', action: 'out' });
+    expect((await json<{ birthday: boolean }>(await owner.post('/clock/punch', { staffId: id, pin: '1234', action: 'in' }))).birthday).toBe(false);
+    await owner.post('/clock/punch', { staffId: id, pin: '1234', action: 'out' });
+  });
+});

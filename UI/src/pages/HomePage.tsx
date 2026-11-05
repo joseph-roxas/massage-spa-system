@@ -276,6 +276,11 @@ function FrontDeskBoard() {
           <Button onClick={() => setCreating('walk_in')}>New walk-in</Button>
         </div>
       </div>
+      {board.birthdays.length > 0 && (
+        <div className="rounded-lg border-2 border-pink-300 bg-gradient-to-r from-pink-50 to-amber-50 px-4 py-3 text-lg font-semibold text-pink-900">
+          🎂 Today is {board.birthdays.join(' and ')}’s birthday. Greet {board.birthdays.length === 1 ? 'them' : 'them all'} and celebrate! 🎉
+        </div>
+      )}
       <DayBar board={board} open={setDayDialog} />
       <NeedsAttention enabled={isOwner} />
       {canCash && <CashReminder onHandover={() => setDayDialog('handover')} onTopUp={() => setDayDialog('top-up')} />}

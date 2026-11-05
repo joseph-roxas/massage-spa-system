@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { certificateStatus, govIdWarning, lmtProblem } from './staff';
+import { certificateStatus, govIdWarning, isBirthday, lmtProblem } from './staff';
 
 describe('government ID numbers', () => {
   it('warns on the wrong number of digits, ignoring dashes and spaces', () => {
@@ -29,5 +29,18 @@ describe('LMT', () => {
     expect(lmtProblem('lmt', 'nc2')).toMatch(/DOH-licensed/);
     expect(lmtProblem('lmt', null)).toMatch(/DOH-licensed/);
     expect(lmtProblem('regular', 'doh')).toBeNull();
+  });
+});
+
+describe('isBirthday', () => {
+  it('matches month and day, whatever the year', () => {
+    expect(isBirthday('1995-11-05', '2026-11-05')).toBe(true);
+    expect(isBirthday('1995-11-06', '2026-11-05')).toBe(false);
+    expect(isBirthday(null, '2026-11-05')).toBe(false);
+  });
+  it('celebrates a 29 February birthday on the 28th outside leap years', () => {
+    expect(isBirthday('2000-02-29', '2027-02-28')).toBe(true);
+    expect(isBirthday('2000-02-29', '2028-02-28')).toBe(false);
+    expect(isBirthday('2000-02-29', '2028-02-29')).toBe(true);
   });
 });

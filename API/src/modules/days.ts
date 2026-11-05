@@ -28,7 +28,7 @@ const newCashOut = z.object({
 /** Everything Day Close needs to know about a day: what's unfinished, what's owed, what's in the drawer. */
 async function closingState(c: Context<AuthedEnv>, day: string) {
   const db = c.var.db;
-  const [row, dayBookings, paidSales, dayPayments, voucherPays, dayCashOuts, onCallStaff, svc, carriedIn, moved] = await Promise.all([
+  const [row, dayBookings, paidSales, dayPayments, voucherPays, dayCashOuts, allStaff, svc, carriedIn, moved] = await Promise.all([
     db.select().from(businessDays).where(eq(businessDays.date, day)).get(),
     db.select().from(bookings).where(eq(bookings.businessDay, day)),
     db.select().from(sales).where(and(eq(sales.businessDay, day), eq(sales.status, 'paid'))),
@@ -43,7 +43,7 @@ async function closingState(c: Context<AuthedEnv>, day: string) {
       .innerJoin(voucherSales, eq(voucherSales.id, voucherPayments.voucherSaleId))
       .where(and(eq(voucherPayments.businessDay, day), eq(voucherSales.status, 'paid'))),
     db.select().from(cashOuts).where(eq(cashOuts.businessDay, day)).orderBy(asc(cashOuts.createdAt)),
-    db.select({ id: staff.id, displayName: staff.displayName }).from(staff).where(eq(staff.isOnCall, true)),
+    db.select({ id: staff.id, displayName: staff.displayName, isOnCall: staff.isOnCall }).from(staff),
     db.select({ id: services.id, name: services.name }).from(services),
     salesCashAtStartOf(db, day),
     db
@@ -53,14 +53,20 @@ async function closingState(c: Context<AuthedEnv>, day: string) {
       .get(),
   ]);
 
+  const onCallStaff = allStaff.filter((s) => s.isOnCall);
   const paidBookingIds = new Set(paidSales.map((s) => s.bookingId));
   const serviceName = (id: string) => svc.find((s) => s.id === id)?.name ?? id;
   const blockers = dayBookings
     .filter((b) => ['scheduled', 'waiting', 'in_service'].includes(b.status) || (b.status === 'done' && !paidBookingIds.has(b.id)))
+    // Enough of the booking for the close dialog to finish it there: the board only shows today's guests.
     .map((b) => ({
       bookingId: b.id,
+      status: b.status,
       guest: b.guestName || 'Walk-in guest',
+      guestName: b.guestName,
+      serviceId: b.serviceId,
       service: serviceName(b.serviceId),
+      therapistName: allStaff.find((s) => s.id === b.therapistId)?.displayName ?? null,
       problem:
         b.status === 'done'
           ? 'Done but not checked out'

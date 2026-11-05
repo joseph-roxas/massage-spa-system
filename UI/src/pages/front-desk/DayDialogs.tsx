@@ -3,7 +3,10 @@ import { Alert, Button, Field, Input, Select } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { manilaTime } from '../../lib/attendance';
 import { longDate, parsePesos, peso } from '../../lib/format';
-import { CASH_OUT_CATEGORIES, FORM_CASH_OUTS, useCashOuts, useClosePreview, useDayAction } from '../../lib/sales';
+import { CASH_OUT_CATEGORIES, FORM_CASH_OUTS, useCashOuts, useClosePreview, useDayAction, type ClosePreview } from '../../lib/sales';
+import { CheckoutDialog } from './CheckoutDialog';
+
+type Blocker = ClosePreview['blockers'][number];
 
 export function CashOutDialog({ day, onClose }: { day: string; onClose: () => void }) {
   const list = useCashOuts(day);
@@ -129,10 +132,24 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
   const p = preview.data;
   const countedCash = parsePesos(counted);
   const variance = p && countedCash !== null ? countedCash - p.totals.expectedCash : null;
+  // Guests left on a day not closed are finished here, since the board only shows today's.
+  const guestAction = useDayAction();
+  const [paying, setPaying] = useState<Blocker | null>(null);
+  const guest = (b: Blocker, action: string, body?: unknown, onSuccess?: () => void) =>
+    guestAction.mutate({ path: `/bookings/${b.bookingId}/${action}`, body }, { onSuccess });
 
   function submit(e: FormEvent) {
     e.preventDefault();
     save.mutate({ path: `/days/${date}/close`, body: { countedCash, note: note || undefined } }, { onSuccess: onClose });
+  }
+
+  if (paying) {
+    return (
+      <CheckoutDialog
+        booking={{ id: paying.bookingId, guestName: paying.guestName, serviceId: paying.serviceId, serviceName: paying.service, therapistName: paying.therapistName }}
+        onClose={() => setPaying(null)}
+      />
+    );
   }
 
   return (
@@ -143,13 +160,40 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
       ) : p.blockers.length > 0 ? (
         <div className="space-y-4">
           <Alert tone="info">Finish these guests first, then close the day.</Alert>
+          {guestAction.error && <Alert>{guestAction.error.message}</Alert>}
           <ul className="divide-y divide-stone-100 text-sm">
             {p.blockers.map((b) => (
-              <li key={b.bookingId} className="flex justify-between py-2">
-                <span>
+              <li key={b.bookingId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <span className="flex-1">
                   {b.guest} · {b.service}
+                  <span className="block text-xs text-amber-700">{b.problem}</span>
                 </span>
-                <span className="text-amber-700">{b.problem}</span>
+                {b.status === 'done' && (
+                  <Button className="h-8 px-3" onClick={() => setPaying(b)}>Check out</Button>
+                )}
+                {b.status === 'in_service' && (
+                  <Button className="h-8 px-3" disabled={guestAction.isPending} onClick={() => guest(b, 'done', undefined, () => setPaying(b))}>
+                    Done → check out
+                  </Button>
+                )}
+                {b.status === 'scheduled' && (
+                  <Button variant="secondary" className="h-8 px-3" disabled={guestAction.isPending} onClick={() => guest(b, 'no-show')}>
+                    No-show
+                  </Button>
+                )}
+                {(b.status === 'scheduled' || b.status === 'waiting') && (
+                  <Button
+                    variant="secondary"
+                    className="h-8 px-3"
+                    disabled={guestAction.isPending}
+                    onClick={() => {
+                      const reason = prompt(`Why is ${b.guest}'s booking cancelled?`);
+                      if (reason && reason.trim().length >= 3) guest(b, 'cancel', { reason });
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

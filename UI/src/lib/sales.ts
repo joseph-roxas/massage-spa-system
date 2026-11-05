@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
+import type { BookingStatus } from './front-desk';
 import type { VoucherBundle } from './vouchers';
 
 export type DiscountType = 'none' | 'senior' | 'pwd' | 'promo' | 'voucher' | 'complimentary';
@@ -69,7 +70,16 @@ export type CashOut = {
 
 export type ClosePreview = {
   day: BusinessDay;
-  blockers: { bookingId: string; guest: string; service: string; problem: string }[];
+  blockers: {
+    bookingId: string;
+    status: BookingStatus;
+    guest: string;
+    guestName: string | null;
+    serviceId: string;
+    service: string;
+    therapistName: string | null;
+    problem: string;
+  }[];
   owed: { staffId: string; displayName: string; amount: number }[];
   totals: { carriedIn: number; cashIn: number; gcashIn: number; cashOut: number; transfersOut: number; expectedCash: number; expectedGcash: number };
   /** Paid into the drawer for Vouchers sold today; already in the cash and GCash totals. */

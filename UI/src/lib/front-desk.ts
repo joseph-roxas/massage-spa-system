@@ -70,4 +70,4 @@ export function useDeskAction() {
   });
 }
 
-export const guestLabel = (b: Booking) => b.guestName || 'Walk-in guest';
+export const guestLabel = (b: Pick<Booking, 'guestName'>) => b.guestName || 'Walk-in guest';

@@ -4,7 +4,7 @@ import { Alert, Badge, Button, Card, Checkbox, Field, Input, td, th } from '../.
 import { Modal } from '../../components/Modal';
 import { api } from '../../lib/api';
 import { useCan } from '../../lib/auth';
-import { longDate, parsePesos, peso, todayManila } from '../../lib/format';
+import { longDate, parsePesos, peso, pesosText, todayManila } from '../../lib/format';
 import { usePayrollAction, useBalances, type Balance, type CashAdvance } from '../../lib/payroll';
 
 function GiveDialog({ person, onClose }: { person: Balance; onClose: () => void }) {
@@ -35,7 +35,7 @@ function GiveDialog({ person, onClose }: { person: Balance; onClose: () => void 
           </p>
         ) : (
           <p className="text-sm text-stone-600">
-            Added to the balance of {peso(person.balance)}. The repayment is chosen on each week’s payroll.
+            Added to the balance of {peso(person.balance)}. Each payroll repays {peso(person.caRepayment ?? 0)} until it is paid off.
           </p>
         )}
         <Field label="Amount" hint={above ? 'More than the limit' : undefined}>
@@ -84,7 +84,46 @@ function OpeningDialog({ person, onClose }: { person: Balance; onClose: () => vo
   );
 }
 
-const ENTRY_LABEL = { opening: 'Opening balance', advance: 'Cash Advance', repayment: 'Repaid from payroll' } as const;
+const QUICK_REPAYMENTS = [50_000, 75_000, 100_000];
+
+/** The standing amount taken from each of the Receptionist's Payrolls toward her balance. */
+function RepaymentDialog({ person, onClose }: { person: Balance; onClose: () => void }) {
+  const act = usePayrollAction();
+  const [amount, setAmount] = useState(pesosText(person.caRepayment ?? 50_000));
+  const value = parsePesos(amount);
+  return (
+    <Modal title={`CA Repayment · ${person.displayName}`} onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value !== null) act.mutate({ path: `/settings/staff/${person.staffId}`, method: 'PATCH', body: { caRepayment: value } }, { onSuccess: onClose });
+        }}
+      >
+        {act.error && <Alert>{act.error.message}</Alert>}
+        <p className="text-sm text-stone-600">
+          Taken from every payroll until the balance of {peso(person.balance)} is paid off; the last one only takes what is left. You can still change it on a single week’s payroll.
+        </p>
+        <div className="flex gap-2">
+          {QUICK_REPAYMENTS.map((q) => (
+            <Button key={q} type="button" variant={value === q ? 'primary' : 'secondary'} onClick={() => setAmount(pesosText(q))}>
+              {peso(q)}
+            </Button>
+          ))}
+        </div>
+        <Field label="Or another amount">
+          <Input inputMode="decimal" required value={amount} onChange={(e) => setAmount(e.target.value)} className="w-36" />
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={value === null || act.isPending}>Save</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+const ENTRY_LABEL ={ opening: 'Opening balance', advance: 'Cash Advance', repayment: 'Repaid from payroll' } as const;
 type LedgerRow = { id: string; entry: keyof typeof ENTRY_LABEL; amount: number; createdAt: string; cashAdvanceId: string | null };
 
 function History({ person }: { person: Balance }) {
@@ -133,6 +172,7 @@ export function CashAdvances() {
   const canOpening = useCan('cash_advance.override');
   const [giving, setGiving] = useState<Balance | null>(null);
   const [opening, setOpening] = useState<Balance | null>(null);
+  const [repaying, setRepaying] = useState<Balance | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const rows = data?.balances ?? [];
 
@@ -165,6 +205,11 @@ export function CashAdvances() {
                 <td className={`${td} text-right tabular-nums`}>{b.cap ? peso(b.cap.cap) : 'No limit'}</td>
                 <td className={`${td} text-right`}>
                   <div className="flex justify-end gap-2">
+                    {b.kind === 'receptionist' && canOpening && (
+                      <button type="button" className="text-xs text-stone-500 underline" onClick={() => setRepaying(b)}>
+                        Repays {peso(b.caRepayment ?? 0)} a week
+                      </button>
+                    )}
                     {canOpening && (
                       <button type="button" className="text-xs text-stone-500 underline" onClick={() => setOpening(b)}>
                         Opening balance
@@ -189,6 +234,7 @@ export function CashAdvances() {
       </table>
       {giving && <GiveDialog person={giving} onClose={() => setGiving(null)} />}
       {opening && <OpeningDialog person={opening} onClose={() => setOpening(null)} />}
+      {repaying && <RepaymentDialog person={repaying} onClose={() => setRepaying(null)} />}
     </Card>
   );
 }

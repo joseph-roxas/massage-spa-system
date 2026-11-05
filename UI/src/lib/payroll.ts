@@ -27,9 +27,57 @@ export type Payroll = {
   generatedAt: string;
   approvedAt: string | null;
   releasedAt: string | null;
+  adjustments: Adjustment[];
+  lines: PayLines;
 };
 
-export type TherapistDay = { date: string; services: number; commission: number };
+/** The reason is sent to the Super Admin only. */
+export type Adjustment = { id: string; label: string; amount: number; reason?: string };
+
+export type EarningKey = 'commission' | 'holidayExtra' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
+export type DeductionKey = 'late' | 'undertime' | 'sss' | 'phic' | 'pagibig' | 'ca';
+export type PayLines = {
+  earnings: Record<EarningKey, number>;
+  deductions: Record<DeductionKey, number>;
+  totalEarned: number;
+  totalDeductions: number;
+  daysPresent: number;
+};
+
+/** Which lines each kind of Payroll shows, in Payslip order. */
+export const EARNING_LINES: Record<PayrollKind, [EarningKey, string][]> = {
+  therapist: [
+    ['commission', 'Commission'],
+    ['holidayExtra', 'Holiday Commission (extra)'],
+    ['adjustments', 'Adjustments'],
+  ],
+  receptionist: [
+    ['basic', 'Basic pay'],
+    ['restDayPremium', 'Rest Day premium'],
+    ['holidayPremium', 'Holiday premium (worked)'],
+    ['holidayUnworked', 'Holiday pay (not worked)'],
+    ['overtime', 'Overtime'],
+    ['adjustments', 'Adjustments'],
+  ],
+};
+export const DEDUCTION_LINES: Record<PayrollKind, [DeductionKey, string][]> = {
+  therapist: [
+    ['sss', 'SSS'],
+    ['phic', 'PhilHealth'],
+    ['pagibig', 'Pag-IBIG'],
+    ['ca', 'Cash Advance'],
+  ],
+  receptionist: [
+    ['late', 'Late'],
+    ['undertime', 'Undertime'],
+    ['sss', 'SSS'],
+    ['phic', 'PhilHealth'],
+    ['pagibig', 'Pag-IBIG'],
+    ['ca', 'Cash Advance'],
+  ],
+};
+
+export type TherapistDay = { date: string; services: number; commission: number; holidayExtra?: number };
 export type DayKind = 'ordinary' | 'restDay' | 'special' | 'specialOnRestDay' | 'regular' | 'regularOnRestDay';
 export type ReceptionistDay = {
   date: string;
@@ -44,6 +92,8 @@ export type ReceptionistDay = {
   overtimePay: number;
   holidayPay: number;
   total: number;
+  /** Missing on Payrolls made before Payslip lines. */
+  dailyRate?: number;
 };
 
 export const DAY_KIND_LABELS: Record<DayKind, string> = {
@@ -63,6 +113,8 @@ export type Balance = {
   kind: PayrollKind;
   balance: number;
   cap?: { week: PayWeek; net: number; taken: number; cap: number };
+  /** Receptionist: the standing CA Repayment per Payroll. */
+  caRepayment?: number;
 };
 
 export type Bonus = {

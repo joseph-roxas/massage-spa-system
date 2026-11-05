@@ -44,6 +44,7 @@ export const PAY_RULE_SCHEMAS = {
     regularOnRestDay: premium,
     regularUnworkedPct: z.number().min(0).max(1000),
   }),
+  minimum_wage_daily: centavos.min(1),
   gov_deduction_defaults: z.object({ therapist: govShares, receptionist: govShares }),
   contribution_rates: z.object({
     sss: z.object({ eeBp: basisPoints, erBp: basisPoints, mscMin: centavos, mscMax: centavos, mscStep: centavos.min(1), ecLow: centavos, ecHigh: centavos, ecHighFromMsc: centavos }),
@@ -90,6 +91,8 @@ const staffFields = z.object({
   therapistClass: z.enum(THERAPIST_CLASSES).nullable(),
   isOnCall: z.boolean(),
   dailyRate: centavos.nullable(),
+  /** Receptionist: the standing CA Repayment per Payroll. */
+  caRepayment: centavos.optional(),
   /** Monthly salary basis for SSS, PhilHealth and Pag-IBIG brackets. */
   contributionBase: centavos.nullable().optional(),
   govSss: centavos,
@@ -155,6 +158,7 @@ const staffColumns = {
   therapistClass: staff.therapistClass,
   isOnCall: staff.isOnCall,
   dailyRate: staff.dailyRate,
+  caRepayment: staff.caRepayment,
   contributionBase: staff.contributionBase,
   govSss: staff.govSss,
   govPhic: staff.govPhic,

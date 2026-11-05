@@ -46,7 +46,13 @@ const sum = (xs: readonly number[]) => xs.reduce((s, x) => s + x, 0);
 
 // ---------------------------------------------------------------- Therapists
 
-export type TherapistDay = { date: IsoDate; services: number; commission: Centavos };
+export type TherapistDay = {
+  date: IsoDate;
+  services: number;
+  commission: Centavos;
+  /** The part of `commission` earned only because the day was a Holiday. */
+  holidayExtra: Centavos;
+};
 
 export type PayrollTotals = {
   gross: Centavos;
@@ -57,8 +63,9 @@ export type PayrollTotals = {
   net: Centavos;
 };
 
-/** Government Deductions are withheld only in a week the person worked at least one day. */
-function totals(gross: number, worked: boolean, gov: GovShares, caDeduction: number): PayrollTotals {
+/** Government Deductions are withheld only in a week the person worked at least one day. Adjustments are part of gross. */
+function totals(earned: number, adjustments: number, worked: boolean, gov: GovShares, caDeduction: number): PayrollTotals {
+  const gross = earned + adjustments;
   const g = worked ? gov : { sss: 0, phic: 0, pagibig: 0 };
   return {
     gross: gross as Centavos,
@@ -76,19 +83,26 @@ function totals(gross: number, worked: boolean, gov: GovShares, caDeduction: num
  */
 export function therapistPayroll(input: {
   week: PayWeek;
-  /** One per paid sale in the week. */
-  commissions: readonly { businessDay: IsoDate; amount: number }[];
+  /** One per paid sale in the week; `holidayExtra` is what the Holiday rate added. */
+  commissions: readonly { businessDay: IsoDate; amount: number; holidayExtra?: number }[];
   /** Business Days they clocked in. */
   daysWorked: readonly IsoDate[];
   gov: GovShares;
   cashAdvances: number;
+  /** Σ of the week's Adjustments, signed. */
+  adjustments?: number;
 }): PayrollTotals & { days: TherapistDay[] } {
   const days = daysOf(input.week).map((date) => {
     const mine = input.commissions.filter((c) => c.businessDay === date);
-    return { date, services: mine.length, commission: sum(mine.map((c) => c.amount)) as Centavos };
+    return {
+      date,
+      services: mine.length,
+      commission: sum(mine.map((c) => c.amount)) as Centavos,
+      holidayExtra: sum(mine.map((c) => c.holidayExtra ?? 0)) as Centavos,
+    };
   });
   const worked = input.daysWorked.length > 0 || input.commissions.length > 0;
-  return { ...totals(sum(days.map((d) => d.commission)), worked, input.gov, input.cashAdvances), days };
+  return { ...totals(sum(days.map((d) => d.commission)), input.adjustments ?? 0, worked, input.gov, input.cashAdvances), days };
 }
 
 /** How much more a Therapist may take as a Cash Advance against a week: what is left of its net pay. */
@@ -130,6 +144,14 @@ export type ReceptionistDay = {
   /** Pay for a Regular Holiday not worked. */
   holidayPay: Centavos;
   total: Centavos;
+  // How `dayPay` reads on a Payslip: fullBasic + premium − lateDeduction − undertimeDeduction = dayPay.
+  dailyRate: Centavos;
+  /** The daily rate on a day worked, 0 otherwise. */
+  fullBasic: Centavos;
+  /** What the day's premium adds to a full day (Rest Day, Special Day or Regular Holiday). */
+  premium: Centavos;
+  lateDeduction: Centavos;
+  undertimeDeduction: Centavos;
 };
 
 type Entry = { clockIn: Date; clockOut: Date };
@@ -165,9 +187,28 @@ export function receptionistDay(input: {
   const entries = [...input.entries].sort((a, b) => +a.clockIn - +b.clockIn);
   const zero = 0 as Centavos;
 
+  const rate = input.dailyRate as Centavos;
   if (!entries.length) {
     const holidayPay = kind === 'regular' ? share(input.dailyRate, premiums.regularUnworkedPct, 100) : zero;
-    return { date: input.date, kind, worked: false, lateMin: 0, undertimeMin: 0, overtimeMin: 0, paidMin: 0, basic: zero, dayPay: zero, overtimePay: zero, holidayPay, total: holidayPay };
+    return {
+      date: input.date,
+      kind,
+      worked: false,
+      lateMin: 0,
+      undertimeMin: 0,
+      overtimeMin: 0,
+      paidMin: 0,
+      basic: zero,
+      dayPay: zero,
+      overtimePay: zero,
+      holidayPay,
+      total: holidayPay,
+      dailyRate: rate,
+      fullBasic: zero,
+      premium: zero,
+      lateDeduction: zero,
+      undertimeDeduction: zero,
+    };
   }
 
   const first = entries[0]!.clockIn;
@@ -187,6 +228,10 @@ export function receptionistDay(input: {
   const basic = share(input.dailyRate, paidMin, perDay);
   const dayPay = share(input.dailyRate * paidMin, premiums[kind].workedPct, perDay * 100);
   const overtimePay = share(input.dailyRate * overtimeMin, premiums[kind].otPct, perDay * 100);
+  // A full day at the premium, less what Late and Undertime cost; the split keeps the centavos exact.
+  const premium = share(input.dailyRate, premiums[kind].workedPct - 100, 100);
+  const lost = input.dailyRate + premium - dayPay;
+  const lateDeduction = lateMin + undertimeMin ? share(lost, lateMin, lateMin + undertimeMin) : zero;
   return {
     date: input.date,
     kind,
@@ -200,25 +245,100 @@ export function receptionistDay(input: {
     overtimePay,
     holidayPay: zero,
     total: (dayPay + overtimePay) as Centavos,
+    dailyRate: rate,
+    fullBasic: rate,
+    premium,
+    lateDeduction,
+    undertimeDeduction: (lost - lateDeduction) as Centavos,
   };
 }
 
-/** A Receptionist's week: the days' pay, less Government Deductions and the chosen CA repayment. */
+/** A Receptionist's week: the days' pay and Adjustments, less Government Deductions and the CA Repayment. */
 export function receptionistPayroll(input: {
   days: readonly ReceptionistDay[];
   gov: GovShares;
   caRepayment: number;
+  /** Σ of the week's Adjustments, signed. They are not basic pay. */
+  adjustments?: number;
 }): PayrollTotals & { basic: Centavos } {
-  const gross = sum(input.days.map((d) => d.total));
+  const earned = sum(input.days.map((d) => d.total));
   return {
-    ...totals(gross, input.days.some((d) => d.worked), input.gov, input.caRepayment),
+    ...totals(earned, input.adjustments ?? 0, input.days.some((d) => d.worked), input.gov, input.caRepayment),
     basic: sum(input.days.map((d) => d.basic)) as Centavos,
   };
 }
 
-/** Next week's CA repayment: last week's amount, never more than what is still owed. */
-export function defaultRepayment(lastRepayment: number, balance: number): Centavos {
-  return Math.max(0, Math.min(lastRepayment, balance)) as Centavos;
+/** This week's CA Repayment: the standing amount, never more than what is still owed. */
+export function caRepaymentFor(standing: number, balance: number): Centavos {
+  return Math.max(0, Math.min(standing, balance)) as Centavos;
+}
+
+// ------------------------------------------------------------- Payslip lines
+
+export type EarningKey = 'commission' | 'holidayExtra' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
+export type DeductionKey = 'late' | 'undertime' | 'sss' | 'phic' | 'pagibig' | 'ca';
+export type PayLines = {
+  earnings: Record<EarningKey, Centavos>;
+  deductions: Record<DeductionKey, Centavos>;
+  /** Everything earned before any deduction. */
+  totalEarned: Centavos;
+  totalDeductions: Centavos;
+  /** Receptionist only: days with a DTR entry. */
+  daysPresent: number;
+};
+
+/**
+ * A Payroll as Payslip and Pay Breakdown lines. Late and Undertime, already
+ * netted out of each day's pay, are shown as deductions so basic pay reads as
+ * days present × daily rate. totalEarned − totalDeductions = net.
+ */
+export function payLines(
+  input: PayrollTotals & { adjustments: number } & (
+      | { kind: 'therapist'; days: readonly Partial<TherapistDay>[] }
+      | { kind: 'receptionist'; days: readonly Partial<ReceptionistDay>[] }
+    ),
+): PayLines {
+  const z = 0 as Centavos;
+  const earnings: Record<EarningKey, Centavos> = {
+    commission: z,
+    holidayExtra: z,
+    basic: z,
+    restDayPremium: z,
+    holidayPremium: z,
+    holidayUnworked: z,
+    overtime: z,
+    adjustments: input.adjustments as Centavos,
+  };
+  const deductions: Record<DeductionKey, Centavos> = { late: z, undertime: z, sss: input.govSss, phic: input.govPhic, pagibig: input.govPagibig, ca: input.caDeduction };
+  const add = <K extends string>(rec: Record<K, Centavos>, key: K, v: number | undefined) => {
+    rec[key] = (rec[key] + (v ?? 0)) as Centavos;
+  };
+  let daysPresent = 0;
+
+  if (input.kind === 'therapist') {
+    for (const d of input.days) {
+      add(earnings, 'commission', (d.commission ?? 0) - (d.holidayExtra ?? 0));
+      add(earnings, 'holidayExtra', d.holidayExtra);
+    }
+  } else {
+    for (const d of input.days) {
+      if (d.worked) daysPresent++;
+      add(earnings, 'overtime', d.overtimePay);
+      add(earnings, 'holidayUnworked', d.holidayPay);
+      if (d.fullBasic === undefined) {
+        // Payrolls from before these lines existed: the day's pay is all shown as basic.
+        add(earnings, 'basic', d.dayPay);
+        continue;
+      }
+      add(earnings, 'basic', d.fullBasic);
+      add(earnings, d.kind === 'restDay' ? 'restDayPremium' : 'holidayPremium', d.premium);
+      add(deductions, 'late', d.lateDeduction);
+      add(deductions, 'undertime', d.undertimeDeduction);
+    }
+  }
+  const totalEarned = sum(Object.values<number>(earnings)) as Centavos;
+  const totalDeductions = sum(Object.values<number>(deductions)) as Centavos;
+  return { earnings, deductions, totalEarned, totalDeductions, daysPresent };
 }
 
 // ------------------------------------------------------------------ December

@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { Alert, Badge, Button, Field, Input, td, th } from '../../components/ui';
+import { Alert, Badge, Button, Checkbox, Field, Input, td, th } from '../../components/ui';
 import { useCan } from '../../lib/auth';
 import { longDate, parsePesos, peso, pesosText } from '../../lib/format';
 import {
   DAY_KIND_LABELS,
+  DEDUCTION_LINES,
+  EARNING_LINES,
   STATUS_LABELS,
   STATUS_TONE,
   usePayroll,
@@ -14,12 +16,101 @@ import {
   type TherapistDay,
 } from '../../lib/payroll';
 
-function Line({ label, value, strong, minus }: { label: string; value: number; strong?: boolean; minus?: boolean }) {
+function Line({ label, value, strong, minus, muted }: { label: string; value: number; strong?: boolean; minus?: boolean; muted?: boolean }) {
   return (
-    <div className={`flex justify-between ${strong ? 'border-t border-stone-300 pt-2 text-base font-semibold' : 'text-sm'}`}>
+    <div className={`flex justify-between ${strong ? 'border-t border-stone-300 pt-2 text-base font-semibold' : 'text-sm'} ${muted ? 'pl-3 text-stone-500' : ''}`}>
       <span>{label}</span>
       <span className="tabular-nums">{minus && value ? `−${peso(value)}` : peso(value)}</span>
     </div>
+  );
+}
+
+/** What was earned and what was deducted, line by line; lines that are zero are left out. */
+export function PayslipLines({ payroll: p }: { payroll: Payroll }) {
+  const earnings = EARNING_LINES[p.kind].filter(([key]) => p.lines.earnings[key] !== 0 || key === EARNING_LINES[p.kind][0]![0]);
+  const deductions = DEDUCTION_LINES[p.kind].filter(([key]) => p.lines.deductions[key] !== 0);
+  return (
+    <div className="grid gap-6 sm:grid-cols-2">
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Earned</p>
+        {earnings.map(([key, label]) =>
+          key === 'adjustments' ? (
+            p.adjustments.map((a) => <Line key={a.id} label={a.label} value={a.amount} />)
+          ) : (
+            <Line key={key} label={label} value={p.lines.earnings[key]} />
+          ),
+        )}
+        <Line label="Total earned" value={p.lines.totalEarned} strong />
+      </div>
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Deducted</p>
+        {deductions.length === 0 && <p className="text-sm text-stone-500">Nothing</p>}
+        {deductions.map(([key, label]) => (
+          <Line key={key} label={label} value={p.lines.deductions[key]} minus />
+        ))}
+        <Line label="Total deducted" value={p.lines.totalDeductions} strong minus />
+      </div>
+    </div>
+  );
+}
+
+function Adjustments({ payroll: p }: { payroll: Payroll }) {
+  const act = usePayrollAction();
+  const [label, setLabel] = useState('');
+  const [amount, setAmount] = useState('');
+  const [takeOff, setTakeOff] = useState(false);
+  const [reason, setReason] = useState('');
+  const value = parsePesos(amount);
+  return (
+    <section className="space-y-3 rounded-lg border border-stone-200 bg-white p-4 print:hidden">
+      <h2 className="font-semibold">Adjustments</h2>
+      {act.error && <Alert>{act.error.message}</Alert>}
+      {p.adjustments.length > 0 && (
+        <ul className="divide-y divide-stone-100 text-sm">
+          {p.adjustments.map((a) => (
+            <li key={a.id} className="flex items-center gap-3 py-1.5">
+              <span className="flex-1">
+                {a.label}
+                {a.reason && <span className="text-stone-500"> · {a.reason}</span>}
+              </span>
+              <span className="tabular-nums">{peso(a.amount)}</span>
+              <button
+                type="button"
+                className="text-xs text-stone-500 underline"
+                onClick={() => act.mutate({ path: `/payrolls/${p.id}/adjustments/${a.id}`, method: 'DELETE' })}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!value) return;
+          act.mutate(
+            { path: `/payrolls/${p.id}/adjustments`, body: { label, amount: takeOff ? -value : value, reason } },
+            { onSuccess: () => (setLabel(''), setAmount(''), setReason(''), setTakeOff(false)) },
+          );
+        }}
+      >
+        <Field label="Label on the payslip">
+          <Input required minLength={2} maxLength={60} placeholder="Underpaid Oct 26" value={label} onChange={(e) => setLabel(e.target.value)} className="w-52" />
+        </Field>
+        <Field label="Amount">
+          <Input inputMode="decimal" required value={amount} onChange={(e) => setAmount(e.target.value)} className="w-28" />
+        </Field>
+        <Checkbox label="Take off" checked={takeOff} onChange={(e) => setTakeOff(e.target.checked)} />
+        <Field label="Reason (only you see this)">
+          <Input required minLength={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} className="w-64" />
+        </Field>
+        <Button type="submit" variant="secondary" disabled={!value || act.isPending}>
+          Add
+        </Button>
+      </form>
+    </section>
   );
 }
 
@@ -91,7 +182,7 @@ function RepaymentEditor({ payroll, balance }: { payroll: Payroll; balance: numb
         if (value !== null) act.mutate({ path: `/payrolls/${payroll.id}/ca-repayment`, method: 'PUT', body: { amount: value } });
       }}
     >
-      <Field label="CA repayment this week" hint={`Balance ${peso(balance)}${balance > payroll.gross ? ' · more than a week’s pay' : ''}`}>
+      <Field label="CA Repayment this week" hint={`Balance ${peso(balance)}${balance > payroll.gross ? ' · more than a week’s pay' : ''} · the standing amount is set under Cash Advances`}>
         <Input inputMode="decimal" value={text} onChange={(e) => setText(e.target.value)} className="w-36" />
       </Field>
       <Button type="submit" variant="secondary" disabled={value === null || value === payroll.caDeduction || act.isPending}>
@@ -112,6 +203,7 @@ export function PayslipPage() {
   if (error) return <Alert>{error.message}</Alert>;
   if (!data) return null;
   const { payroll: p, week, advances, caBalance } = data;
+  const dailyRate = p.kind === 'receptionist' ? (p.days as ReceptionistDay[]).find((d) => d.dailyRate !== undefined)?.dailyRate : undefined;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -158,18 +250,20 @@ export function PayslipPage() {
               {p.kind === 'receptionist' ? 'Receptionist' : p.therapistClass === 'lmt' ? 'Licensed Massage Therapist' : 'Therapist'} · Pay Week{' '}
               {longDate(week.start)} – {longDate(week.end)}
             </p>
+            {p.kind === 'receptionist' && (
+              <p className="text-sm text-stone-600">
+                {dailyRate !== undefined && <>Daily rate {peso(dailyRate)} · </>}
+                {p.lines.daysPresent} {p.lines.daysPresent === 1 ? 'day' : 'days'} present
+              </p>
+            )}
           </div>
           <Badge tone={STATUS_TONE[p.status]}>{STATUS_LABELS[p.status]}</Badge>
         </header>
 
         {p.kind === 'therapist' ? <TherapistDays days={p.days as TherapistDay[]} /> : <ReceptionistDays days={p.days as ReceptionistDay[]} />}
 
-        <div className="ml-auto max-w-sm space-y-1">
-          <Line label={p.kind === 'therapist' ? 'Commission' : 'Gross pay'} value={p.gross} />
-          <Line label="SSS" value={p.govSss} minus />
-          <Line label="PhilHealth" value={p.govPhic} minus />
-          <Line label="Pag-IBIG" value={p.govPagibig} minus />
-          <Line label="Cash Advance" value={p.caDeduction} minus />
+        <PayslipLines payroll={p} />
+        <div className="ml-auto max-w-sm">
           <Line label="Net pay" value={p.net} strong />
         </div>
 
@@ -196,6 +290,7 @@ export function PayslipPage() {
         </div>
       </section>
 
+      {p.status === 'draft' && canApprove && <Adjustments payroll={p} />}
       {p.kind === 'receptionist' && p.status === 'draft' && canApprove && <RepaymentEditor key={p.caDeduction} payroll={p} balance={caBalance} />}
     </div>
   );

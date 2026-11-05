@@ -6,10 +6,12 @@ import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import {
   businessDayOf,
   can,
+  caRepaymentFor,
   cashAdvanceCap,
+  commissionRateOn,
   daysOf,
-  defaultRepayment,
   lastCompletedPayWeek,
+  payLines,
   payWeekOf,
   receptionistDay,
   receptionistPayroll,
@@ -18,13 +20,31 @@ import {
   weekdayOf,
   yearEndBonus,
   type Capability,
+  type PayrollTotals,
   type PayWeek,
   type Premiums,
   type ReceptionistDay,
   type ReceptionistRules,
   type ShiftHours,
+  type TherapistDay,
 } from '@spa/domain';
-import { bonuses, businessDays, caLedger, cashAdvances, cashOuts, cashTransfers, dtr, holidays, payRules, payrolls, PAYROLL_KINDS, sales, staff } from '@spa/db';
+import {
+  bonuses,
+  businessDays,
+  caLedger,
+  cashAdvances,
+  cashOuts,
+  cashTransfers,
+  commissionRates,
+  dtr,
+  holidays,
+  payRules,
+  payrollAdjustments,
+  payrolls,
+  PAYROLL_KINDS,
+  sales,
+  staff,
+} from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
@@ -72,11 +92,25 @@ async function caBalance(db: Db, staffId: string) {
   return (await caBalances(db, [staffId])).get(staffId) ?? 0;
 }
 
+/** Each person's Adjustments for a Pay Week. */
+async function adjustmentsFor(db: Db, weekStart: string, staffIds?: string[]) {
+  const rows = await db
+    .select()
+    .from(payrollAdjustments)
+    .where(and(eq(payrollAdjustments.weekStart, weekStart), staffIds ? inArray(payrollAdjustments.staffId, staffIds) : undefined))
+    .orderBy(asc(payrollAdjustments.createdAt));
+  const byStaff = new Map<string, typeof rows>();
+  for (const r of rows) byStaff.set(r.staffId, [...(byStaff.get(r.staffId) ?? []), r]);
+  return byStaff;
+}
+
+const sumOf = (rows: readonly { amount: number }[] | undefined) => (rows ?? []).reduce((s, r) => s + r.amount, 0);
+
 /** A Therapist's week as it stands now, from sales, DTR and CAs taken against it. */
 async function therapistWeek(db: Db, person: Staff, week: PayWeek) {
-  const [commissions, worked, advances, rates] = await Promise.all([
+  const [sold, worked, advances, rates, commissionRows, adjustments] = await Promise.all([
     db
-      .select({ businessDay: sales.businessDay, amount: sales.commissionAmount })
+      .select({ businessDay: sales.businessDay, amount: sales.commissionAmount, regularPrice: sales.regularPrice, isHoliday: sales.isHoliday })
       .from(sales)
       .where(and(eq(sales.therapistId, person.id), eq(sales.status, 'paid'), gte(sales.businessDay, week.start), lte(sales.businessDay, week.end))),
     db
@@ -85,9 +119,24 @@ async function therapistWeek(db: Db, person: Staff, week: PayWeek) {
       .where(and(eq(dtr.staffId, person.id), gte(dtr.businessDay, week.start), lte(dtr.businessDay, week.end))),
     db.select().from(cashAdvances).where(and(eq(cashAdvances.staffId, person.id), eq(cashAdvances.againstWeekStart, week.start))),
     contributionRates(db),
+    db.select().from(commissionRates),
+    adjustmentsFor(db, week.start, [person.id]),
   ]);
   const taken = advances.reduce((s, a) => s + a.amount, 0);
-  const pay = therapistPayroll({ week, commissions, daysWorked: worked.map((w) => w.day), gov: weeklyDeductions(person, rates, week.end), cashAdvances: taken });
+  // What the Holiday rate added on top of the normal rate, for the Payslip.
+  const commissions = sold.map((s) => {
+    const rate = s.isHoliday ? commissionRateOn(commissionRows, person.therapistClass ?? 'regular', s.businessDay) : undefined;
+    const normal = rate ? Math.round((s.regularPrice * rate.normalBp) / 10_000) : s.amount;
+    return { businessDay: s.businessDay, amount: s.amount, holidayExtra: Math.max(0, s.amount - normal) };
+  });
+  const pay = therapistPayroll({
+    week,
+    commissions,
+    daysWorked: worked.map((w) => w.day),
+    gov: weeklyDeductions(person, rates, week.end),
+    cashAdvances: taken,
+    adjustments: sumOf(adjustments.get(person.id)),
+  });
   return { pay, taken, advances };
 }
 
@@ -138,13 +187,34 @@ function canSee(c: Context<AuthedEnv>, kind: Kind) {
   return can(c.var.user.role, PREPARE[kind]);
 }
 
-const withNames = async (db: Db, rows: PayrollRow[]) => {
-  const people = rows.length ? await db.select().from(staff).where(inArray(staff.id, [...new Set(rows.map((r) => r.staffId))])) : [];
+/** Payrolls with names, days, Adjustments and Payslip lines. Adjustment reasons only `withReasons`. */
+const withNames = async (db: Db, rows: PayrollRow[], withReasons = false) => {
+  const ids = [...new Set(rows.map((r) => r.staffId))];
+  const weeks = [...new Set(rows.map((r) => r.weekStart))];
+  const [people, adjustments] = await Promise.all([
+    ids.length ? db.select().from(staff).where(inArray(staff.id, ids)) : Promise.resolve([]),
+    Promise.all(weeks.map(async (w) => [w, await adjustmentsFor(db, w, ids)] as const)).then((xs) => new Map(xs)),
+  ]);
   return rows.map(({ breakdownJson, ...r }) => {
     const p = people.find((x) => x.id === r.staffId)!;
-    return { ...r, displayName: p.displayName, fullName: `${p.firstName} ${p.lastName}`, therapistClass: p.therapistClass, days: JSON.parse(breakdownJson) as unknown[] };
+    const days = JSON.parse(breakdownJson) as (TherapistDay | ReceptionistDay)[];
+    const adj = (adjustments.get(r.weekStart)?.get(r.staffId) ?? []).map((a) => ({ id: a.id, label: a.label, amount: a.amount, ...(withReasons ? { reason: a.reason } : {}) }));
+    const lines = payLines({ ...(r as unknown as PayrollTotals), kind: r.kind, days, adjustments: sumOf(adj) } as Parameters<typeof payLines>[0]);
+    return { ...r, displayName: p.displayName, fullName: `${p.firstName} ${p.lastName}`, therapistClass: p.therapistClass, days, adjustments: adj, lines };
   });
 };
+
+const adjustmentBody = z.object({
+  label: z.string().trim().min(2).max(60),
+  /** Signed centavos: negative takes pay off. */
+  amount: z
+    .number()
+    .int()
+    .min(-10_000_000)
+    .max(10_000_000)
+    .refine((n) => n !== 0, 'Enter an amount.'),
+  reason: z.string().trim().min(3).max(300),
+});
 
 const generateBody = z.object({ kind: z.enum(PAYROLL_KINDS) });
 const advanceBody = z.object({
@@ -177,7 +247,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
         .from(businessDays)
         .where(and(gte(businessDays.date, week.start), lte(businessDays.date, week.end), isNull(businessDays.closedAt))),
     ]);
-    const list = await withNames(db, rows);
+    const list = await withNames(db, rows, can(c.var.user.role, 'payroll.therapist.approve'));
     list.sort((a, b) => a.kind.localeCompare(b.kind) || a.displayName.localeCompare(b.displayName));
     return c.json({ week, ended: today() > week.end, unclosedDays: unclosed.map((d) => d.date), kinds, payrolls: list.map(({ days: _, ...r }) => r) });
   })
@@ -214,20 +284,21 @@ export const payrollRoutes = new Hono<AuthedEnv>()
       const rules = await receptionistRules(db);
       const balances = await caBalances(db);
       const rates = await contributionRates(db);
+      const adjustments = await adjustmentsFor(db, week.start);
       for (const person of people.filter((p) => !fixed.has(p.id))) {
         const result = await receptionistDays(db, person, week, rules);
         if (!result.days) return fail(c, 409, 'dtr_open', `${person.displayName} has no clock-out on ${result.openEntryDay}. Fix the DTR first.`);
         if (!person.active && !result.days.some((d) => d.worked)) continue;
         const balance = balances.get(person.id) ?? 0;
+        // A draft keeps the repayment chosen for it; a new one takes the standing CA Repayment.
         const draft = existing.find((p) => p.staffId === person.id);
-        const previous = await db
-          .select({ caDeduction: payrolls.caDeduction })
-          .from(payrolls)
-          .where(and(eq(payrolls.staffId, person.id), ne(payrolls.status, 'draft'), sql`${payrolls.weekStart} < ${week.start}`))
-          .orderBy(desc(payrolls.weekStart))
-          .get();
-        const repayment = Math.min(draft ? draft.caDeduction : defaultRepayment(previous?.caDeduction ?? 0, balance), balance);
-        const { basic, ...pay } = receptionistPayroll({ days: result.days, gov: weeklyDeductions(person, rates, week.end), caRepayment: repayment });
+        const repayment = Math.min(draft ? draft.caDeduction : caRepaymentFor(person.caRepayment, balance), balance);
+        const { basic, ...pay } = receptionistPayroll({
+          days: result.days,
+          gov: weeklyDeductions(person, rates, week.end),
+          caRepayment: repayment,
+          adjustments: sumOf(adjustments.get(person.id)),
+        });
         rows.push({ id: crypto.randomUUID(), weekStart: week.start, staffId: person.id, kind, ...pay, basic, breakdownJson: JSON.stringify(result.days), generatedAt: now, generatedBy: c.var.user.id });
       }
     }
@@ -244,7 +315,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     const db = c.var.db;
     const row = await db.select().from(payrolls).where(eq(payrolls.id, c.req.param('id'))).get();
     if (!row || !canSee(c, row.kind)) return fail(c, 404, 'not_found', 'Payroll not found.');
-    const [payroll] = await withNames(db, [row]);
+    const [payroll] = await withNames(db, [row], can(c.var.user.role, APPROVE[row.kind]));
     const advances =
       row.kind === 'therapist'
         ? await db.select().from(cashAdvances).where(and(eq(cashAdvances.staffId, row.staffId), eq(cashAdvances.againstWeekStart, row.weekStart))).orderBy(asc(cashAdvances.createdAt))
@@ -268,6 +339,44 @@ export const payrollRoutes = new Hono<AuthedEnv>()
       auditInsert(db, { actorUserId: c.var.user.id, action: 'payroll.ca_repayment', entity: 'payroll', entityId: row.id, before: { caDeduction: row.caDeduction }, after: { caDeduction: amount } }),
     ]);
     return c.json({ ok: true, net });
+  })
+
+  /** Adds an Adjustment to a draft; the Super Admin only. */
+  .post('/payrolls/:id/adjustments', zValidator('json', adjustmentBody, invalidInput), async (c) => {
+    const db = c.var.db;
+    const row = await db.select().from(payrolls).where(eq(payrolls.id, c.req.param('id'))).get();
+    if (!row || !canSee(c, row.kind)) return fail(c, 404, 'not_found', 'Payroll not found.');
+    if (!can(c.var.user.role, APPROVE[row.kind])) return fail(c, 403, 'forbidden', 'Only the Super Admin adds Adjustments.');
+    if (row.status !== 'draft') return fail(c, 409, 'not_draft', 'Only a draft Payroll can change.');
+    const input = c.req.valid('json');
+    const id = crypto.randomUUID();
+    const adjustment = { id, weekStart: row.weekStart, staffId: row.staffId, ...input, createdAt: nowIso(), createdBy: c.var.user.id };
+    await db.batch([
+      db.insert(payrollAdjustments).values(adjustment),
+      db.update(payrolls).set({ gross: row.gross + input.amount, net: row.net + input.amount }).where(eq(payrolls.id, row.id)),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'payroll.adjustment.add', entity: 'payroll', entityId: row.id, after: adjustment, reason: input.reason }),
+    ]);
+    return c.json({ id }, 201);
+  })
+
+  .delete('/payrolls/:id/adjustments/:adjustmentId', async (c) => {
+    const db = c.var.db;
+    const row = await db.select().from(payrolls).where(eq(payrolls.id, c.req.param('id'))).get();
+    if (!row || !canSee(c, row.kind)) return fail(c, 404, 'not_found', 'Payroll not found.');
+    if (!can(c.var.user.role, APPROVE[row.kind])) return fail(c, 403, 'forbidden', 'Only the Super Admin removes Adjustments.');
+    if (row.status !== 'draft') return fail(c, 409, 'not_draft', 'Only a draft Payroll can change.');
+    const adj = await db
+      .select()
+      .from(payrollAdjustments)
+      .where(and(eq(payrollAdjustments.id, c.req.param('adjustmentId')), eq(payrollAdjustments.weekStart, row.weekStart), eq(payrollAdjustments.staffId, row.staffId)))
+      .get();
+    if (!adj) return fail(c, 404, 'not_found', 'Adjustment not found.');
+    await db.batch([
+      db.delete(payrollAdjustments).where(eq(payrollAdjustments.id, adj.id)),
+      db.update(payrolls).set({ gross: row.gross - adj.amount, net: row.net - adj.amount }).where(eq(payrolls.id, row.id)),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'payroll.adjustment.remove', entity: 'payroll', entityId: row.id, before: adj }),
+    ]);
+    return c.json({ ok: true });
   })
 
   .post('/payrolls/:id/approve', async (c) => {
@@ -339,7 +448,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
         displayName: p.displayName,
         kind: kindOf(p),
         balance,
-        ...(kindOf(p) === 'therapist' ? { cap: await therapistCap(db, p) } : {}),
+        ...(kindOf(p) === 'therapist' ? { cap: await therapistCap(db, p) } : { caRepayment: p.caRepayment }),
       });
     }
     return c.json({ balances: out });

@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { businessDayOf, can, isBirthday, payWeekOf, type Capability } from '@spa/domain';
 import { dtr, holidays, sales, staff } from '@spa/db';
 import type { AuthedEnv } from '../env';
@@ -34,6 +34,29 @@ const entryBody = z.object({
 });
 
 const editBody = entryBody.omit({ staffId: true });
+
+/** Several missing entries for one person at once: one shared reason, each row may give its own. */
+const batchBody = z.object({
+  staffId: z.string().min(1),
+  reason,
+  rows: z
+    .array(z.object({ clockIn: instant, clockOut: instant.nullable(), reason: reason.optional() }))
+    .min(1)
+    .max(14),
+});
+
+/** Entries for the DTR Review: added by hand, corrected, or never clocked out on an earlier day. */
+const flagged = (today: string) => or(eq(dtr.source, 'manual'), isNotNull(dtr.correctedAt), and(isNull(dtr.clockOut), lt(dtr.businessDay, today)));
+const needsReview = (today: string) => and(isNull(dtr.reviewedAt), flagged(today));
+
+export async function dtrToReviewCount(db: AuthedEnv['Variables']['db']): Promise<number> {
+  const row = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(dtr)
+    .where(needsReview(businessDayOf(new Date())))
+    .get();
+  return Number(row?.n ?? 0);
+}
 
 /** Who may correct whose DTR: the Receptionist can't edit her own kind's records. */
 function correctionCapability(kind: 'therapist' | 'receptionist'): Capability {
@@ -238,6 +261,84 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     ]);
     return c.json({ id }, 201);
   })
+  /** Several missing entries for one person, saved together or not at all. */
+  .post('/dtr/batch', zValidator('json', batchBody, invalidInput), async (c) => {
+    const input = c.req.valid('json');
+    const db = c.var.db;
+    const person = await db.select({ kind: staff.kind }).from(staff).where(eq(staff.id, input.staffId)).get();
+    if (!person) return fail(c, 404, 'not_found', 'Staff member not found.');
+    if (!can(c.var.user.role, correctionCapability(person.kind))) {
+      return fail(c, 403, 'forbidden', 'You cannot change this person’s time record.');
+    }
+    const problems: { index: number; message: string }[] = [];
+    for (const [i, row] of input.rows.entries()) {
+      const problem = await entryProblem(c, input.staffId, row.clockIn, row.clockOut);
+      // Rows must not overlap each other either.
+      const clash = input.rows.findIndex(
+        (other, j) => j !== i && row.clockIn < (other.clockOut ?? '9999') && other.clockIn < (row.clockOut ?? '9999'),
+      );
+      const message = problem ?? (clash >= 0 ? `This overlaps row ${clash + 1}.` : null);
+      if (message) problems.push({ index: i, message });
+    }
+    if (input.rows.filter((r) => r.clockOut === null).length > 1) problems.push({ index: input.rows.length - 1, message: 'Only one entry can be left without a clock-out.' });
+    if (problems.length) {
+      return c.json({ error: 'invalid_rows', message: `${problems.length === 1 ? 'A row needs' : `${problems.length} rows need`} fixing; nothing was saved.`, problems }, 400);
+    }
+    const now = nowIso();
+    const entries = input.rows.map((row) => ({
+      id: crypto.randomUUID(),
+      staffId: input.staffId,
+      businessDay: businessDayOf(new Date(row.clockIn)),
+      clockIn: row.clockIn,
+      clockOut: row.clockOut,
+      source: 'manual' as const,
+      createdAt: now,
+      correctedBy: c.var.user.id,
+      correctedAt: now,
+      correctionReason: row.reason || input.reason,
+    }));
+    await db.batch([
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'dtr.add_batch', entity: 'staff', entityId: input.staffId, after: entries, reason: input.reason }),
+      ...entries.map((e) => db.insert(dtr).values(e)),
+    ]);
+    return c.json({ ids: entries.map((e) => e.id) }, 201);
+  })
+
+  /** The DTR Review list, any date: what still needs a look, or everything flagged with `all`. */
+  .get('/dtr/review', requireCapability('dtr.correct.receptionist'), zValidator('query', z.object({ all: z.enum(['1']).optional() }), invalidInput), async (c) => {
+    const today = businessDayOf(new Date());
+    const rows = await c.var.db
+      .select({
+        id: dtr.id,
+        staffId: dtr.staffId,
+        displayName: staff.displayName,
+        kind: staff.kind,
+        businessDay: dtr.businessDay,
+        clockIn: dtr.clockIn,
+        clockOut: dtr.clockOut,
+        source: dtr.source,
+        correctedAt: dtr.correctedAt,
+        correctionReason: dtr.correctionReason,
+        reviewedAt: dtr.reviewedAt,
+      })
+      .from(dtr)
+      .innerJoin(staff, eq(staff.id, dtr.staffId))
+      .where(c.req.valid('query').all ? flagged(today) : needsReview(today))
+      .orderBy(desc(dtr.businessDay), asc(dtr.clockIn))
+      .limit(300);
+    return c.json({ entries: rows.map((r) => ({ ...r, canEdit: true })) });
+  })
+
+  .post('/dtr/review', requireCapability('dtr.correct.receptionist'), zValidator('json', z.object({ ids: z.array(z.string().min(1)).min(1).max(90) }), invalidInput), async (c) => {
+    const db = c.var.db;
+    const { ids } = c.req.valid('json');
+    await db.batch([
+      db.update(dtr).set({ reviewedAt: nowIso(), reviewedBy: c.var.user.id }).where(inArray(dtr.id, ids)),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'dtr.review', entity: 'dtr', entityId: ids.length === 1 ? ids[0]! : `${ids.length} entries`, after: { ids } }),
+    ]);
+    return c.json({ ok: true });
+  })
+
   .patch('/dtr/:id', zValidator('json', editBody, invalidInput), async (c) => {
     const db = c.var.db;
     const id = c.req.param('id');
@@ -261,6 +362,9 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
       correctedBy: c.var.user.id,
       correctedAt: nowIso(),
       correctionReason: input.reason,
+      // Changed again: back on the DTR Review list.
+      reviewedAt: null,
+      reviewedBy: null,
     };
     await db.batch([
       db.update(dtr).set(changes).where(eq(dtr.id, id)),

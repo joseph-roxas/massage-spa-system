@@ -23,6 +23,9 @@ export const dtr = sqliteTable(
     correctedBy: text('corrected_by'),
     correctedAt: text('corrected_at'),
     correctionReason: text('correction_reason'),
+    /** The Super Admin's DTR Review tick; cleared whenever the entry changes again. */
+    reviewedAt: text('reviewed_at'),
+    reviewedBy: text('reviewed_by'),
   },
   (t) => [index('dtr_day_idx').on(t.businessDay), index('dtr_staff_idx').on(t.staffId, t.clockIn)],
 );

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { businessDayOf, certificateStatus, previousQuarter, quarterOf } from '@spa/domain';
 import { cashTransfers, certificates, expenses, staff, takeoutRequests, turnovers } from '@spa/db';
+import { dtrToReviewCount } from './attendance';
 import type { AuthedEnv } from '../env';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { quarterStatus } from './finance';
@@ -21,7 +22,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAuth, requireCapability('settings.manage'), async (c) => {
   const db = c.var.db;
   const today = businessDayOf(new Date());
-  const [requests, shortfalls, handovers, people, certs, drafts, tax] = await Promise.all([
+  const [requests, shortfalls, handovers, people, certs, drafts, tax, dtrToReview] = await Promise.all([
     db.select({ id: takeoutRequests.id, level: takeoutRequests.level }).from(takeoutRequests).where(isNull(takeoutRequests.resolvedAt)),
     db
       .select({ id: turnovers.id })
@@ -32,6 +33,7 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
     db.select().from(certificates),
     db.select({ n: sql<number>`count(*)` }).from(expenses).where(eq(expenses.status, 'pending')).get(),
     quarterStatus(db, previousQuarter(quarterOf(today))),
+    dtrToReviewCount(db),
   ]);
 
   const items: AttentionItem[] = [];
@@ -116,6 +118,9 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
   }
 
   const pending = Number(drafts?.n ?? 0);
+  if (dtrToReview) {
+    items.push({ key: 'dtr-review', tone: 'normal', title: `${plural(dtrToReview, 'time record')} to review`, detail: 'Added by hand, corrected, or never clocked out', link: '/dtr?tab=review' });
+  }
   if (pending) items.push({ key: 'expense-drafts', tone: 'normal', title: `${plural(pending, 'expense')} to confirm`, detail: 'Royalty, employer contributions and recurring bills', link: '/expenses' });
 
   items.sort((a, b) => (a.tone === b.tone ? 0 : a.tone === 'urgent' ? -1 : 1));

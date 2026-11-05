@@ -69,3 +69,27 @@ export function suggestTherapist(
   }
   return null;
 }
+
+/** What a Booking needs to belong to a stay: Added Services point at the Booking they follow. */
+export type StayLink = { id: string; parentBookingId: string | null; createdAt: string };
+
+/**
+ * A Guest's whole stay: the first Booking and every Added Service after it, in
+ * order. A Booking with nothing added is a stay of one.
+ */
+export function stayOf<T extends StayLink>(rows: readonly T[], id: string): T[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  let root = byId.get(id);
+  if (!root) return [];
+  const seen = new Set<string>();
+  while (root.parentBookingId && byId.has(root.parentBookingId) && !seen.has(root.id)) {
+    seen.add(root.id);
+    root = byId.get(root.parentBookingId)!;
+  }
+  const out: T[] = [root];
+  for (let i = 0; i < out.length; i++) {
+    const children = rows.filter((r) => r.parentBookingId === out[i]!.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    out.push(...children);
+  }
+  return out;
+}

@@ -23,6 +23,8 @@ export const bookings = sqliteTable(
     status: text('status', { enum: BOOKING_STATUSES }).notNull(),
     /** The Guest Record, when the desk picked or saved one; name and phone are copied as at booking. */
     guestId: text('guest_id').references(() => guests.id),
+    /** An Added Service: the Booking it follows in the same Room. Its stay is checked out together. */
+    parentBookingId: text('parent_booking_id'),
     guestName: text('guest_name'),
     guestPhone: text('guest_phone'),
     serviceId: text('service_id')
@@ -50,6 +52,7 @@ export const bookings = sqliteTable(
     index('bookings_day_idx').on(t.businessDay, t.status),
     index('bookings_therapist_idx').on(t.therapistId, t.status),
     index('bookings_guest_idx').on(t.guestId),
+    index('bookings_parent_idx').on(t.parentBookingId),
     // The database itself refuses double-booking: one Guest per Room, one Guest per therapist.
     uniqueIndex('bookings_one_per_room').on(t.roomId).where(sql`status = 'in_service'`),
     uniqueIndex('bookings_one_per_therapist').on(t.therapistId).where(sql`status = 'in_service'`),

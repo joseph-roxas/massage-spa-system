@@ -6,6 +6,7 @@ import { manilaTime } from '../lib/attendance';
 import { duration, longDate, peso } from '../lib/format';
 import { guestLabel, useBoard, useDeskAction, type Board, type Booking } from '../lib/front-desk';
 import { useDayAction } from '../lib/sales';
+import { AddServiceDialog } from './front-desk/AddServiceDialog';
 import { CheckoutDialog } from './front-desk/CheckoutDialog';
 import { CashReminder, HandoverDialog, NeedsAttention, TopUpDialog } from './front-desk/CashDialogs';
 import { CashOutDialog, DayCloseDialog, EarlyCloseDialog } from './front-desk/DayDialogs';
@@ -27,7 +28,20 @@ function minutesLeft(endsAt: string, now: number): number {
   return Math.round((new Date(endsAt).getTime() - now) / 60_000);
 }
 
-function RoomTile({ room, now, onDone }: { room: Board['rooms'][number]; now: number; onDone: (b: Booking) => void }) {
+function RoomTile({
+  room,
+  now,
+  next,
+  onDone,
+  onAdd,
+}: {
+  room: Board['rooms'][number];
+  now: number;
+  /** The Added Service waiting to follow in this Room. */
+  next: Booking | undefined;
+  onDone: (b: Booking) => void;
+  onAdd: (b: Booking) => void;
+}) {
   const b = room.booking;
   if (!room.active) {
     return (
@@ -57,8 +71,14 @@ function RoomTile({ room, now, onDone }: { room: Board['rooms'][number]; now: nu
       <p className="truncate text-xs text-stone-600">
         {b.serviceCode} · {b.therapistName}
       </p>
-      <div className="mt-2 flex items-center justify-between">
-        <span className="text-xs font-medium tabular-nums">{left === null ? '' : left > 0 ? `${left} min left` : 'Time is up'}</span>
+      {next && <p className="truncate text-xs font-medium text-teal-800">then {next.serviceCode}{next.therapistId !== b.therapistId ? ` · ${next.therapistName}` : ''}</p>}
+      <p className="mt-1 text-xs font-medium tabular-nums">{left === null ? '' : left > 0 ? `${left} min left` : 'Time is up'}</p>
+      <div className="mt-2 flex flex-wrap justify-end gap-1">
+        {!next && (
+          <button type="button" title="Add a service" className="rounded border border-teal-700 px-2 py-1 text-xs font-medium text-teal-800 hover:bg-white" onClick={() => onAdd(b)}>
+            + Service
+          </button>
+        )}
         <button type="button" className="rounded bg-teal-700 px-2 py-1 text-xs font-medium text-white hover:bg-teal-800" onClick={() => onDone(b)}>
           Done
         </button>
@@ -106,7 +126,8 @@ function QueueLine({ b, onStart }: { b: Booking; onStart: (b: Booking) => void }
       <div className="w-16 text-sm tabular-nums text-stone-500">{b.scheduledAt ? manilaTime(b.scheduledAt) : manilaTime(b.createdAt)}</div>
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">
-          {guestLabel(b)} {b.guestIsRegular && <Badge tone="teal">Regular</Badge>} {b.status === 'scheduled' && <Badge tone="amber">Booked</Badge>}
+          {guestLabel(b)} {b.guestIsRegular && <Badge tone="teal">Regular</Badge>} {b.status === 'scheduled' && <Badge tone="amber">Booked</Badge>}{' '}
+          {b.parentBookingId && <Badge tone="teal">Added service · Room {b.roomId} next</Badge>}
         </p>
         <p className="truncate text-xs text-stone-500">
           {b.serviceName} · {duration(b.durationMin)}
@@ -215,6 +236,7 @@ function FrontDeskBoard() {
   const [creating, setCreating] = useState<'walk_in' | 'scheduled' | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
+  const [adding, setAdding] = useState<string | null>(null);
   const [dayDialog, setDayDialog] = useState<DayDialog>(null);
   const canCash = useCan('cashouts.record');
   const isOwner = useCan('settings.manage');
@@ -237,8 +259,10 @@ function FrontDeskBoard() {
   const startingBooking = board.bookings.find((b) => b.id === starting);
   const payingBooking = board.bookings.find((b) => b.id === paying);
   const unpaid = finished.filter((b) => !b.sale).length;
-  // Done hands straight over to checkout, since the guest pays on the way out.
-  const markDone = (b: Booking) => done.mutate({ path: `/bookings/${b.id}/done` }, { onSuccess: () => setPaying(b.id) });
+  const addingBooking = board.bookings.find((b) => b.id === adding);
+  const nextAfter = (b: Booking) => board.bookings.find((x) => x.parentBookingId === b.id && x.status === 'waiting');
+  // Done hands straight over to checkout, since the guest pays on the way out; an Added Service starts instead.
+  const markDone = (b: Booking) => done.mutate({ path: `/bookings/${b.id}/done` }, { onSuccess: (res) => !res.startedNext && setPaying(b.id) });
 
   return (
     <div className="space-y-6">
@@ -261,7 +285,7 @@ function FrontDeskBoard() {
         <div className="space-y-6">
           <section aria-label="Rooms" className="grid grid-cols-4 gap-3">
             {board.rooms.map((r) => (
-              <RoomTile key={r.id} room={r} now={now} onDone={markDone} />
+              <RoomTile key={r.id} room={r} now={now} next={r.booking ? nextAfter(r.booking) : undefined} onDone={markDone} onAdd={(b) => setAdding(b.id)} />
             ))}
           </section>
 
@@ -324,6 +348,7 @@ function FrontDeskBoard() {
       )}
       {startingBooking && <StartDialog booking={startingBooking} board={board} onClose={() => setStarting(null)} />}
       {payingBooking && <CheckoutDialog booking={payingBooking} onClose={() => setPaying(null)} />}
+      {addingBooking && <AddServiceDialog booking={addingBooking} onClose={() => setAdding(null)} />}
       {dayDialog === 'cash-outs' && <CashOutDialog day={board.day} onClose={() => setDayDialog(null)} />}
       {dayDialog === 'early-close' && <EarlyCloseDialog onClose={() => setDayDialog(null)} />}
       {dayDialog === 'handover' && <HandoverDialog onClose={() => setDayDialog(null)} />}

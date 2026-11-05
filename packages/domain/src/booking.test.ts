@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMinutes, overlaps, roomFits, suggestRoom, suggestTherapist, type RoomInfo } from './booking';
+import { addMinutes, overlaps, roomFits, suggestRoom, suggestTherapist, type RoomInfo, stayOf } from './booking';
 import type { RotationEntry } from './rotation';
 
 const rooms: RoomInfo[] = [...Array.from({ length: 7 }, (_, i) => ({ id: i + 1, isFlex: false, active: true })), { id: 8, isFlex: true, active: true }];
@@ -73,5 +73,18 @@ describe('overlaps', () => {
   it('treats touching spans as not overlapping', () => {
     expect(overlaps({ start: '1', end: '3' }, { start: '3', end: '5' })).toBe(false);
     expect(overlaps({ start: '1', end: '4' }, { start: '3', end: '5' })).toBe(true);
+  });
+});
+
+describe('stayOf', () => {
+  const row = (id: string, parentBookingId: string | null, createdAt: string) => ({ id, parentBookingId, createdAt });
+  const rows = [row('a', null, '1'), row('b', 'a', '2'), row('c', 'b', '3'), row('x', null, '1')];
+  it('finds the whole stay from any of its Bookings, in order', () => {
+    expect(stayOf(rows, 'c').map((r) => r.id)).toEqual(['a', 'b', 'c']);
+    expect(stayOf(rows, 'a').map((r) => r.id)).toEqual(['a', 'b', 'c']);
+  });
+  it('is just the Booking when nothing was added', () => {
+    expect(stayOf(rows, 'x').map((r) => r.id)).toEqual(['x']);
+    expect(stayOf(rows, 'nope')).toEqual([]);
   });
 });

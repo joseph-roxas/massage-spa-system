@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { Button } from '../components/ui';
 import { useClockStaff } from '../lib/attendance';
 import { useServices } from '../lib/catalogue';
 import { duration, peso } from '../lib/format';
+import { PaperPayslips, usePaperPayslipKinds, type PaperPayslipKind } from './PaperPayslips';
 
 const GUEST_ROWS = 22;
 const CASH_OUT_ROWS = 6;
@@ -9,8 +11,43 @@ const CASH_OUT_ROWS = 6;
 const cellCls = 'border border-stone-400 px-1.5 py-1 align-top';
 const headCls = `${cellCls} bg-stone-100 text-left text-[10px] font-semibold uppercase tracking-wide`;
 
-/** A printable sheet for running the front desk on paper while the internet is down. */
+const TAB_LABEL: Record<'log' | PaperPayslipKind, string> = { log: 'Front desk log', therapist: 'Therapist payslip', receptionist: 'Receptionist payslip' };
+
+/** Printable sheets for when the system can't be used: the front desk log and blank Paper Payslips. */
 export function PaperSheetPage() {
+  const tabs = ['log' as const, ...usePaperPayslipKinds()];
+  const [tab, setTab] = useState<(typeof tabs)[number]>('log');
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <div>
+          <h1 className="text-2xl font-semibold">Paper backup</h1>
+          <p className="text-sm text-stone-600">
+            {tab === 'log'
+              ? 'Print a few copies for days the internet is down. Enter every line in the system once it is back, before Day Close.'
+              : 'Blank payslips, two per A4 sheet: cut along the dashed line. Fill one in by hand when the system can’t be used.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {tabs.length > 1 && (
+            <div className="flex rounded-md border border-stone-300 bg-white p-0.5 text-sm">
+              {tabs.map((t) => (
+                <button key={t} type="button" onClick={() => setTab(t)} className={`rounded px-3 py-1.5 ${tab === t ? 'bg-teal-700 text-white' : 'text-stone-700 hover:bg-stone-100'}`}>
+                  {TAB_LABEL[t]}
+                </button>
+              ))}
+            </div>
+          )}
+          <Button onClick={() => window.print()}>Print</Button>
+        </div>
+      </div>
+      {tab === 'log' ? <FrontDeskLog /> : <PaperPayslips kind={tab} />}
+    </div>
+  );
+}
+
+/** A printable sheet for running the front desk on paper while the internet is down. */
+function FrontDeskLog() {
   const staff = useClockStaff();
   const services = useServices();
   const people = staff.data?.staff ?? [];
@@ -20,13 +57,6 @@ export function PaperSheetPage() {
     <div className="space-y-4">
       {/* Only while this page is open: the log is wide, so print it sideways. */}
       <style>{'@page { size: A4 landscape; margin: 8mm; }'}</style>
-      <div className="flex items-center justify-between print:hidden">
-        <div>
-          <h1 className="text-2xl font-semibold">Paper backup sheet</h1>
-          <p className="text-sm text-stone-600">Print a few copies for days the internet is down. Enter every line in the system once it is back, before Day Close.</p>
-        </div>
-        <Button onClick={() => window.print()}>Print</Button>
-      </div>
 
       <section className="space-y-3 bg-white p-4 text-[11px] text-stone-900 print:p-0">
         <header className="flex items-end justify-between border-b-2 border-stone-800 pb-1">

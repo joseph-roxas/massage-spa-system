@@ -387,7 +387,20 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
 - **Domain for approval email** (see §12.3): without it, approvals work in-app only.
 - **Happy Hours after 2026-11-30:** the promo simply stops applying; a replacement promo is a settings change, not code.
 
-## 14. Status and handoff (as of 2026-11-04)
+## 14. Status and handoff (as of 2026-11-05)
+
+### 14.0 Pick up here
+
+- **Phase 12 is done and waiting to be merged.** It is on branch `cr-1` (pushed), in [PR #1](https://github.com/joseph-roxas/massage-spa-system/pull/1) to `main`.
+  - The PR has 9 commits: docs `607562c`, slices 12.1–12.7 ending `c9788df`, then the Day Close fix `d0d4f7a` (§14.2, "Fix after 12.7").
+  - The PR description is written; it still says 95 API tests, but there are now 96, and it doesn't mention the Day Close fix yet.
+  - CI "verify" was running on `d0d4f7a` when the session ended (2026-11-05). This session can't link the PR, so check the PR's Checks tab. One voucher API test failed once on a busy machine and passed on every rerun; if that is the only failure, rerun the check first.
+- **Next steps, in order:**
+  1. CI green on PR #1, then merge `cr-1` into `main`.
+  2. Finish go-live (§14.1): `scripts/go-live-setup.sh` from stage 5. Deploying runs migrations 0012–0017 in order; they rewrite data (see the PR's Merge Danger).
+  3. Owner's to-dos once Phase 12 is live (Needs attention lists most): mark 2026-Q3 2551Q filed on `/finance` if done; enter the opening Sales Cash count on `/cash`; do the voucher card count and storage counts; set staff salary bases and government ID numbers.
+  4. In the deployed app, the Business Day of Wed 2026-11-04 was left open with a guest not checked out. After the fix is deployed, open "Close it now", check the guest out from the dialog, then close the day.
+- **Local data:** the local database (`.wrangler-state`) has Business Day 2026-11-03 still open, with every guest checked out; it can be closed whenever.
 
 ### 14.1 Where things stand
 
@@ -404,9 +417,9 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
   - Capabilities live in `packages/domain/src/permissions.ts`.
   - `auditInsert` goes inside `db.batch`, and a batch must not start with a spread.
   - D1 allows at most 100 bound parameters per query.
-  - Every migration ends by updating `app_meta.schema_version`. The next migration is `0012_*`.
+  - Every migration ends by updating `app_meta.schema_version`. The next migration is `0018_*` (0012–0017 are on `cr-1`).
 
-### 14.2 Phase 12: owner's change requests after testing (built on `cr-1`, not merged)
+### 14.2 Phase 12: owner's change requests after testing (built on `cr-1`, in PR #1, not merged)
 
 All seven slices are built on branch `cr-1`, one commit each (12.1–12.7), with migrations 0012–0017; each slice ends with an **As built** note where it differs from the plan. Every decision here was confirmed with the owner on 2026-11-04 (three grilling rounds); the vocabulary is in `GLOSSARY.md` and the Day Close change in ADR 0003. Build on branch `cr-1`, one commit per slice, in this order.
 
@@ -491,6 +504,13 @@ All seven slices are built on branch `cr-1`, one commit each (12.1–12.7), with
 One list on the Super Admin's Home, with a nav badge: open Take-out Requests, Turnover shortfalls, Cash Handovers waiting, Certificates expiring, missing government IDs, 2551Q due. Each links to where it is acted on. (Approval email is still not set up.)
 
 **As built:** `GET /attention` (Super Admin, `settings.manage`) also lists incomplete staff records and Expense drafts to confirm, and replaces the separate 2551Q bar on Home. Urgent items (2551Q in its last 7 days or late, out-of-stock requests, expired Certificates) come first with a red dot; the Front Desk nav item shows the count, red when anything is urgent. It refreshes every minute and after any action that can clear an item.
+
+**Fix after 12.7: finishing guests on a day left open** (`d0d4f7a`, found by the owner on 2026-11-05)
+
+A day left open with a guest not checked out could never be closed: the Front Desk board only shows today's guests, and the Day Close dialog listed the unfinished ones with no way to act on them. The API already allowed it (checkout records against the booking's own Business Day).
+- `closingState` in `API/src/modules/days.ts` now sends each blocker's `status`, `guestName`, `serviceId` and `therapistName`.
+- `DayCloseDialog` (`UI/src/pages/front-desk/DayDialogs.tsx`) offers per guest: **Check out** (done), **Done → check out** (in service), **No-show** (booked), **Cancel** (booked or waiting). Checkout opens the normal `CheckoutDialog` (its prop is now `CheckoutBooking`, a `Pick` of `Booking`) and returns to the dialog; once nothing blocks, the cash count shows.
+- Test: "finishes and checks out guests left on an earlier day, then closes it" in `API/test/sales.test.ts`. API tests: 96.
 
 ### 14.3 Still open from earlier phases
 

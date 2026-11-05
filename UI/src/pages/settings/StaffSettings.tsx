@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { certificateStatus, DEFAULT_CONTRIBUTION_RATES, govIdWarning, monthlyContributions, type ContributionRates, type GovId } from '@spa/domain';
 import { Alert, Badge, Button, Card, Checkbox, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
 import { usePayRules, useSave, useStaff, type Certificate, type Qualification, type StaffMember } from '../../lib/catalogue';
+import { api } from '../../lib/api';
 import { longDate, parsePesos, peso, pesosText, todayManila } from '../../lib/format';
 
 type Role = 'regular' | 'lmt' | 'receptionist';
@@ -44,6 +46,7 @@ type Draft = {
   hireDate: string;
   isOnCall: boolean;
   dailyRate: string;
+  userId: string;
   contributionBase: string;
   govSss: string;
   govPhic: string;
@@ -89,6 +92,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
     hireDate: member?.hireDate ?? '',
     isOnCall: member?.isOnCall ?? false,
     dailyRate: member?.dailyRate != null ? pesosText(member.dailyRate) : '',
+    userId: member?.userId ?? '',
     contributionBase: member?.contributionBase != null ? pesosText(member.contributionBase) : '',
     govSss: member ? pesosText(member.govSss) : '',
     govPhic: member ? pesosText(member.govPhic) : '',
@@ -104,6 +108,11 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
   const isReceptionist = d.role === 'receptionist';
   const rules = usePayRules();
+  const logins = useQuery({
+    queryKey: ['users', 'receptionist-logins'],
+    queryFn: () => api<{ users: { id: string; firstName: string; lastName: string; email: string; role: string | null }[] }>('/users?status=active'),
+    enabled: isReceptionist,
+  });
   const rates = (rules.data?.payRules.contribution_rates as ContributionRates | undefined) ?? DEFAULT_CONTRIBUTION_RATES;
 
   function submit(e: FormEvent) {
@@ -136,6 +145,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
       const rate = parsePesos(d.dailyRate);
       if (rate === null) return setError('Enter the daily rate in pesos.');
       body.dailyRate = rate;
+      body.userId = d.userId || null;
     }
     if (d.isOnCall && !isReceptionist) body.contributionBase = null;
     else if (d.contributionBase.trim() === '') body.contributionBase = null;
@@ -259,6 +269,20 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
         {isReceptionist && (
           <Field label="Daily rate (₱)">
             <Input inputMode="decimal" required value={d.dailyRate} onChange={(e) => set('dailyRate', e.target.value)} />
+          </Field>
+        )}
+        {isReceptionist && (
+          <Field label="Login account" hint="Lets her see her own payslips under My Pay">
+            <Select value={d.userId} onChange={(e) => set('userId', e.target.value)}>
+              <option value="">Not linked</option>
+              {logins.data?.users
+                .filter((u) => u.role === 'receptionist')
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.firstName} {u.lastName} ({u.email})
+                  </option>
+                ))}
+            </Select>
           </Field>
         )}
         {!(d.isOnCall && !isReceptionist) && (

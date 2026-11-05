@@ -1,17 +1,19 @@
 import type { ReactNode } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { ApiError } from '../lib/api';
-import { can, type Capability } from '@spa/domain';
+import { can, type Capability, type Role } from '@spa/domain';
 import { ROLE_LABELS, useCurrentUser, useLogout } from '../lib/auth';
 import { useAttention } from '../lib/attention';
 
 /** Menu entries appear only for roles that hold the capability. */
-const NAV: { to: string; label: string; capability?: Capability }[] = [
+const NAV: { to: string; label: string; capability?: Capability; hideFor?: Role }[] = [
   { to: '/', label: 'Front Desk' },
   { to: '/vouchers', label: 'Vouchers', capability: 'sales.manage' },
   { to: '/cash', label: 'Cash', capability: 'cashouts.record' },
   { to: '/dtr', label: 'Time Records', capability: 'dtr.correct.therapist' },
   { to: '/payroll', label: 'Payroll', capability: 'payroll.therapist.generate' },
+  // The Super Admin holds every capability but has no payslips of her own.
+  { to: '/my-pay', label: 'My Pay', capability: 'payroll.view_own', hideFor: 'super_admin' },
   { to: '/inventory', label: 'Inventory', capability: 'inventory.stock_out' },
   { to: '/expenses', label: 'Expenses', capability: 'expenses.manage' },
   { to: '/reports', label: 'Reports', capability: 'reports.daily' },
@@ -57,7 +59,7 @@ export function Layout() {
           <p className="text-sm font-semibold uppercase tracking-widest text-teal-700">Spa System</p>
         </div>
         <nav className="flex-1 space-y-1 px-3">
-          {NAV.filter((n) => !n.capability || can(user.role, n.capability)).map((n) => (
+          {NAV.filter((n) => (!n.capability || can(user.role, n.capability)) && n.hideFor !== user.role).map((n) => (
             <NavLink
               key={n.to}
               to={n.to}

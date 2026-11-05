@@ -53,7 +53,7 @@ import { contributionRates, weeklyDeductions } from '../lib/contributions';
 import { currentTransferDay } from '../lib/sales-cash';
 import { nowIso } from '../lib/time';
 import { centavos, isoDate } from '../lib/validation';
-import { requireAuth } from '../auth/middleware';
+import { requireAuth, requireCapability } from '../auth/middleware';
 
 type Db = DrizzleD1Database;
 type Staff = typeof staff.$inferSelect;
@@ -233,6 +233,56 @@ export const payrollRoutes = new Hono<AuthedEnv>()
   .use('/cash-advances/*', requireAuth)
   .use('/bonuses', requireAuth)
   .use('/bonuses/*', requireAuth)
+  .use('/me/*', requireAuth, requireCapability('payroll.view_own'))
+
+  // ------------------------------------------------------------------ My Pay
+
+  /** The logged-in staff member's released Payslips and Cash Advance history. */
+  .get('/me/pay', async (c) => {
+    const db = c.var.db;
+    const person = await db.select().from(staff).where(eq(staff.userId, c.var.user.id)).get();
+    if (!person) return c.json({ staff: null, payslips: [], ca: null });
+    const [released, ledger, advances, balance] = await Promise.all([
+      db
+        .select({ id: payrolls.id, weekStart: payrolls.weekStart, net: payrolls.net, releasedAt: payrolls.releasedAt })
+        .from(payrolls)
+        .where(and(eq(payrolls.staffId, person.id), eq(payrolls.status, 'released')))
+        .orderBy(desc(payrolls.weekStart)),
+      db.select().from(caLedger).where(eq(caLedger.staffId, person.id)).orderBy(asc(caLedger.createdAt)),
+      db.select().from(cashAdvances).where(eq(cashAdvances.staffId, person.id)),
+      caBalance(db, person.id),
+    ]);
+    const weekOf = new Map(released.map((p) => [p.id, p.weekStart]));
+    // Oldest first, as she would read a passbook.
+    const entries = ledger.map((l) => ({
+      id: l.id,
+      entry: l.entry,
+      amount: l.amount,
+      date: advances.find((a) => a.id === l.cashAdvanceId)?.businessDay ?? l.createdAt.slice(0, 10),
+      weekStart: l.payrollId ? (weekOf.get(l.payrollId) ?? null) : null,
+    }));
+    const owed = entries.filter((e) => e.entry !== 'repayment').reduce((s, e) => s + e.amount, 0);
+    return c.json({
+      staff: { displayName: person.displayName, kind: person.kind, dailyRate: person.dailyRate, caRepayment: person.caRepayment },
+      payslips: released,
+      ca: { entries, totalTaken: owed, totalRepaid: owed - balance, balance },
+    });
+  })
+
+  .get('/me/payslips/:id', async (c) => {
+    const db = c.var.db;
+    const person = await db.select({ id: staff.id }).from(staff).where(eq(staff.userId, c.var.user.id)).get();
+    const row = person
+      ? await db
+          .select()
+          .from(payrolls)
+          .where(and(eq(payrolls.id, c.req.param('id')), eq(payrolls.staffId, person.id), eq(payrolls.status, 'released')))
+          .get()
+      : undefined;
+    if (!row) return fail(c, 404, 'not_found', 'Payslip not found.');
+    const [payroll] = await withNames(db, [row]);
+    return c.json({ payroll, week: payWeekOf(row.weekStart) });
+  })
 
   /** A Pay Week: whether it can be generated yet and the Payrolls this user may see. */
   .get('/payroll/weeks/:start', zValidator('param', weekParam, invalidInput), async (c) => {

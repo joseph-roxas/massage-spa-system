@@ -261,6 +261,54 @@ describe('receptionist payroll', () => {
   });
 });
 
+describe('My Pay', () => {
+  it('shows the Receptionist her own released Payslips and CA history, nothing else', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const other = await loggedIn('receptionist');
+    const r = await newStaff(admin, { kind: 'receptionist', dailyRate: 69200 });
+    const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
+
+    // Not linked yet: nothing to show.
+    expect(await json(await desk.get('/me/pay'))).toEqual({ staff: null, payslips: [], ca: null });
+    // A login belongs to one staff member, and only a Receptionist login can be linked.
+    expect((await admin.send('PATCH', `/settings/staff/${r}`, { userId: admin.id })).status).toBe(400);
+    expect((await admin.send('PATCH', `/settings/staff/${r}`, { userId: desk.id })).status).toBe(200);
+    expect((await admin.send('PATCH', `/settings/staff/${t}`, { userId: desk.id })).status).toBe(400);
+
+    const [, mon] = lastDays();
+    await punched(r, mon!, '14:00', '23:00');
+    await admin.send('PUT', '/cash-advances/opening', { staffId: r, amount: 100000 });
+    await admin.post(`/payroll/weeks/${last().start}/generate`, { kind: 'receptionist' });
+    const p = mine(await weekOf(admin), r);
+    await admin.post(`/payrolls/${p.id}/adjustments`, { label: 'Allowance', amount: 5000, reason: 'Private note' });
+
+    // A draft or approved Payroll is not hers to see yet.
+    type MyPay = { payslips: { id: string }[]; ca: { entries: { entry: string; amount: number; weekStart: string | null }[]; totalTaken: number; totalRepaid: number; balance: number } };
+    expect((await json<MyPay>(await desk.get('/me/pay'))).payslips).toEqual([]);
+    expect((await desk.get(`/me/payslips/${p.id}`)).status).toBe(404);
+    await admin.post(`/payrolls/${p.id}/approve`);
+    await admin.post(`/payrolls/${p.id}/release`);
+
+    const pay = await json<MyPay>(await desk.get('/me/pay'));
+    expect(pay.payslips).toEqual([expect.objectContaining({ id: p.id })]);
+    expect(pay.ca).toMatchObject({ totalTaken: 100000, totalRepaid: 50000, balance: 50000 });
+    expect(pay.ca.entries.map((e) => [e.entry, e.amount, e.weekStart])).toEqual([
+      ['opening', 100000, null],
+      ['repayment', 50000, last().start],
+    ]);
+
+    type Slip = { payroll: { net: number; lines: { earnings: Record<string, number> }; adjustments: { label: string; reason?: string }[] } };
+    const slip = await json<Slip>(await desk.get(`/me/payslips/${p.id}`));
+    expect(slip.payroll.lines.earnings).toMatchObject({ basic: 69200, adjustments: 5000 });
+    expect(slip.payroll.adjustments).toEqual([{ id: expect.any(String), label: 'Allowance', amount: 5000 }]);
+
+    // Someone else's login sees none of it; the Super Admin has no staff record of her own.
+    expect((await other.get(`/me/payslips/${p.id}`)).status).toBe(404);
+    expect((await json<MyPay>(await admin.get('/me/pay'))).payslips).toEqual([]);
+  });
+});
+
 describe('Year-end Bonus', () => {
   it('is the year’s Commission times the chosen percentage, kept once paid', async () => {
     const admin = await loggedIn('super_admin');

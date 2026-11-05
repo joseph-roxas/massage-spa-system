@@ -65,6 +65,8 @@ export type StaffMember = {
   therapistClass: 'regular' | 'lmt' | null;
   isOnCall: boolean;
   dailyRate: number | null;
+  /** The Receptionist login linked to this record, for My Pay. */
+  userId: string | null;
   /** Monthly salary basis for SSS, PhilHealth and Pag-IBIG; null for the older fixed weekly amounts. */
   contributionBase: number | null;
   govSss: number;

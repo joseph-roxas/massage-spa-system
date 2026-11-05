@@ -19,6 +19,7 @@ import { ReportsPage } from './pages/ReportsPage';
 import { GoLivePage } from './pages/GoLivePage';
 import { PaperSheetPage } from './pages/PaperSheetPage';
 import { PayslipPage } from './pages/payroll/PayslipPage';
+import { MyPayPage, MyPayslipPage } from './pages/MyPayPage';
 import { SettingsLayout } from './pages/settings/SettingsLayout';
 import { ServicesSettings } from './pages/settings/ServicesSettings';
 import { PromosSettings } from './pages/settings/PromosSettings';
@@ -136,6 +137,22 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="payroll.therapist.generate">
             <PayslipPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/my-pay',
+        element: (
+          <RequireCapability capability="payroll.view_own">
+            <MyPayPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/my-pay/:id',
+        element: (
+          <RequireCapability capability="payroll.view_own">
+            <MyPayslipPage />
           </RequireCapability>
         ),
       },

@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne } from 'drizzle-orm';
+import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import { lmtProblem } from '@spa/domain';
 import {
   CERTIFICATE_TYPES,
@@ -14,6 +15,7 @@ import {
   staff,
   STAFF_KINDS,
   THERAPIST_CLASSES,
+  users,
 } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
@@ -93,6 +95,8 @@ const staffFields = z.object({
   dailyRate: centavos.nullable(),
   /** Receptionist: the standing CA Repayment per Payroll. */
   caRepayment: centavos.optional(),
+  /** The User who logs in as this staff member, so My Pay finds her Payslips. */
+  userId: z.string().min(1).nullable().optional(),
   /** Monthly salary basis for SSS, PhilHealth and Pag-IBIG brackets. */
   contributionBase: centavos.nullable().optional(),
   govSss: centavos,
@@ -131,6 +135,19 @@ const newStaff = staffFields.extend({ gender: z.enum(GENDERS), birthdate: isoDat
   govPagibig: true,
   active: true,
 });
+
+/** A login can belong to one staff member only, and must be an active Receptionist login. */
+async function userLinkProblem(db: DrizzleD1Database, userId: string | null | undefined, staffId: string | null): Promise<string | null> {
+  if (!userId) return null;
+  const user = await db.select({ role: users.role, status: users.status }).from(users).where(eq(users.id, userId)).get();
+  if (!user || user.status !== 'active' || user.role !== 'receptionist') return 'Pick an active Receptionist login.';
+  const taken = await db
+    .select({ id: staff.id })
+    .from(staff)
+    .where(and(eq(staff.userId, userId), staffId ? ne(staff.id, staffId) : undefined))
+    .get();
+  return taken ? 'That login already belongs to another staff member.' : null;
+}
 
 const pinBody = z.object({ pin: z.string().regex(/^\d{4}$/, 'The PIN must be exactly 4 digits.') });
 
@@ -216,7 +233,7 @@ export const staffRoutes = new Hono<AuthedEnv>()
       govPagibig: input.govPagibig ?? (isOnCall ? 0 : defaults.pagibig),
       active: input.active ?? true,
     };
-    const problem = staffProblem(record);
+    const problem = staffProblem(record) ?? (await userLinkProblem(db, record.userId, null));
     if (problem) return fail(c, 400, 'invalid_staff', problem);
     const id = crypto.randomUUID();
     await db.batch([
@@ -231,7 +248,7 @@ export const staffRoutes = new Hono<AuthedEnv>()
     const before = await db.select().from(staff).where(eq(staff.id, id)).get();
     if (!before) return fail(c, 404, 'not_found', 'Staff member not found.');
     const changes = c.req.valid('json');
-    const problem = staffProblem({ ...before, ...changes });
+    const problem = staffProblem({ ...before, ...changes }) ?? (await userLinkProblem(db, changes.userId, id));
     if (problem) return fail(c, 400, 'invalid_staff', problem);
     await db.batch([
       db.update(staff).set(changes).where(eq(staff.id, id)),

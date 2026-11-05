@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { BookingStatus } from './front-desk';
 import type { VoucherBundle } from './vouchers';
@@ -90,13 +90,22 @@ export type ClosePreview = {
 };
 
 /** The server prices every change of discount or add-on, so the screen never disagrees with the record. */
-export const useQuote = (choice: PriceChoice) =>
-  useQuery({
-    queryKey: ['quote', choice],
-    queryFn: () => api<Quote>('/sales/quote', { body: choice }),
-    placeholderData: (prev) => prev,
-    retry: false,
+/** One quote per Service being checked out; a stay has several. */
+export const useQuotes = (choices: PriceChoice[]) =>
+  useQueries({
+    queries: choices.map((choice) => ({
+      queryKey: ['quote', choice],
+      queryFn: () => api<Quote>('/sales/quote', { body: choice }),
+      placeholderData: (prev: Quote | undefined) => prev,
+      retry: false,
+    })),
   });
+
+export type StayBooking = { id: string; status: string; serviceId: string; serviceName: string; therapistName: string | null; startedAt: string | null; paid: boolean };
+
+/** A Booking and its Added Services, checked out together. */
+export const useStay = (bookingId: string) =>
+  useQuery({ queryKey: ['stay', bookingId], queryFn: () => api<{ bookings: StayBooking[] }>(`/bookings/${bookingId}/stay`) });
 
 export const useClosePreview = (date: string) =>
   useQuery({ queryKey: ['close-preview', date], queryFn: () => api<ClosePreview>(`/days/${date}/close-preview`), staleTime: 0 });

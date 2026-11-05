@@ -14,8 +14,11 @@ import {
   quoteSale,
   redemptionIsFree,
   redemptionProblem,
+  splitPayments,
+  stayOf,
   toManila,
   type Centavos,
+  type PaymentLine,
   type Quote,
 } from '@spa/domain';
 import { addons, bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, saleAddons, sales, servicePrices, services, staff, vouchers, voucherSales } from '@spa/db';
@@ -58,6 +61,13 @@ const payment = z.object({
 });
 
 const sale = checkout.extend({
+  payments: z.array(payment).max(4),
+  bookletInvoiceNo: z.string().trim().max(30).nullable().optional(),
+});
+
+/** A whole stay: one checkout line per Service, one payment for all. */
+const stayBody = z.object({
+  items: z.array(checkout).min(1).max(8),
   payments: z.array(payment).max(4),
   bookletInvoiceNo: z.string().trim().max(30).nullable().optional(),
 });
@@ -194,6 +204,92 @@ async function bundleOf(c: Context<AuthedEnv>, voucher: typeof vouchers.$inferSe
   };
 }
 
+type CheckoutInput = z.infer<typeof checkout>;
+
+/** Prices one checkout line the way the quote did. */
+const priceFor = (c: Context<AuthedEnv>, input: CheckoutInput) =>
+  price(c, {
+    bookingId: input.bookingId,
+    statutory: input.statutory?.kind ?? null,
+    promoId: input.promoId,
+    addonIds: input.addonIds,
+    complimentary: !!input.complimentaryReason,
+    voucherSerial: input.voucherSerial,
+  });
+
+/** Everything one Sale writes: the Sale, its Add-ons, its payments, the Voucher it redeems. */
+function saleStatements(c: Context<AuthedEnv>, input: CheckoutInput, priced: Priced, lines: readonly PaymentLine[], bookletInvoiceNo: string | null, now: string) {
+  const db = c.var.db;
+  const { booking, quote, commission } = priced;
+  const id = crypto.randomUUID();
+  const discountRef =
+    quote.discount.type === 'promo'
+      ? quote.discount.promoId
+      : quote.discount.type === 'senior' || quote.discount.type === 'pwd'
+        ? input.statutory!.idNumber
+        : quote.discount.type === 'voucher'
+          ? priced.voucher!.serial
+          : null;
+  const statements = [
+    db.insert(sales).values({
+      id,
+      bookingId: booking.id,
+      businessDay: booking.businessDay,
+      serviceId: booking.serviceId,
+      therapistId: booking.therapistId!,
+      regularPrice: quote.regularPrice,
+      discountType: quote.discount.type,
+      discountRef,
+      discountBp: quote.discount.bp,
+      discountAmount: quote.discount.amount,
+      serviceAmount: quote.serviceAmount,
+      addonsTotal: quote.addonsTotal,
+      amountDue: quote.amountDue,
+      focKind: quote.focKind,
+      commissionBp: commission.bp,
+      commissionAmount: commission.amount,
+      isHoliday: priced.isHoliday,
+      bookletInvoiceNo,
+      reason: input.complimentaryReason,
+      createdAt: now,
+      createdBy: c.var.user.id,
+    }),
+    ...priced.addonLines.map((a) => db.insert(saleAddons).values({ id: crypto.randomUUID(), saleId: id, addonId: a.id, name: a.name, price: a.price })),
+    ...lines.map((p) =>
+      db.insert(payments).values({
+        id: crypto.randomUUID(),
+        saleId: id,
+        businessDay: booking.businessDay,
+        method: p.method,
+        amount: p.amount,
+        gcashRef: p.method === 'gcash' ? p.gcashRef!.trim() : null,
+        createdAt: now,
+      }),
+    ),
+    // Single use is also enforced by sales_one_per_voucher, should two desks race.
+    ...(priced.voucher
+      ? [
+          db
+            .update(vouchers)
+            .set({ status: 'redeemed', redeemedSaleId: id, redeemedAt: now })
+            .where(and(eq(vouchers.id, priced.voucher.id), eq(vouchers.status, 'unused'))),
+        ]
+      : []),
+    ...(input.complimentaryReason
+      ? [auditInsert(db, { actorUserId: c.var.user.id, action: 'sale.complimentary', entity: 'sale', entityId: id, reason: input.complimentaryReason })]
+      : []),
+  ];
+  return { id, statements };
+}
+
+/** Turns a failed checkout write into the reason the desk sees. */
+function checkoutConflict(c: Context<AuthedEnv>, err: unknown, withVoucher: boolean) {
+  if (!isUniqueViolation(err)) throw err;
+  return withVoucher && /discount_ref/.test(`${(err as Error).message} ${String((err as Error).cause ?? '')}`)
+    ? fail(c, 409, 'voucher_unusable', 'This voucher has already been used.')
+    : fail(c, 409, 'already_paid', 'This guest has already been checked out.');
+}
+
 const isUniqueViolation = (err: unknown) =>
   err instanceof Error && /UNIQUE constraint failed/i.test(`${err.message} ${String(err.cause ?? '')}`);
 
@@ -209,16 +305,9 @@ export const salesRoutes = new Hono<AuthedEnv>()
 
   .post('/', zValidator('json', sale, invalidInput), async (c) => {
     const input = c.req.valid('json');
-    const priced = await price(c, {
-      bookingId: input.bookingId,
-      statutory: input.statutory?.kind ?? null,
-      promoId: input.promoId,
-      addonIds: input.addonIds,
-      complimentary: !!input.complimentaryReason,
-      voucherSerial: input.voucherSerial,
-    });
+    const priced = await priceFor(c, input);
     if (priced instanceof Response) return priced;
-    const { booking, quote, commission } = priced;
+    const { booking, quote } = priced;
     const blocked = await openDayFor(c, booking.businessDay);
     if (blocked) return blocked;
 
@@ -226,78 +315,60 @@ export const salesRoutes = new Hono<AuthedEnv>()
     const problem = paymentProblem(quote.amountDue, lines);
     if (problem) return fail(c, 400, 'payment_mismatch', problem);
 
-    const db = c.var.db;
-    const id = crypto.randomUUID();
-    const now = nowIso();
-    const discountRef =
-      quote.discount.type === 'promo'
-        ? quote.discount.promoId
-        : quote.discount.type === 'senior' || quote.discount.type === 'pwd'
-          ? input.statutory!.idNumber
-          : quote.discount.type === 'voucher'
-            ? priced.voucher!.serial
-            : null;
+    const { id, statements } = saleStatements(c, input, priced, lines, input.bookletInvoiceNo || null, nowIso());
     try {
-      await db.batch([
-        db.insert(sales).values({
-          id,
-          bookingId: booking.id,
-          businessDay: booking.businessDay,
-          serviceId: booking.serviceId,
-          therapistId: booking.therapistId!,
-          regularPrice: quote.regularPrice,
-          discountType: quote.discount.type,
-          discountRef,
-          discountBp: quote.discount.bp,
-          discountAmount: quote.discount.amount,
-          serviceAmount: quote.serviceAmount,
-          addonsTotal: quote.addonsTotal,
-          amountDue: quote.amountDue,
-          focKind: quote.focKind,
-          commissionBp: commission.bp,
-          commissionAmount: commission.amount,
-          isHoliday: priced.isHoliday,
-          bookletInvoiceNo: input.bookletInvoiceNo || null,
-          reason: input.complimentaryReason,
-          createdAt: now,
-          createdBy: c.var.user.id,
-        }),
-        ...priced.addonLines.map((a) =>
-          db.insert(saleAddons).values({ id: crypto.randomUUID(), saleId: id, addonId: a.id, name: a.name, price: a.price }),
-        ),
-        ...lines.map((p) =>
-          db.insert(payments).values({
-            id: crypto.randomUUID(),
-            saleId: id,
-            businessDay: booking.businessDay,
-            method: p.method,
-            amount: p.amount,
-            gcashRef: p.method === 'gcash' ? p.gcashRef!.trim() : null,
-            createdAt: now,
-          }),
-        ),
-        // Single use is also enforced by sales_one_per_voucher, should two desks race.
-        ...(priced.voucher
-          ? [
-              db
-                .update(vouchers)
-                .set({ status: 'redeemed', redeemedSaleId: id, redeemedAt: now })
-                .where(and(eq(vouchers.id, priced.voucher.id), eq(vouchers.status, 'unused'))),
-            ]
-          : []),
-        ...(input.complimentaryReason
-          ? [auditInsert(db, { actorUserId: c.var.user.id, action: 'sale.complimentary', entity: 'sale', entityId: id, reason: input.complimentaryReason })]
-          : []),
-      ]);
+      await c.var.db.batch(statements as [(typeof statements)[number], ...typeof statements]);
     } catch (err) {
-      if (isUniqueViolation(err)) {
-        return priced.voucher && /discount_ref/.test(`${(err as Error).message} ${String((err as Error).cause ?? '')}`)
-          ? fail(c, 409, 'voucher_unusable', 'This voucher has already been used.')
-          : fail(c, 409, 'already_paid', 'This guest has already been checked out.');
-      }
-      throw err;
+      return checkoutConflict(c, err, !!priced.voucher);
     }
     return c.json({ id, amountDue: quote.amountDue }, 201);
+  })
+
+  /**
+   * Checks out a Guest's whole stay (a Booking and its Added Services) with one
+   * payment: each Service still gets its own Sale, Discount and Commission.
+   */
+  .post('/stay', zValidator('json', stayBody, invalidInput), async (c) => {
+    const input = c.req.valid('json');
+    const db = c.var.db;
+    if (new Set(input.items.map((i) => i.bookingId)).size !== input.items.length) return fail(c, 400, 'duplicate_booking', 'A service is listed twice.');
+    const priced: Priced[] = [];
+    for (const item of input.items) {
+      const p = await priceFor(c, item);
+      if (p instanceof Response) return p;
+      priced.push(p);
+    }
+    const first = priced[0]!.booking;
+    const dayRows = await db.select().from(bookings).where(eq(bookings.businessDay, first.businessDay));
+    const stay = stayOf(dayRows, first.id).filter((b) => b.status !== 'cancelled' && b.status !== 'no_show');
+    const paidIds = new Set(
+      (await db.select({ bookingId: sales.bookingId }).from(sales).where(and(eq(sales.businessDay, first.businessDay), eq(sales.status, 'paid')))).map((s) => s.bookingId),
+    );
+    const owing = stay.filter((b) => !paidIds.has(b.id));
+    if (owing.some((b) => b.status !== 'done')) return fail(c, 409, 'stay_unfinished', 'A service in this stay is not done yet. Check out once it ends.');
+    const wanted = new Set(owing.map((b) => b.id));
+    if (input.items.length !== wanted.size || input.items.some((i) => !wanted.has(i.bookingId))) {
+      return fail(c, 400, 'not_the_stay', 'Check out every service of this stay together.');
+    }
+    const blocked = await openDayFor(c, first.businessDay);
+    if (blocked) return blocked;
+
+    const lines = input.payments.map((p) => ({ ...p, amount: p.amount as Centavos }));
+    const dues = priced.map((p) => p.quote.amountDue);
+    const total = dues.reduce((s, d) => s + d, 0) as Centavos;
+    const problem = paymentProblem(total, lines);
+    if (problem) return fail(c, 400, 'payment_mismatch', problem);
+    const split = splitPayments(dues, lines);
+
+    const now = nowIso();
+    const written = input.items.map((item, i) => saleStatements(c, item, priced[i]!, split[i]!, input.bookletInvoiceNo || null, now));
+    const statements = written.flatMap((w) => w.statements);
+    try {
+      await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
+    } catch (err) {
+      return checkoutConflict(c, err, priced.some((p) => p.voucher));
+    }
+    return c.json({ ids: written.map((w) => w.id), amountDue: total }, 201);
   })
 
   /** A mistaken checkout is voided (never deleted) and can be redone while the day is open. */

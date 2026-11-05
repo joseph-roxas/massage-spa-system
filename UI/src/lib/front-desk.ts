@@ -15,6 +15,8 @@ export type Booking = {
   /** From the Guest Record: Visits so far and whether they are a Regular. */
   guestVisits: number | null;
   guestIsRegular: boolean;
+  /** An Added Service: the Booking it follows in the same Room. */
+  parentBookingId: string | null;
   serviceId: string;
   serviceCode: string;
   serviceName: string;
@@ -66,7 +68,7 @@ export function useDeskAction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (req: { path: string; body?: unknown; method?: string }) =>
-      api<{ id?: string }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
+      api<{ id?: string; startedNext?: string | null }>(req.path, { method: req.method ?? 'POST', body: req.body ?? {} }),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['front-desk'] });
       qc.invalidateQueries({ queryKey: ['attendance'] });

@@ -108,3 +108,25 @@ export function paymentProblem(amountDue: Centavos, payments: readonly PaymentLi
   if (paid !== amountDue) return `Payments add up to ${paid / 100} but ${amountDue / 100} is due.`;
   return null;
 }
+
+/**
+ * One payment for a whole stay, split over its Sales in order: each Sale takes
+ * what it is owed from the payment lines as they come (Cash first if Cash came
+ * first). The lines must add up to the dues; a Sale owing nothing gets none.
+ */
+export function splitPayments(dues: readonly Centavos[], lines: readonly PaymentLine[]): PaymentLine[][] {
+  const left = lines.map((l) => ({ ...l }));
+  return dues.map((due) => {
+    const mine: PaymentLine[] = [];
+    let owed: number = due;
+    for (const l of left) {
+      if (owed === 0) break;
+      const take = Math.min(owed, l.amount);
+      if (take === 0) continue;
+      mine.push({ ...l, amount: take as Centavos });
+      l.amount = (l.amount - take) as Centavos;
+      owed -= take;
+    }
+    return mine;
+  });
+}

@@ -2,8 +2,8 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import { addMinutes, businessDayOf, overlaps, roomFits, suggestRoom, suggestTherapist } from '@spa/domain';
-import { bookings, businessDays, FLEX_MODES, sales, services, staff } from '@spa/db';
+import { addMinutes, businessDayOf, overlaps, roomFits, stayOf, suggestRoom, suggestTherapist } from '@spa/domain';
+import { bookings, businessDays, FLEX_MODES, rooms, sales, services, staff } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays } from '../lib/business-days';
@@ -48,6 +48,14 @@ const startBody = z.object({
   flexMode: z.enum(FLEX_MODES).nullable(),
   portableTable: z.boolean().default(false),
   overrideReason: z.string().trim().max(200).optional(),
+});
+
+const addServiceBody = z.object({
+  serviceId: z.string().min(1),
+  /** Who performs it; the same Therapist when left out. */
+  therapistId: z.string().min(1).optional(),
+  /** Go ahead although it runs into someone's next Booking. */
+  confirm: z.boolean().default(false),
 });
 
 const reasonBody = z.object({ reason: z.string().trim().min(3, 'Give a short reason.').max(300) });
@@ -334,15 +342,126 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     return c.json({ ok: true });
   })
 
+  /**
+   * An Added Service: the Guest asks for another Service partway through. It
+   * follows this one in the same Room and starts by itself when this one is done.
+   */
+  .post('/bookings/:id/add-service', zValidator('json', addServiceBody, invalidInput), async (c) => {
+    const db = c.var.db;
+    const parent = await loadBooking(c);
+    if (!parent) return fail(c, 404, 'not_found', 'Booking not found.');
+    if (parent.status !== 'in_service' || !parent.startedAt || !parent.roomId) return fail(c, 409, 'not_in_service', 'Add a service while the guest is still in the room.');
+    const input = c.req.valid('json');
+    const next = await db
+      .select({ id: bookings.id })
+      .from(bookings)
+      .where(and(eq(bookings.parentBookingId, parent.id), inArray(bookings.status, ['scheduled', 'waiting', 'in_service'])))
+      .get();
+    if (next) return fail(c, 409, 'already_added', 'A service is already added after this one. Add to that one instead.');
+    const [service, room] = await Promise.all([
+      db.select().from(services).where(eq(services.id, input.serviceId)).get(),
+      db.select().from(rooms).where(eq(rooms.id, parent.roomId)).get(),
+    ]);
+    if (!service || !service.active) return fail(c, 400, 'unknown_service', 'Pick a service that is offered.');
+    if (!room || !roomFits(room, service, parent.flexMode)) return fail(c, 400, 'room_unsuitable', 'The recliner is for foot services only.');
+    const therapistId = input.therapistId ?? parent.therapistId!;
+    const start = addMinutes(parent.startedAt, parent.durationMin);
+    const span = { start, end: addMinutes(start, service.durationMin) };
+    if (therapistId !== parent.therapistId) {
+      const now = nowIso();
+      const state = await frontDeskState(db, businessDayOf(new Date(now)), now);
+      if (!state.rotation.some((r) => r.staffId === therapistId)) return fail(c, 409, 'not_on_duty', 'That therapist is not clocked in.');
+    }
+    // Running into someone's next Booking is allowed once the desk has seen it.
+    const clash = await requestClash(c, therapistId, span, parent.id);
+    if (clash && !input.confirm) return fail(c, 409, 'clash', `${clash} Add it anyway, or move the later booking.`);
+    const id = crypto.randomUUID();
+    const row = {
+      id,
+      businessDay: parent.businessDay,
+      kind: 'walk_in' as const,
+      status: 'waiting' as const,
+      guestId: parent.guestId,
+      guestName: parent.guestName,
+      guestPhone: parent.guestPhone,
+      serviceId: service.id,
+      durationMin: service.durationMin,
+      // When it is expected to start, so clash checks see it.
+      scheduledAt: start,
+      // The same Therapist keeps the Guest as they were (requested or not); another one takes them as a Rotation turn.
+      requestedTherapistId: therapistId === parent.therapistId ? parent.requestedTherapistId : null,
+      therapistId,
+      roomId: parent.roomId,
+      flexMode: parent.flexMode,
+      portableTable: parent.portableTable,
+      parentBookingId: parent.id,
+      createdAt: nowIso(),
+      createdBy: c.var.user.id,
+    };
+    await db.batch([
+      db.insert(bookings).values(row),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.add_service', entity: 'booking', entityId: id, after: row, reason: clash ?? undefined }),
+    ]);
+    return c.json({ id }, 201);
+  })
+
+  /** Ends a service. An Added Service waiting after it starts straight away in the same Room. */
   .post('/bookings/:id/done', async (c) => {
+    const db = c.var.db;
     const booking = await loadBooking(c);
     if (!booking) return fail(c, 404, 'not_found', 'Booking not found.');
     if (booking.status !== 'in_service') return fail(c, 409, 'not_in_service', 'Only a service in progress can be marked done.');
-    await c.var.db
+    const now = nowIso();
+    const finish = db
       .update(bookings)
-      .set({ status: 'done', doneAt: nowIso() })
+      .set({ status: 'done', doneAt: now })
       .where(and(eq(bookings.id, booking.id), eq(bookings.status, 'in_service')));
-    return c.json({ ok: true });
+    const next = await db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.parentBookingId, booking.id), eq(bookings.status, 'waiting')))
+      .get();
+    if (next?.therapistId) {
+      const start = db
+        .update(bookings)
+        .set({ status: 'in_service', startedAt: now, businessDay: businessDayOf(new Date(now)) })
+        .where(and(eq(bookings.id, next.id), eq(bookings.status, 'waiting')));
+      try {
+        await db.batch([finish, start]);
+        return c.json({ ok: true, startedNext: next.id });
+      } catch (err) {
+        // Its therapist is busy with someone else: it waits to be started from the list.
+        if (!isUniqueViolation(err)) throw err;
+      }
+    }
+    await finish;
+    return c.json({ ok: true, startedNext: null });
+  })
+
+  /** A Guest's whole stay (the first Booking and its Added Services), for checking out together. */
+  .get('/bookings/:id/stay', async (c) => {
+    const db = c.var.db;
+    const booking = await loadBooking(c);
+    if (!booking) return fail(c, 404, 'not_found', 'Booking not found.');
+    const [dayRows, svc, people, paid] = await Promise.all([
+      db.select().from(bookings).where(eq(bookings.businessDay, booking.businessDay)),
+      db.select({ id: services.id, name: services.name }).from(services),
+      db.select({ id: staff.id, displayName: staff.displayName }).from(staff),
+      db.select({ bookingId: sales.bookingId }).from(sales).where(and(eq(sales.businessDay, booking.businessDay), eq(sales.status, 'paid'))),
+    ]);
+    const paidIds = new Set(paid.map((p) => p.bookingId));
+    const stay = stayOf(dayRows, booking.id).filter((b) => b.status !== 'cancelled' && b.status !== 'no_show');
+    return c.json({
+      bookings: stay.map((b) => ({
+        id: b.id,
+        status: b.status,
+        serviceId: b.serviceId,
+        serviceName: svc.find((s) => s.id === b.serviceId)?.name ?? b.serviceId,
+        therapistName: people.find((p) => p.id === b.therapistId)?.displayName ?? null,
+        startedAt: b.startedAt,
+        paid: paidIds.has(b.id),
+      })),
+    });
   })
 
   .post('/bookings/:id/arrived', async (c) => {

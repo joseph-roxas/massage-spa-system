@@ -163,6 +163,85 @@ describe('checkout', () => {
   });
 });
 
+describe('Added Services', () => {
+  type Board = { rotation: { staffId: string; status: string }[]; bookings: { id: string; status: string; roomId: number | null; therapistId: string | null; parentBookingId: string | null }[] };
+  const board = async (c: Client) => json<Board>(await c.get('/front-desk'));
+
+  /** A walk-in in service with `therapistId`, not done yet. */
+  async function inService(desk: Client, therapistId: string) {
+    const { id } = await json<{ id: string }>(await desk.post('/bookings', { kind: 'walk_in', serviceId: 'swedish-60' }));
+    const s = await json<{ therapist: { staffId: string } | null; room: { roomId: number; flexMode: string | null } }>(await desk.get(`/bookings/${id}/suggest`));
+    await desk.post(`/bookings/${id}/start`, { therapistId, roomId: s.room.roomId, flexMode: s.room.flexMode, overrideReason: s.therapist?.staffId === therapistId ? undefined : 'test' });
+    return id;
+  }
+
+  it('follows in the same room, starts when the first is done, and costs one Rotation place', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const other = await therapist(admin);
+    const first = await inService(desk, t);
+    // Not once it is over.
+    const add = await desk.post(`/bookings/${first}/add-service`, { serviceId: 'foot-30' });
+    expect(add.status).toBe(201);
+    const { id: added } = await json<{ id: string }>(add);
+    expect((await desk.post(`/bookings/${first}/add-service`, { serviceId: 'foot-30' })).status).toBe(409);
+
+    let b = await board(desk);
+    const room = b.bookings.find((x) => x.id === first)!.roomId;
+    expect(b.bookings.find((x) => x.id === added)).toMatchObject({ status: 'waiting', roomId: room, therapistId: t, parentBookingId: first });
+
+    // Done on the first starts the Added Service straight away; the therapist stays busy.
+    expect(await json(await desk.post(`/bookings/${first}/done`))).toMatchObject({ startedNext: added });
+    b = await board(desk);
+    expect(b.bookings.find((x) => x.id === added)!.status).toBe('in_service');
+    expect(b.rotation.find((r) => r.staffId === t)!.status).toBe('in_service');
+
+    // Checking out waits for the whole stay.
+    const item = (bookingId: string) => ({ bookingId });
+    expect((await desk.post('/sales/stay', { items: [item(first)], payments: cash(50000) })).status).toBe(409);
+    await desk.post(`/bookings/${added}/done`);
+    // Behind the other therapist once, after the last service.
+    expect((await board(desk)).rotation.map((r) => r.staffId)).toEqual([other, t]);
+
+    expect((await desk.post('/sales/stay', { items: [item(first)], payments: cash(50000) })).status).toBe(400);
+    const res = await desk.post('/sales/stay', {
+      items: [{ bookingId: first, statutory: { kind: 'senior', idNumber: 'SC-1' } }, item(added)],
+      payments: [
+        { method: 'cash', amount: 50000 },
+        { method: 'gcash', amount: 15000, gcashRef: 'G-77' },
+      ],
+    });
+    expect(res.status).toBe(201);
+    const { ids, amountDue } = await json<{ ids: string[]; amountDue: number }>(res);
+    // 400.00 after the Senior discount, then 250.00 at the Regular Price.
+    expect(amountDue).toBe(65000);
+    const { sales } = await json<{ sales: { id: string; amountDue: number; discountType: string; payments: { method: string; amount: number }[] }[] }>(await desk.get(`/sales?day=${today()}`));
+    const [s1, s2] = ids.map((id) => sales.find((x) => x.id === id)!);
+    expect(s1).toMatchObject({ amountDue: 40000, discountType: 'senior', payments: [expect.objectContaining({ method: 'cash', amount: 40000 })] });
+    expect(s2!.payments.map((p) => [p.method, p.amount])).toEqual([
+      ['cash', 10000],
+      ['gcash', 15000],
+    ]);
+  });
+
+  it('warns when it runs into the therapist’s next booking, and can be cancelled before it starts', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const first = await inService(desk, t);
+    // A guest booked with this therapist in 70 minutes: a 60-minute Added Service after this hour clashes.
+    await desk.post('/bookings', { kind: 'scheduled', serviceId: 'swedish-60', guestName: 'Next', requestedTherapistId: t, scheduledAt: new Date(Date.now() + 70 * 60_000).toISOString() });
+    const warned = await desk.post(`/bookings/${first}/add-service`, { serviceId: 'back-60' });
+    expect(warned.status).toBe(409);
+    expect((await json<{ error: string }>(warned)).error).toBe('clash');
+    const { id } = await json<{ id: string }>(await desk.post(`/bookings/${first}/add-service`, { serviceId: 'back-60', confirm: true }));
+    expect((await desk.post(`/bookings/${id}/cancel`, { reason: 'changed mind' })).status).toBe(200);
+    // Cancelled, it no longer blocks adding another (which still clashes, so still warns).
+    expect((await json<{ error: string }>(await desk.post(`/bookings/${first}/add-service`, { serviceId: 'foot-30' }))).error).toBe('clash');
+  });
+});
+
 describe('Day Close', () => {
   it('runs a day end to end: unfinished guests block it, then it locks the day', async () => {
     const admin = await loggedIn('super_admin');

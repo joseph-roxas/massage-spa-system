@@ -1,5 +1,6 @@
+import type { Centavos } from './money';
 import { describe, expect, it } from 'vitest';
-import { commissionFor, paymentProblem, quoteSale, type QuoteInput } from './pricing';
+import { commissionFor, paymentProblem, quoteSale, type QuoteInput, splitPayments } from './pricing';
 import { dayTotals, onCallOwed } from './day-close';
 import { pesos } from './money';
 
@@ -137,5 +138,25 @@ describe('Day Close totals', () => {
         [{ staffId: 'b', amount: pesos(150) }],
       ),
     ).toEqual([{ staffId: 'a', amount: pesos(360) }]);
+  });
+});
+
+describe('splitPayments', () => {
+  const c = (n: number) => n as Centavos;
+  it('fills each Sale of a stay in order from the payment lines', () => {
+    const split = splitPayments([c(50000), c(25000)], [
+      { method: 'cash', amount: c(60000) },
+      { method: 'gcash', amount: c(15000), gcashRef: 'R1' },
+    ]);
+    expect(split).toEqual([
+      [{ method: 'cash', amount: 50000 }],
+      [
+        { method: 'cash', amount: 10000 },
+        { method: 'gcash', amount: 15000, gcashRef: 'R1' },
+      ],
+    ]);
+  });
+  it('gives nothing to a Sale that owes nothing', () => {
+    expect(splitPayments([c(0), c(45000)], [{ method: 'cash', amount: c(45000) }])).toEqual([[], [{ method: 'cash', amount: 45000 }]]);
   });
 });

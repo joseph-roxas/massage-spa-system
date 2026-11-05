@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { Alert, Badge, Button, Checkbox, Field, Input, td, th } from '../../components/ui';
 import { useCan } from '../../lib/auth';
@@ -12,6 +12,7 @@ import {
   usePayroll,
   usePayrollAction,
   type Payroll,
+  type PayWeek,
   type ReceptionistDay,
   type TherapistDay,
 } from '../../lib/payroll';
@@ -193,6 +194,46 @@ function RepaymentEditor({ payroll, balance }: { payroll: Payroll; balance: numb
   );
 }
 
+/** The printable payslip: coverage, each day, every line and net pay. `children` go under net pay. */
+export function PayslipSheet({ payroll: p, week, children }: { payroll: Payroll & { days: (TherapistDay | ReceptionistDay)[] }; week: PayWeek; children?: ReactNode }) {
+  const dailyRate = p.kind === 'receptionist' ? (p.days as ReceptionistDay[]).find((d) => d.dailyRate !== undefined)?.dailyRate : undefined;
+  return (
+    <section className="space-y-5 rounded-lg border border-stone-200 bg-white p-6 print:border-0 print:p-0">
+      <header className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Payslip</p>
+          <h1 className="text-xl font-semibold">{p.fullName}</h1>
+          <p className="text-sm text-stone-600">
+            {p.kind === 'receptionist' ? 'Receptionist' : p.therapistClass === 'lmt' ? 'Licensed Massage Therapist' : 'Therapist'} · Pay Week{' '}
+            {longDate(week.start)} – {longDate(week.end)}
+          </p>
+          {p.kind === 'receptionist' && (
+            <p className="text-sm text-stone-600">
+              {dailyRate !== undefined && <>Daily rate {peso(dailyRate)} · </>}
+              {p.lines.daysPresent} {p.lines.daysPresent === 1 ? 'day' : 'days'} present
+            </p>
+          )}
+        </div>
+        <Badge tone={STATUS_TONE[p.status]}>{STATUS_LABELS[p.status]}</Badge>
+      </header>
+
+      {p.kind === 'therapist' ? <TherapistDays days={p.days as TherapistDay[]} /> : <ReceptionistDays days={p.days as ReceptionistDay[]} />}
+
+      <PayslipLines payroll={p} />
+      <div className="ml-auto max-w-sm">
+        <Line label="Net pay" value={p.net} strong />
+      </div>
+
+      {children}
+
+      <div className="hidden grid-cols-2 gap-12 pt-10 text-sm print:grid">
+        <p className="border-t border-stone-400 pt-1">Received by</p>
+        <p className="border-t border-stone-400 pt-1">Date</p>
+      </div>
+    </section>
+  );
+}
+
 export function PayslipPage() {
   const { id = '' } = useParams();
   const { data, error } = usePayroll(id);
@@ -203,7 +244,6 @@ export function PayslipPage() {
   if (error) return <Alert>{error.message}</Alert>;
   if (!data) return null;
   const { payroll: p, week, advances, caBalance } = data;
-  const dailyRate = p.kind === 'receptionist' ? (p.days as ReceptionistDay[]).find((d) => d.dailyRate !== undefined)?.dailyRate : undefined;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -241,32 +281,7 @@ export function PayslipPage() {
       </div>
       {act.error && <Alert>{act.error.message}</Alert>}
 
-      <section className="space-y-5 rounded-lg border border-stone-200 bg-white p-6 print:border-0 print:p-0">
-        <header className="flex items-start justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Payslip</p>
-            <h1 className="text-xl font-semibold">{p.fullName}</h1>
-            <p className="text-sm text-stone-600">
-              {p.kind === 'receptionist' ? 'Receptionist' : p.therapistClass === 'lmt' ? 'Licensed Massage Therapist' : 'Therapist'} · Pay Week{' '}
-              {longDate(week.start)} – {longDate(week.end)}
-            </p>
-            {p.kind === 'receptionist' && (
-              <p className="text-sm text-stone-600">
-                {dailyRate !== undefined && <>Daily rate {peso(dailyRate)} · </>}
-                {p.lines.daysPresent} {p.lines.daysPresent === 1 ? 'day' : 'days'} present
-              </p>
-            )}
-          </div>
-          <Badge tone={STATUS_TONE[p.status]}>{STATUS_LABELS[p.status]}</Badge>
-        </header>
-
-        {p.kind === 'therapist' ? <TherapistDays days={p.days as TherapistDay[]} /> : <ReceptionistDays days={p.days as ReceptionistDay[]} />}
-
-        <PayslipLines payroll={p} />
-        <div className="ml-auto max-w-sm">
-          <Line label="Net pay" value={p.net} strong />
-        </div>
-
+      <PayslipSheet payroll={p} week={week}>
         {advances.length > 0 && (
           <div className="text-sm">
             <p className="font-medium">Cash Advances deducted</p>
@@ -283,12 +298,7 @@ export function PayslipPage() {
         {p.kind === 'receptionist' && (
           <p className="text-sm text-stone-600">CA balance {p.status === 'released' ? 'now' : 'before this payroll'}: {peso(caBalance)}</p>
         )}
-
-        <div className="hidden grid-cols-2 gap-12 pt-10 text-sm print:grid">
-          <p className="border-t border-stone-400 pt-1">Received by</p>
-          <p className="border-t border-stone-400 pt-1">Date</p>
-        </div>
-      </section>
+      </PayslipSheet>
 
       {p.status === 'draft' && canApprove && <Adjustments payroll={p} />}
       {p.kind === 'receptionist' && p.status === 'draft' && canApprove && <RepaymentEditor key={p.caDeduction} payroll={p} balance={caBalance} />}

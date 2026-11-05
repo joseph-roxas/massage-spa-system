@@ -21,6 +21,8 @@ export const CAPABILITIES = [
   'payroll.therapist.generate',
   'payroll.therapist.approve',
   'payroll.receptionist.manage',
+  /** See one's own released Payslips and Cash Advances (My Pay). */
+  'payroll.view_own',
   'cash_advance.therapist',
   'cash_advance.override',
   'inventory.stock_out',
@@ -42,6 +44,7 @@ const RECEPTIONIST: readonly Capability[] = [
   'day.close',
   'dtr.correct.therapist',
   'payroll.therapist.generate',
+  'payroll.view_own',
   'cash_advance.therapist',
   'inventory.stock_out',
   'reports.daily',

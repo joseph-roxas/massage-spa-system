@@ -143,6 +143,25 @@ export const usePayroll = (id: string) =>
       api<{ payroll: Payroll & { days: (TherapistDay | ReceptionistDay)[] }; advances: CashAdvance[]; caBalance: number; week: PayWeek }>(`/payrolls/${id}`),
   });
 
+export type MyPay = {
+  staff: { displayName: string; kind: 'therapist' | 'receptionist'; dailyRate: number | null; caRepayment: number } | null;
+  payslips: { id: string; weekStart: string; net: number; releasedAt: string | null }[];
+  ca: {
+    entries: { id: string; entry: 'opening' | 'advance' | 'repayment'; amount: number; date: string; weekStart: string | null }[];
+    totalTaken: number;
+    totalRepaid: number;
+    balance: number;
+  } | null;
+};
+
+export const useMyPay = () => useQuery({ queryKey: ['my-pay'], queryFn: () => api<MyPay>('/me/pay') });
+
+export const useMyPayslip = (id: string) =>
+  useQuery({
+    queryKey: ['my-pay', id],
+    queryFn: () => api<{ payroll: Payroll & { days: (TherapistDay | ReceptionistDay)[] }; week: PayWeek }>(`/me/payslips/${id}`),
+  });
+
 export const useBalances = () =>
   useQuery({ queryKey: ['cash-advances', 'balances'], queryFn: () => api<{ balances: Balance[] }>('/cash-advances/balances') });
 
@@ -166,4 +185,5 @@ function shift(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 export const nextWeek = (start: string) => shift(start, 7);
+export const payWeekEnd = (start: string) => shift(start, 6);
 export const prevWeek = (start: string) => shift(start, -7);

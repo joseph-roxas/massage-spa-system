@@ -542,6 +542,7 @@ Every decision here was confirmed with the owner on 2026-11-05 (four grilling ro
 2. Lists her **released** Payslips (no drafts or approved-unreleased). Each shows coverage (Sun–Sat dates), daily rate, days present, the per-day lines (in, out, late, undertime, OT, day type), every 13.1 line, net, and a Print button (reuse `PayslipPage`).
 3. **CA history**: each CA (date, amount), each repayment (Payroll week, amount), total CAs, total repaid, balance.
 4. API: `GET /me/payslips`, `GET /me/payslips/:id`, `GET /me/cash-advances`, all scoped to the logged-in User's linked Staff record.
+5. **As built** (no migration): nothing set `staff.userId` before, so the Receptionist's Staff record gets a **Login account** picker (active Receptionist logins only, one staff record per login), saved through `PATCH /settings/staff/:id` with `userId`. Until it is linked, My Pay says to ask the owner. The API is two endpoints: `GET /me/pay` (staff summary, released Payslips, and the CA ledger oldest first with totals taken, repaid and owed) and `GET /me/payslips/:id` (released and her own only, otherwise 404; Adjustment reasons left out). `payroll.view_own` is granted to the Receptionist role; the Super Admin holds it too but the nav item is hidden for her (`hideFor`). The printable payslip is now `PayslipSheet`, shared by the owner's Payslip page and My Pay. API tests: 99.
 
 **13.3 Guest Records, Visits, Regulars**
 

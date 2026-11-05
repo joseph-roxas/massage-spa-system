@@ -6,6 +6,7 @@ import { useCan } from '../lib/auth';
 import { longDate, peso } from '../lib/format';
 import { nextWeek, prevWeek, STATUS_LABELS, STATUS_TONE, usePayrollAction, usePayWeek, type Payroll, type PayrollKind } from '../lib/payroll';
 import { CashAdvances } from './payroll/CashAdvances';
+import { PayBreakdown } from './payroll/PayBreakdown';
 import { DecemberPay } from './payroll/DecemberPay';
 
 const KIND_TITLE: Record<PayrollKind, string> = { therapist: 'Therapists', receptionist: 'Receptionist' };
@@ -111,12 +112,13 @@ export function PayrollPage() {
   const start = params.get('week') ?? lastCompletedPayWeek(businessDayOf(new Date())).start;
   const { data, error } = usePayWeek(start);
   const canDecember = useCan('payroll.therapist.approve');
-  const [tab, setTab] = useState<'payroll' | 'ca' | 'december'>('payroll');
+  const [tab, setTab] = useState<'payroll' | 'breakdown' | 'ca' | 'december'>('payroll');
   const go = (week: string) => setParams({ week });
 
   const ready = !!data && data.ended && data.unclosedDays.length === 0;
   const tabs = [
     ['payroll', 'Weekly payroll'],
+    ...(canDecember ? [['breakdown', 'Pay Breakdown']] : []),
     ['ca', 'Cash Advances'],
     ...(canDecember ? [['december', 'December pay']] : []),
   ] as [typeof tab, string][];
@@ -134,9 +136,8 @@ export function PayrollPage() {
         </div>
       </div>
 
-      {tab === 'payroll' && (
-        <>
-          <div className="flex items-center gap-3">
+      {(tab === 'payroll' || tab === 'breakdown') && (
+        <div className="flex items-center gap-3 print:hidden">
             <Button variant="secondary" onClick={() => go(prevWeek(start))} aria-label="Previous week">
               ‹
             </Button>
@@ -146,7 +147,16 @@ export function PayrollPage() {
             <Button variant="secondary" onClick={() => go(nextWeek(start))} aria-label="Next week">
               ›
             </Button>
-          </div>
+            {tab === 'breakdown' && (
+              <Button variant="secondary" onClick={() => window.print()}>
+                Print
+              </Button>
+            )}
+        </div>
+      )}
+      {tab === 'breakdown' && <PayBreakdown start={start} />}
+      {tab === 'payroll' && (
+        <>
           {error && <Alert>{error.message}</Alert>}
           {data && !data.ended && <Alert tone="info">This Pay Week is not over yet. Its payroll can be generated from {longDate(nextWeek(data.week.start))}.</Alert>}
           {data && data.ended && data.unclosedDays.length > 0 && (

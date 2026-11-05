@@ -317,6 +317,41 @@ function ContributionRatesCard({ value }: { value: Rates }) {
   );
 }
 
+/** What a Reliever earns for a Relief Shift; the Receptionist's own rate is on her Staff record. */
+function MinimumWageCard({ value }: { value: number }) {
+  const [text, setText] = useState(pesosText(value));
+  const [saved, setSaved] = useState(false);
+  const save = usePayRule<number>('minimum_wage_daily');
+  const amount = parsePesos(text);
+  return (
+    <Card title="Minimum Wage Rate">
+      <form
+        className="flex items-end gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (amount) save.mutate(amount, { onSuccess: () => setSaved(true) });
+        }}
+      >
+        <Field label="Daily minimum wage (Cebu)" hint="Paid to Relievers. The Receptionist’s daily rate is set on her Staff record.">
+          <Input
+            inputMode="decimal"
+            required
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setSaved(false);
+            }}
+            className="w-36"
+          />
+        </Field>
+        <Button type="submit" disabled={!amount || save.isPending}>Save</Button>
+        {save.error && <span className="text-sm text-red-700">{save.error.message}</span>}
+        {saved && !save.error && <span className="text-sm text-teal-700">Saved.</span>}
+      </form>
+    </Card>
+  );
+}
+
 export function PaySettings() {
   const { data, error } = usePayRules();
   return (
@@ -326,6 +361,7 @@ export function PaySettings() {
       {data && (
         <>
           <ReceptionistRules rules={data.payRules} />
+          <MinimumWageCard value={(data.payRules.minimum_wage_daily as number | undefined) ?? 58_200} />
           <ContributionRatesCard value={(data.payRules.contribution_rates as Rates | undefined) ?? DEFAULT_CONTRIBUTION_RATES} />
           <GovDefaultsCard value={data.payRules.gov_deduction_defaults as GovDefaults} />
         </>

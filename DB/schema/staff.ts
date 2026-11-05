@@ -25,6 +25,8 @@ export const staff = sqliteTable('staff', {
   isOnCall: integer('is_on_call', { mode: 'boolean' }).notNull().default(false),
   /** Receptionist only, centavos. */
   dailyRate: integer('daily_rate'),
+  /** Receptionist only: the standing CA Repayment taken from each Payroll, centavos. */
+  caRepayment: integer('ca_repayment').notNull().default(50_000),
   /**
    * Monthly salary basis for SSS, PhilHealth and Pag-IBIG, centavos. When set,
    * Payroll deducts the bracket's monthly employee share split over the month's

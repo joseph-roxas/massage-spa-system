@@ -39,6 +39,30 @@ export const payrolls = sqliteTable(
   (t) => [uniqueIndex('payrolls_week_staff_idx').on(t.weekStart, t.staffId)],
 );
 
+/**
+ * A labelled amount the Super Admin adds to or takes off one person's Payroll for a Pay Week.
+ * Keyed by week and person, not Payroll id, because drafts are regenerated.
+ */
+export const payrollAdjustments = sqliteTable(
+  'payroll_adjustments',
+  {
+    id: text('id').primaryKey(),
+    weekStart: text('week_start').notNull(),
+    staffId: text('staff_id')
+      .notNull()
+      .references(() => staff.id),
+    /** Shown on the Payslip. */
+    label: text('label').notNull(),
+    /** Centavos, signed: negative takes pay off. */
+    amount: integer('amount').notNull(),
+    /** For the Super Admin only; not on the Payslip. */
+    reason: text('reason').notNull(),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by').references(() => users.id),
+  },
+  (t) => [index('payroll_adjustments_week_staff_idx').on(t.weekStart, t.staffId)],
+);
+
 /** Money given ahead of Payroll. A Therapist's is deducted from the week it was taken against. */
 export const cashAdvances = sqliteTable(
   'cash_advances',

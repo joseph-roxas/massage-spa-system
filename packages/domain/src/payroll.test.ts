@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { manilaInstant } from './business-day';
 import {
   cashAdvanceCap,
+  caRepaymentFor,
   dayKind,
-  defaultRepayment,
   lastCompletedPayWeek,
   nextPayWeekStart,
+  payLines,
   payWeekOf,
   receptionistDay,
   receptionistPayroll,
@@ -84,7 +85,28 @@ describe('therapist payroll', () => {
     });
     expect(p.gross).toBe(66_000);
     expect(p.net).toBe(66_000 - 20_250 - 20_000);
-    expect(p.days.find((d) => d.date === '2026-11-02')).toEqual({ date: '2026-11-02', services: 2, commission: 36_000 });
+    expect(p.days.find((d) => d.date === '2026-11-02')).toEqual({ date: '2026-11-02', services: 2, commission: 36_000, holidayExtra: 0 });
+  });
+
+  it('adds Adjustments to gross and splits out the Holiday extra on the Payslip', () => {
+    const p = therapistPayroll({
+      week,
+      // ₱500 Service: 30% normally, 50% on the Holiday.
+      commissions: [
+        { businessDay: '2026-11-02', amount: 15_000 },
+        { businessDay: '2026-11-03', amount: 25_000, holidayExtra: 10_000 },
+      ],
+      daysWorked: ['2026-11-02', '2026-11-03'],
+      gov: tGov,
+      cashAdvances: 5_000,
+      adjustments: -2_000,
+    });
+    expect(p.gross).toBe(38_000);
+    expect(p.net).toBe(38_000 - 20_250 - 5_000);
+    const lines = payLines({ kind: 'therapist', ...p, adjustments: -2_000 });
+    expect(lines.earnings).toMatchObject({ commission: 30_000, holidayExtra: 10_000, adjustments: -2_000 });
+    expect(lines.deductions).toMatchObject({ sss: 10_000, phic: 6_250, pagibig: 4_000, ca: 5_000, late: 0 });
+    expect(lines.totalEarned - lines.totalDeductions).toBe(p.net);
   });
 
   it('withholds nothing in a week not worked', () => {
@@ -200,10 +222,61 @@ describe('receptionist week', () => {
     expect(p).toMatchObject({ gross: 0, govSss: 0, net: 0 });
   });
 
-  it('defaults the CA repayment to last week’s, never above the balance', () => {
-    expect(defaultRepayment(100_000, 400_000)).toBe(100_000);
-    expect(defaultRepayment(100_000, 30_000)).toBe(30_000);
-    expect(defaultRepayment(0, 30_000)).toBe(0);
+  it('takes the standing CA Repayment, never above the balance', () => {
+    expect(caRepaymentFor(50_000, 400_000)).toBe(50_000);
+    expect(caRepaymentFor(100_000, 30_000)).toBe(30_000);
+    expect(caRepaymentFor(50_000, 0)).toBe(0);
+  });
+
+  it('Adjustments change gross and net but not basic pay', () => {
+    const days = [day('2026-11-02', [shift('2026-11-02', '14:00', '23:00')])];
+    const p = receptionistPayroll({ days, gov: GOV, caRepayment: 0, adjustments: 20_000 });
+    expect(p.gross).toBe(89_200);
+    expect(p.basic).toBe(69_200);
+  });
+});
+
+describe('Payslip lines', () => {
+  it('shows late and undertime as deductions from a full day', () => {
+    const d = day('2026-11-02', [shift('2026-11-02', '14:10', '22:30')]);
+    expect(d).toMatchObject({ lateMin: 10, undertimeMin: 30, fullBasic: 69_200, premium: 0 });
+    expect(d.fullBasic + d.premium - d.lateDeduction - d.undertimeDeduction).toBe(d.dayPay);
+    // 692 × 10/480 = 14.42
+    expect(d.lateDeduction).toBe(1_442);
+  });
+
+  it('splits a hand-computed week into its lines, exactly', () => {
+    const days = [
+      day('2026-11-01', [shift('2026-11-01', '14:00', '23:00')]), // Rest Day worked: +207.60
+      day('2026-11-02', [shift('2026-11-02', '14:15', '23:00')]), // late 15 min
+      day('2026-11-03', [shift('2026-11-03', '14:00', '23:30')]), // 30 min OT
+      day('2026-11-04', [shift('2026-11-04', '14:00', '23:00')], { holiday: 'special' }), // +207.60
+      day('2026-11-05', []), // absent
+      day('2026-11-06', [], { holiday: 'regular' }), // not worked, paid
+      day('2026-11-07', [shift('2026-11-07', '14:00', '22:00')]), // undertime 60 min
+    ];
+    const p = receptionistPayroll({ days, gov: GOV, caRepayment: 50_000, adjustments: 10_000 });
+    const lines = payLines({ kind: 'receptionist', ...p, days, adjustments: 10_000 });
+    expect(lines.daysPresent).toBe(5);
+    expect(lines.earnings).toMatchObject({
+      basic: 69_200 * 5,
+      restDayPremium: 20_760,
+      holidayPremium: 20_760,
+      holidayUnworked: 69_200,
+      overtime: days[2]!.overtimePay,
+      adjustments: 10_000,
+      commission: 0,
+    });
+    // Late is what the day lost: 692 − 670.38 (its pay rounded up), so 21.62.
+    expect(lines.deductions).toMatchObject({ late: 2_162, undertime: 8_650, sss: 21_250, phic: 10_563, pagibig: 5_000, ca: 50_000 });
+    expect(lines.totalEarned - lines.totalDeductions).toBe(p.net);
+  });
+
+  it('reads Payrolls made before the lines existed', () => {
+    const old = [{ date: '2026-10-26', kind: 'ordinary' as const, worked: true, dayPay: 67_758, overtimePay: 0, holidayPay: 0, total: 67_758 }];
+    const lines = payLines({ kind: 'receptionist', days: old, gross: 67_758, govSss: 0, govPhic: 0, govPagibig: 0, caDeduction: 0, net: 67_758, adjustments: 0 } as never);
+    expect(lines.earnings.basic).toBe(67_758);
+    expect(lines.totalEarned).toBe(67_758);
   });
 });
 

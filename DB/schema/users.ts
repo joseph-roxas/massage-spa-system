@@ -36,3 +36,17 @@ export const sessions = sqliteTable(
   },
   (t) => [index('sessions_user_idx').on(t.userId)],
 );
+
+/**
+ * The reception PC marked by the Super Admin: its login page offers the
+ * Clock-in Screen without anyone logged in (ADR 0004). Only the token's hash is kept.
+ */
+export const frontDeskDevices = sqliteTable('front_desk_devices', {
+  id: text('id').primaryKey(),
+  label: text('label').notNull(),
+  tokenHash: text('token_hash').notNull().unique(),
+  createdAt: text('created_at').notNull(),
+  createdBy: text('created_by').references(() => users.id),
+  lastUsedAt: text('last_used_at'),
+  revokedAt: text('revoked_at'),
+});

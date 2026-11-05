@@ -10,12 +10,12 @@ const COOKIE = 'spa_session';
 /** Long enough for a late closing shift; short enough that a forgotten login expires overnight. */
 export const SESSION_TTL_SECONDS = 16 * 60 * 60;
 
-async function sha256Hex(value: string): Promise<string> {
+export async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function newToken(): string {
+export function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, '-')

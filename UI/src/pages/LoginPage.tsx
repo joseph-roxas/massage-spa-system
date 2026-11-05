@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router';
 import { Alert, AuthShell, Button, Field, Input } from '../components/ui';
+import { useDevice } from '../lib/attendance';
 import { useCurrentUser, useLogin } from '../lib/auth';
 
 export function LoginPage() {
   const { data: user } = useCurrentUser();
   const login = useLogin();
+  const device = useDevice();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -19,6 +21,14 @@ export function LoginPage() {
 
   return (
     <AuthShell title="Log in">
+      {device.data?.frontDesk && (
+        <Link
+          to="/clock"
+          className="mb-6 flex h-14 w-full items-center justify-center rounded-lg bg-teal-700 text-lg font-semibold text-white hover:bg-teal-800"
+        >
+          Clock in or out
+        </Link>
+      )}
       <form onSubmit={submit} className="space-y-4">
         {login.error && <Alert>{login.error.message}</Alert>}
         <Field label="Email">

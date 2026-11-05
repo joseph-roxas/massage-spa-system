@@ -7,6 +7,7 @@ const TABS = [
   { to: 'rooms', label: 'Rooms & Add-ons' },
   { to: 'staff', label: 'Staff' },
   { to: 'pay', label: 'Commission & Pay' },
+  { to: 'front-desk', label: 'Front-desk device' },
 ];
 
 export function SettingsLayout() {

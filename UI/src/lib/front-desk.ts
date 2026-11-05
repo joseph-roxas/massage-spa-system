@@ -51,6 +51,8 @@ export type Board = {
   rotation: RotationRow[];
   rooms: BoardRoom[];
   bookings: Booking[];
+  /** Staff whose birthday it is today. */
+  birthdays: string[];
 };
 
 export type Suggestion = {

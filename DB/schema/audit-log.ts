@@ -12,6 +12,8 @@ export const auditLog = sqliteTable(
     beforeJson: text('before_json'),
     afterJson: text('after_json'),
     reason: text('reason'),
+    /** Under the shared Reliever Login: the Reliever clocked in on relief at the time (filled by a trigger). */
+    actingStaffId: text('acting_staff_id'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [index('audit_entity_idx').on(t.entity, t.entityId)],

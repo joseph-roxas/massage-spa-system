@@ -130,6 +130,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       next: state.next?.staffId ?? null,
       // Staff celebrating today, for the Front Desk banner.
       birthdays: people.filter((p) => p.active && isBirthday(p.birthdate, day)).map((p) => p.displayName),
+      // Running the front desk on a Relief Shift now.
+      relieving: state.relieving.map((id) => nameOf(id)).filter(Boolean),
       rotation: state.rotation.map((r) => ({ ...r, ...byId.get(r.staffId)! })),
       rooms: state.rooms
         .sort((a, b) => a.id - b.id)

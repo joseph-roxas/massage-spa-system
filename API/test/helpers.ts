@@ -63,7 +63,7 @@ export function client(): Client {
 
 /** Inserts an active user directly, bypassing sign-up. */
 export async function seedUser(opts: {
-  role: 'super_admin' | 'receptionist';
+  role: 'super_admin' | 'receptionist' | 'reliever';
   email?: string;
   password?: string;
 }): Promise<{ id: string; email: string; password: string }> {

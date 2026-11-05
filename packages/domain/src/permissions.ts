@@ -1,4 +1,5 @@
-export type Role = 'super_admin' | 'receptionist';
+/** `reliever`: the shared Reliever Login, usable only during a Relief Shift (ADR 0005). */
+export type Role = 'super_admin' | 'receptionist' | 'reliever';
 
 /**
  * What a logged-in role may do. The API guards routes with these and the UI
@@ -50,9 +51,13 @@ const RECEPTIONIST: readonly Capability[] = [
   'reports.daily',
 ];
 
+/** The Receptionist's powers minus Payroll; a Reliever still records the Cash Handover. */
+const RELIEVER = RECEPTIONIST.filter((c) => c !== 'payroll.therapist.generate' && c !== 'payroll.view_own');
+
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   super_admin: new Set(CAPABILITIES),
   receptionist: new Set(RECEPTIONIST),
+  reliever: new Set(RELIEVER),
 };
 
 export function can(role: Role | null | undefined, capability: Capability): boolean {

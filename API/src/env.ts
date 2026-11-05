@@ -21,6 +21,8 @@ export type SessionUser = {
   email: string;
   role: UserRole;
   mustChangePassword: boolean;
+  /** Under the Reliever Login: the Reliever clocked in on relief now. */
+  actingAs?: { staffId: string; displayName: string };
 };
 
 export type AppEnv = {

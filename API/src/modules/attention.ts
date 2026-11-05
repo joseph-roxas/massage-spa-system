@@ -91,9 +91,9 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
     }
   }
 
-  // Government IDs missing for anyone who should be contributing.
+  // Government IDs missing for anyone who should be contributing (not On-call Therapists or Outside Relievers).
   const missing = people
-    .filter((p) => !p.isOnCall)
+    .filter((p) => !p.isOnCall && p.kind !== 'reliever')
     .map((p) => ({ name: p.displayName, ids: [!p.sssNo?.trim() && 'SSS', !p.phicNo?.trim() && 'PhilHealth', !p.pagibigNo?.trim() && 'Pag-IBIG'].filter(Boolean) }))
     .filter((p) => p.ids.length);
   if (missing.length) {
@@ -106,7 +106,7 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
     });
   }
 
-  const incomplete = people.filter((p) => !p.gender || !p.birthdate || !p.hireDate);
+  const incomplete = people.filter((p) => p.kind !== 'reliever' && (!p.gender || !p.birthdate || !p.hireDate));
   if (incomplete.length) {
     items.push({
       key: 'personal-records',

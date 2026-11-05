@@ -10,6 +10,7 @@ import {
   payWeekOf,
   receptionistDay,
   receptionistPayroll,
+  reliefDay,
   therapistPayroll,
   thirteenthMonth,
   yearEndBonus,
@@ -287,5 +288,37 @@ describe('December pay', () => {
   });
   it('13th Month Pay is a twelfth of the year’s basic pay', () => {
     expect(thirteenthMonth(17_993_000)).toBe(1_499_417);
+  });
+});
+
+describe('Relief pay (₱582 Minimum Wage Rate)', () => {
+  const relief = (date: string, entries: ReturnType<typeof shift>[], holiday: 'regular' | 'special' | null = null) =>
+    reliefDay({ date, holiday, entries, earlyCloseAt: null, minimumWage: 58_200, rules: RULES });
+
+  it('pays a full Sunday at the ordinary rate: no Rest Day premium', () => {
+    const d = relief('2026-11-01', [shift('2026-11-01', '14:00', '23:00')])!;
+    expect(d).toMatchObject({ kind: 'ordinary', total: 58_200, premium: 0 });
+  });
+
+  it('keeps Holiday premiums, late and Overtime', () => {
+    expect(relief('2026-11-02', [shift('2026-11-02', '14:00', '23:00')], 'regular')!.total).toBe(116_400);
+    const d = relief('2026-11-02', [shift('2026-11-02', '14:30', '23:30')])!;
+    expect(d.lateMin).toBe(30);
+    expect(d.overtimeMin).toBe(30);
+  });
+
+  it('pays only the minutes covered on part of a day, and nothing for a day not covered', () => {
+    // 14:00–17:00 covered: 3 of 8 hours, no meal break taken (₱582 × 180/480).
+    expect(relief('2026-11-02', [shift('2026-11-02', '19:00', '23:00')])!.total).toBe(29_100);
+    expect(relief('2026-11-02', [shift('2026-11-02', '14:00', '17:00')])!.total).toBe(21_825);
+    expect(relief('2026-11-30', [], 'regular')).toBeNull();
+  });
+
+  it('adds to a Therapist’s week as its own line, not Commission', () => {
+    const week = payWeekOf('2026-11-01');
+    const p = therapistPayroll({ week, commissions: [{ businessDay: '2026-11-02', amount: 15_000 }], daysWorked: ['2026-11-01', '2026-11-02'], gov: GOV, cashAdvances: 0, relief: [{ date: '2026-11-01', pay: 58_200 }] });
+    expect(p.gross).toBe(73_200);
+    const lines = payLines({ kind: 'therapist', ...p, adjustments: 0 });
+    expect(lines.earnings).toMatchObject({ commission: 15_000, reliefPay: 58_200 });
   });
 });

@@ -53,6 +53,7 @@ function PendingRequest({ user }: { user: UserRow }) {
       <div className="w-44">
         <Select aria-label="Role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
           <option value="receptionist">{ROLE_LABELS.receptionist}</option>
+          <option value="reliever">{ROLE_LABELS.reliever} (shared)</option>
           <option value="super_admin">{ROLE_LABELS.super_admin}</option>
         </Select>
       </div>

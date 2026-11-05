@@ -61,12 +61,14 @@ export type StaffMember = {
   hireDate: string | null;
   qualification: Qualification | null;
   certificates: Certificate[];
-  kind: 'therapist' | 'receptionist';
+  kind: 'therapist' | 'receptionist' | 'reliever';
   therapistClass: 'regular' | 'lmt' | null;
   isOnCall: boolean;
   dailyRate: number | null;
   /** The Receptionist login linked to this record, for My Pay. */
   userId: string | null;
+  /** Outside Reliever: paid in cash when the Receptionist returns, or by weekly Payroll. */
+  reliefPay: 'on_return' | 'weekly' | null;
   /** Monthly salary basis for SSS, PhilHealth and Pag-IBIG; null for the older fixed weekly amounts. */
   contributionBase: number | null;
   govSss: number;

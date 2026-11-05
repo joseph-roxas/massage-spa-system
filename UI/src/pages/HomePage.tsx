@@ -4,7 +4,7 @@ import { Alert, Badge, Button, Card } from '../components/ui';
 import { useCan, useCurrentUser } from '../lib/auth';
 import { manilaTime } from '../lib/attendance';
 import { duration, longDate, peso } from '../lib/format';
-import { guestLabel, useBoard, useDeskAction, type Board, type Booking } from '../lib/front-desk';
+import { guestLabel, useBoard, useDeskAction, useReliefOwed, type Board, type Booking } from '../lib/front-desk';
 import { useDayAction } from '../lib/sales';
 import { AddServiceDialog } from './front-desk/AddServiceDialog';
 import { CheckoutDialog } from './front-desk/CheckoutDialog';
@@ -229,6 +229,33 @@ function DayBar({ board, open }: { board: Board; open: (d: DayDialog) => void })
   );
 }
 
+/** Outside Relievers on short cover are paid in cash once the Receptionist is back. */
+function ReliefPayPrompt() {
+  const { data } = useReliefOwed(true);
+  const pay = useDayAction();
+  const owed = data?.owed ?? [];
+  if (!owed.length) return null;
+  return (
+    <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      {pay.error && <Alert>{pay.error.message}</Alert>}
+      {owed.map((o) => (
+        <div key={o.staffId} className="flex flex-wrap items-center gap-3">
+          <span className="flex-1">
+            Pay <span className="font-semibold">{o.displayName}</span> {peso(o.amount)} for relieving on {o.days.map(longDate).join(', ')}, from Sales Cash.
+          </span>
+          <Button
+            className="h-8 px-3"
+            disabled={pay.isPending}
+            onClick={() => confirm(`Pay ${o.displayName} ${peso(o.amount)} now?`) && pay.mutate({ path: `/relief-pay/${o.staffId}` })}
+          >
+            Paid {peso(o.amount)}
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function FrontDeskBoard() {
   const { data: board, error } = useBoard();
   const now = useNow();
@@ -239,6 +266,9 @@ function FrontDeskBoard() {
   const [adding, setAdding] = useState<string | null>(null);
   const [dayDialog, setDayDialog] = useState<DayDialog>(null);
   const canCash = useCan('cashouts.record');
+  const { data: me } = useCurrentUser();
+  // The Receptionist (or the owner) pays an Outside Reliever on her return; the Reliever does not pay themself.
+  const canPayRelief = canCash && me?.role !== 'reliever';
   const isOwner = useCan('settings.manage');
   // Arriving from a blocked logout opens Day Close straight away.
   const [params, setParams] = useSearchParams();
@@ -276,6 +306,12 @@ function FrontDeskBoard() {
           <Button onClick={() => setCreating('walk_in')}>New walk-in</Button>
         </div>
       </div>
+      {board.relieving.length > 0 && (
+        <div className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-2 text-sm text-teal-900">
+          Front desk today: <span className="font-semibold">{board.relieving.join(' and ')}</span> on a Relief Shift.
+        </div>
+      )}
+      {canPayRelief && <ReliefPayPrompt />}
       {board.birthdays.length > 0 && (
         <div className="rounded-lg border-2 border-pink-300 bg-gradient-to-r from-pink-50 to-amber-50 px-4 py-3 text-lg font-semibold text-pink-900">
           🎂 Today is {board.birthdays.join(' and ')}’s birthday. Greet {board.birthdays.length === 1 ? 'them' : 'them all'} and celebrate! 🎉

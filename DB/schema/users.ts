@@ -1,6 +1,7 @@
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-export const USER_ROLES = ['super_admin', 'receptionist'] as const;
+/** `reliever` is the one shared Reliever Login, usable only during a Relief Shift (ADR 0005). */
+export const USER_ROLES = ['super_admin', 'receptionist', 'reliever'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const USER_STATUSES = ['pending', 'active', 'rejected', 'disabled'] as const;

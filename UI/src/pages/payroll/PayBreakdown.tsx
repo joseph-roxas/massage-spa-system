@@ -3,7 +3,7 @@ import { Alert, Badge, Card, td, th } from '../../components/ui';
 import { peso } from '../../lib/format';
 import { DEDUCTION_LINES, EARNING_LINES, STATUS_LABELS, STATUS_TONE, usePayWeek, type Payroll, type PayrollKind } from '../../lib/payroll';
 
-const KIND_TITLE: Record<PayrollKind, string> = { therapist: 'Therapists', receptionist: 'Receptionist' };
+const KIND_TITLE: Record<PayrollKind, string> = { therapist: 'Therapists', receptionist: 'Receptionist', reliever: 'Outside Relievers' };
 
 const cell = (v: number, minus = false) => (v ? (minus ? `−${peso(v)}` : peso(v)) : '—');
 
@@ -19,7 +19,7 @@ function BreakdownTable({ kind, rows }: { kind: PayrollKind; rows: Payroll[] }) 
           <thead>
             <tr className="border-b border-stone-200">
               <th className={th}>Name</th>
-              {kind === 'receptionist' && <th className={`${th} text-right`}>Days</th>}
+              {kind !== 'therapist' && <th className={`${th} text-right`}>Days</th>}
               {earnings.map(([key, label]) => (
                 <th key={key} className={`${th} text-right`}>
                   {label}
@@ -44,7 +44,7 @@ function BreakdownTable({ kind, rows }: { kind: PayrollKind; rows: Payroll[] }) 
                   </Link>{' '}
                   {r.status !== 'released' && <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</Badge>}
                 </td>
-                {kind === 'receptionist' && <td className={`${td} text-right tabular-nums`}>{r.lines.daysPresent}</td>}
+                {kind !== 'therapist' && <td className={`${td} text-right tabular-nums`}>{r.lines.daysPresent}</td>}
                 {earnings.map(([key]) => (
                   <td key={key} className={`${td} text-right tabular-nums`}>
                     {cell(r.lines.earnings[key])}
@@ -65,7 +65,7 @@ function BreakdownTable({ kind, rows }: { kind: PayrollKind; rows: Payroll[] }) 
             <tfoot>
               <tr className="border-t border-stone-300 font-semibold">
                 <td className={td}>Total</td>
-                {kind === 'receptionist' && <td className={td} />}
+                {kind !== 'therapist' && <td className={td} />}
                 {earnings.map(([key]) => (
                   <td key={key} className={`${td} text-right tabular-nums`}>
                     {cell(total((r) => r.lines.earnings[key]))}

@@ -37,8 +37,8 @@ const recurringFields = z.object({
   active: z.boolean().optional(),
 });
 
-/** Cash-outs that are spending, not pay (On-call pay and CAs belong to Payroll). */
-const PAYROLL_CASH_OUTS = ['on_call_commission', 'cash_advance'] as const;
+/** Cash-outs that are spending, not pay (On-call pay, Relief pay and CAs belong to Payroll). */
+const PAYROLL_CASH_OUTS = ['on_call_commission', 'cash_advance', 'relief_pay'] as const;
 
 const peso = (c: number) => `₱${(c / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
 

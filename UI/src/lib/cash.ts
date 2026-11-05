@@ -32,6 +32,8 @@ export type CashSummary = {
   /** Sunday or Monday only: what brings petty cash back to ₱800. */
   topUpDue: number;
   reminder: 'hold' | 'hand_over' | 'none';
+  /** Logged in as the Reliever: hand over all Sales Cash at the end of the Relief Shift. */
+  relief: boolean;
   payWeek: { start: string; end: string };
   payrollReleased: boolean;
   laundryPaid: boolean;

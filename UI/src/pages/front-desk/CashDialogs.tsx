@@ -17,7 +17,12 @@ export function CashReminder({ onHandover, onTopUp }: { onHandover: () => void; 
   return (
     <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm ${tone}`}>
       <span className="flex-1">
-        {s.reminder === 'hand_over' ? (
+        {s.relief ? (
+          <>
+            <span className="font-semibold">End of your Relief Shift: after Day Close, hand over all Sales Cash ({peso(s.salesCash)})</span> to the owner. Keep
+            petty cash at ₱800.
+          </>
+        ) : s.reminder === 'hand_over' ? (
           <>
             <span className="font-semibold">All payroll and laundry are paid: hand over {peso(s.salesCash)}</span> to the owner. Keep petty cash at ₱800.
           </>

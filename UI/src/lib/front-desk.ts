@@ -53,7 +53,15 @@ export type Board = {
   bookings: Booking[];
   /** Staff whose birthday it is today. */
   birthdays: string[];
+  /** Who is running the front desk on a Relief Shift now. */
+  relieving: string[];
 };
+
+export type ReliefOwed = { staffId: string; displayName: string; amount: number; days: string[] };
+
+/** Short-cover Outside Relievers owed Relief pay, paid in cash when the Receptionist returns. */
+export const useReliefOwed = (enabled: boolean) =>
+  useQuery({ queryKey: ['front-desk', 'relief-pay'], queryFn: () => api<{ owed: ReliefOwed[] }>('/relief-pay'), enabled });
 
 export type Suggestion = {
   therapist: { staffId: string; reason: 'requested' | 'rotation' } | null;

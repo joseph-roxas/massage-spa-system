@@ -23,6 +23,7 @@ import { financeRoutes } from './modules/finance';
 import { attentionRoutes } from './modules/attention';
 import { guestRoutes } from './modules/guests';
 import { deviceRoutes, deviceStatusRoutes } from './modules/devices';
+import { reliefRoutes } from './modules/relief';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
 
@@ -66,6 +67,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/', guestRoutes)
     .route('/', deviceStatusRoutes)
     .route('/', deviceRoutes)
+    .route('/', reliefRoutes)
     .notFound((c) => fail(c, 404, 'not_found', 'No such endpoint.'))
     .onError((err, c) => {
       console.error(err);

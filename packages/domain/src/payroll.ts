@@ -52,6 +52,8 @@ export type TherapistDay = {
   commission: Centavos;
   /** The part of `commission` earned only because the day was a Holiday. */
   holidayExtra: Centavos;
+  /** Pay for a Relief Shift that day, at the Minimum Wage Rate; not Commission. */
+  reliefPay?: Centavos;
 };
 
 export type PayrollTotals = {
@@ -91,18 +93,23 @@ export function therapistPayroll(input: {
   cashAdvances: number;
   /** Σ of the week's Adjustments, signed. */
   adjustments?: number;
+  /** Relief pay per Business Day, for Relief Shifts this week. */
+  relief?: readonly { date: IsoDate; pay: number }[];
 }): PayrollTotals & { days: TherapistDay[] } {
   const days = daysOf(input.week).map((date) => {
     const mine = input.commissions.filter((c) => c.businessDay === date);
+    const reliefPay = sum((input.relief ?? []).filter((r) => r.date === date).map((r) => r.pay));
     return {
       date,
       services: mine.length,
       commission: sum(mine.map((c) => c.amount)) as Centavos,
       holidayExtra: sum(mine.map((c) => c.holidayExtra ?? 0)) as Centavos,
+      ...(reliefPay ? { reliefPay: reliefPay as Centavos } : {}),
     };
   });
   const worked = input.daysWorked.length > 0 || input.commissions.length > 0;
-  return { ...totals(sum(days.map((d) => d.commission)), input.adjustments ?? 0, worked, input.gov, input.cashAdvances), days };
+  const earned = sum(days.map((d) => d.commission + (d.reliefPay ?? 0)));
+  return { ...totals(earned, input.adjustments ?? 0, worked, input.gov, input.cashAdvances), days };
 }
 
 /** How much more a Therapist may take as a Cash Advance against a week: what is left of its net pay. */
@@ -268,6 +275,52 @@ export function receptionistPayroll(input: {
   };
 }
 
+// -------------------------------------------------------------------- Relief
+
+/** Covering the front desk this long or less takes no meal break. */
+const SHORT_COVER_MIN = 5 * 60;
+
+/**
+ * Relief pay for one Relief Shift day: the Receptionist's rules (late,
+ * undertime, Overtime, Holiday premiums) at the Minimum Wage Rate, with no Rest
+ * Day premium (it is not the Reliever's rest day) and nothing for a day not
+ * covered. Covering part of the day pays the minutes covered.
+ */
+export function reliefDay(input: {
+  date: IsoDate;
+  holiday: HolidayType | null;
+  /** Closed relief entries of the day. */
+  entries: readonly Entry[];
+  earlyCloseAt: Date | null;
+  minimumWage: number;
+  rules: ReceptionistRules;
+}): ReceptionistDay | null {
+  if (!input.entries.length) return null;
+  const { shift } = input.rules;
+  const start = manilaInstant(input.date, shift.start);
+  let end = manilaInstant(input.date, shift.end);
+  if (end <= start) end = new Date(+end + 86_400_000);
+  // A short cover (5 hours or less) has no meal break, so its hour is not taken off:
+  // credit it by stretching the cover, within the shift.
+  let entries = [...input.entries].sort((a, b) => +a.clockIn - +b.clockIn);
+  if (overlapMin(entries, start, end) <= SHORT_COVER_MIN && shift.mealBreakMin > 0) {
+    const ms = shift.mealBreakMin * 60_000;
+    const last = entries.at(-1)!;
+    const first = entries[0]!;
+    if (+last.clockOut + ms <= +end) entries = [...entries.slice(0, -1), { ...last, clockOut: new Date(+last.clockOut + ms) }];
+    else if (+first.clockIn - ms >= +start) entries = [{ ...first, clockIn: new Date(+first.clockIn - ms) }, ...entries.slice(1)];
+  }
+  return receptionistDay({
+    date: input.date,
+    holiday: input.holiday,
+    entries,
+    earlyCloseAt: input.earlyCloseAt,
+    dailyRate: input.minimumWage,
+    // No weekday is a Reliever's Rest Day.
+    rules: { ...input.rules, restWeekday: -1 },
+  });
+}
+
 /** This week's CA Repayment: the standing amount, never more than what is still owed. */
 export function caRepaymentFor(standing: number, balance: number): Centavos {
   return Math.max(0, Math.min(standing, balance)) as Centavos;
@@ -275,7 +328,7 @@ export function caRepaymentFor(standing: number, balance: number): Centavos {
 
 // ------------------------------------------------------------- Payslip lines
 
-export type EarningKey = 'commission' | 'holidayExtra' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
+export type EarningKey = 'commission' | 'holidayExtra' | 'reliefPay' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
 export type DeductionKey = 'late' | 'undertime' | 'sss' | 'phic' | 'pagibig' | 'ca';
 export type PayLines = {
   earnings: Record<EarningKey, Centavos>;
@@ -295,13 +348,14 @@ export type PayLines = {
 export function payLines(
   input: PayrollTotals & { adjustments: number } & (
       | { kind: 'therapist'; days: readonly Partial<TherapistDay>[] }
-      | { kind: 'receptionist'; days: readonly Partial<ReceptionistDay>[] }
+      | { kind: 'receptionist' | 'reliever'; days: readonly Partial<ReceptionistDay>[] }
     ),
 ): PayLines {
   const z = 0 as Centavos;
   const earnings: Record<EarningKey, Centavos> = {
     commission: z,
     holidayExtra: z,
+    reliefPay: z,
     basic: z,
     restDayPremium: z,
     holidayPremium: z,
@@ -319,6 +373,7 @@ export function payLines(
     for (const d of input.days) {
       add(earnings, 'commission', (d.commission ?? 0) - (d.holidayExtra ?? 0));
       add(earnings, 'holidayExtra', d.holidayExtra);
+      add(earnings, 'reliefPay', d.reliefPay);
     }
   } else {
     for (const d of input.days) {

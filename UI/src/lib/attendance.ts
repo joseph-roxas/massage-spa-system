@@ -4,11 +4,13 @@ import { api } from './api';
 export type ClockStaff = {
   id: string;
   displayName: string;
-  kind: 'therapist' | 'receptionist';
+  kind: 'therapist' | 'receptionist' | 'reliever';
   therapistClass: 'regular' | 'lmt' | null;
   isOnCall: boolean;
   hasPin: boolean;
   clockedInAt: string | null;
+  /** Clocked in on a Relief Shift (running the front desk). */
+  relieving: boolean;
 };
 
 /** The Business Day the Clock-in Screen counts toward, and its Holiday if any. */
@@ -31,7 +33,7 @@ export type DtrEntry = {
   id: string;
   staffId: string;
   displayName: string;
-  kind: 'therapist' | 'receptionist';
+  kind: 'therapist' | 'receptionist' | 'reliever';
   businessDay: string;
   clockIn: string;
   clockOut: string | null;
@@ -39,6 +41,8 @@ export type DtrEntry = {
   correctedAt: string | null;
   correctionReason: string | null;
   canEdit: boolean;
+  /** A Relief Shift: front-desk time paid at the Minimum Wage Rate. */
+  isRelief?: boolean;
 };
 
 export const useClockStaff = () =>
@@ -64,7 +68,7 @@ export const useDtr = (day: string) =>
 export function usePunch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { staffId: string; pin: string; action: 'in' | 'out' }) =>
+    mutationFn: (body: { staffId: string; pin: string; action: 'in' | 'out'; relief?: boolean }) =>
       api<{
         displayName: string;
         firstName: string;

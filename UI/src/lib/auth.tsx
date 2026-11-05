@@ -8,6 +8,8 @@ export type CurrentUser = {
   lastName: string;
   email: string;
   role: Role;
+  /** Under the Reliever Login: who is on the Relief Shift now. */
+  actingAs?: { staffId: string; displayName: string };
   mustChangePassword: boolean;
 };
 
@@ -74,4 +76,5 @@ export function useChangePassword() {
 export const ROLE_LABELS: Record<Role, string> = {
   super_admin: 'Super Admin',
   receptionist: 'Receptionist',
+  reliever: 'Reliever Login',
 };

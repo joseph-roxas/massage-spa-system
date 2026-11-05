@@ -89,7 +89,10 @@ export function Layout() {
           <p className="text-sm font-medium">
             {user.firstName} {user.lastName}
           </p>
-          <p className="text-xs text-stone-500">{ROLE_LABELS[user.role]}</p>
+          <p className="text-xs text-stone-500">
+            {ROLE_LABELS[user.role]}
+            {user.actingAs && ` · ${user.actingAs.displayName} relieving`}
+          </p>
           <div className="mt-3 flex gap-3 text-xs">
             <NavLink to="/change-password" className="text-stone-600 hover:underline">
               Change password

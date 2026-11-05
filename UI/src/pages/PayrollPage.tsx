@@ -9,7 +9,7 @@ import { CashAdvances } from './payroll/CashAdvances';
 import { PayBreakdown } from './payroll/PayBreakdown';
 import { DecemberPay } from './payroll/DecemberPay';
 
-const KIND_TITLE: Record<PayrollKind, string> = { therapist: 'Therapists', receptionist: 'Receptionist' };
+const KIND_TITLE: Record<PayrollKind, string> = { therapist: 'Therapists', receptionist: 'Receptionist', reliever: 'Outside Relievers (long cover)' };
 
 function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: string; rows: Payroll[]; ready: boolean }) {
   const canApprove = useCan(kind === 'therapist' ? 'payroll.therapist.approve' : 'payroll.receptionist.manage');

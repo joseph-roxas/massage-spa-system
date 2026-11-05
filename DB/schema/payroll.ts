@@ -3,7 +3,8 @@ import { cashOuts } from './days';
 import { staff } from './staff';
 import { users } from './users';
 
-export const PAYROLL_KINDS = ['therapist', 'receptionist'] as const;
+/** `reliever`: an Outside Reliever on long cover, paid weekly. */
+export const PAYROLL_KINDS = ['therapist', 'receptionist', 'reliever'] as const;
 export const PAYROLL_STATUSES = ['draft', 'approved', 'released'] as const;
 
 /** One staff member's pay for one Pay Week. Drafts are regenerated freely; approved and released ones are fixed. */

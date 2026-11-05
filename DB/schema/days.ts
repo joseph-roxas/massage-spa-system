@@ -29,7 +29,7 @@ export const businessDays = sqliteTable('business_days', {
 });
 
 /** `supplies`, `food`, `transport`, `other` are history only; the form offers Petty cash and Laundry. */
-export const CASH_OUT_CATEGORIES = ['on_call_commission', 'cash_advance', 'petty_cash', 'laundry', 'supplies', 'food', 'transport', 'other'] as const;
+export const CASH_OUT_CATEGORIES = ['on_call_commission', 'cash_advance', 'relief_pay', 'petty_cash', 'laundry', 'supplies', 'food', 'transport', 'other'] as const;
 /** Which cash a Cash-out came from: Sales Cash or the Petty Cash Fund. */
 export const CASH_OUT_SOURCES = ['sales', 'petty'] as const;
 

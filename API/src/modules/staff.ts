@@ -13,6 +13,7 @@ import {
   payRules,
   QUALIFICATIONS,
   staff,
+  RELIEF_PAY,
   STAFF_KINDS,
   THERAPIST_CLASSES,
   users,
@@ -98,6 +99,8 @@ const staffFields = z.object({
   caRepayment: centavos.optional(),
   /** The User who logs in as this staff member, so My Pay finds her Payslips. */
   userId: z.string().min(1).nullable().optional(),
+  /** Outside Reliever: paid in cash when the Receptionist returns, or by weekly Payroll. */
+  reliefPay: z.enum(RELIEF_PAY).nullable().optional(),
   /** Monthly salary basis for SSS, PhilHealth and Pag-IBIG brackets. */
   contributionBase: centavos.nullable().optional(),
   govSss: centavos,
@@ -119,6 +122,12 @@ function staffProblem(s: StaffFields): string | null {
   if (s.kind === 'receptionist' && s.therapistClass) return 'A receptionist has no therapist class.';
   if (s.kind === 'receptionist' && s.isOnCall) return 'Only therapists can be on-call.';
   if (s.kind === 'receptionist' && s.dailyRate == null) return 'A receptionist needs a daily rate.';
+  if (s.kind === 'reliever') {
+    if (s.therapistClass || s.qualification || s.isOnCall || s.dailyRate != null) return 'An Outside Reliever is paid the Minimum Wage Rate and has no therapist class.';
+    if (s.contributionBase != null || s.govSss + s.govPhic + s.govPagibig > 0) return 'Outside Relievers have no government deductions.';
+    if (!s.reliefPay) return 'Say when the Outside Reliever is paid.';
+  }
+  if (s.kind !== 'reliever' && s.reliefPay) return 'Only an Outside Reliever has a relief pay schedule.';
   if (s.isOnCall && s.contributionBase != null) return 'On-call therapists have no government contributions.';
   if (s.isOnCall && s.govSss + s.govPhic + s.govPagibig > 0) {
     return 'On-call therapists have no government deductions.';
@@ -126,8 +135,11 @@ function staffProblem(s: StaffFields): string | null {
   return null;
 }
 
-/** New staff need surname, first name, gender, birthdate and hire date; everything else is optional. */
-const newStaff = staffFields.extend({ gender: z.enum(GENDERS), birthdate: isoDate, hireDate: isoDate }).partial({
+/** New staff need surname, first name, gender, birthdate and hire date (an Outside Reliever only a name); everything else is optional. */
+const newStaff = staffFields.partial({
+  gender: true,
+  birthdate: true,
+  hireDate: true,
   isOnCall: true,
   dailyRate: true,
   therapistClass: true,
@@ -176,6 +188,7 @@ const staffColumns = {
   therapistClass: staff.therapistClass,
   isOnCall: staff.isOnCall,
   dailyRate: staff.dailyRate,
+  reliefPay: staff.reliefPay,
   caRepayment: staff.caRepayment,
   contributionBase: staff.contributionBase,
   govSss: staff.govSss,
@@ -217,14 +230,19 @@ export const staffRoutes = new Hono<AuthedEnv>()
   .post('/staff', zValidator('json', newStaff, invalidInput), async (c) => {
     const input = c.req.valid('json');
     const db = c.var.db;
+    if (input.kind !== 'reliever' && (!input.gender || !input.birthdate || !input.hireDate)) {
+      return fail(c, 400, 'invalid_staff', 'Give the gender, birthdate and hire date.');
+    }
     const isOnCall = input.isOnCall ?? false;
     // Government Deductions default from Settings unless given (and are always zero when on-call).
     const defaultsRow = await db.select().from(payRules).where(eq(payRules.key, 'gov_deduction_defaults')).get();
-    const defaults = defaultsRow
-      ? PAY_RULE_SCHEMAS.gov_deduction_defaults.parse(JSON.parse(defaultsRow.valueJson))[input.kind]
-      : { sss: 0, phic: 0, pagibig: 0 };
+    const none = { sss: 0, phic: 0, pagibig: 0 };
+    const defaults = defaultsRow && input.kind !== 'reliever' ? PAY_RULE_SCHEMAS.gov_deduction_defaults.parse(JSON.parse(defaultsRow.valueJson))[input.kind] : none;
     const record: StaffFields = {
       ...input,
+      gender: input.gender ?? null,
+      birthdate: input.birthdate ?? null,
+      hireDate: input.hireDate ?? null,
       therapistClass: input.therapistClass ?? null,
       qualification: input.qualification ?? null,
       isOnCall,

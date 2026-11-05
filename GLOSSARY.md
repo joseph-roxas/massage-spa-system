@@ -9,8 +9,12 @@ Everyone who works at the shop: Therapists and Receptionists. Most Staff never l
 _Avoid_: Employee, worker
 
 **User**:
-A login account for the system, held by the Super Admin or a Receptionist. A User may also be a Staff member, but the two are separate records.
+A login account for the system, held by the Super Admin, a Receptionist, or the shared Reliever Login. A User may also be a Staff member, but the two are separate records.
 _Avoid_: Account, staff login
+
+**Reliever Login**:
+The one User shared by every Reliever to run the front desk on a Relief Shift.
+_Avoid_: Reliever account, guest login
 
 **Super Admin**:
 The owner account with unrestricted access; also the only recipient of user-approval requests.
@@ -43,9 +47,32 @@ _Avoid_: Cert, licence (alone)
 A Therapist called in for a single day to handle extra guests, paid their commission at the end of that day rather than through weekly Payroll.
 _Avoid_: Extra, reliever
 
+**Reliever**:
+The person covering the front desk on a Relief Shift: one of the shop's Therapists, or someone sent by headquarters (an Outside Reliever).
+_Avoid_: On-call, substitute, reserve
+
+**Outside Reliever**:
+A Reliever who is not on the shop's staff, sent by headquarters; known to the system only by name and PIN, so they can clock in.
+_Avoid_: HQ staff, temp
+
+**Relief Shift**:
+A Business Day on which a Reliever runs the front desk because the Receptionist is on her Rest Day, absent or on leave. A Therapist on a Relief Shift does no Services that day and is out of the Rotation. Paid at the Minimum Wage Rate with no Government Deductions.
+_Avoid_: Cover, relief duty
+
 **Guest**:
-A person receiving one or more Services.
+A person receiving one or more Services. A returning Guest is known by their Guest Record.
 _Avoid_: Customer, client
+
+**Guest Record**:
+What the shop keeps about a Guest across visits: name, contact number (optional), and a saved Senior Citizen or PWD ID number, plus their visit history.
+_Avoid_: Customer profile, client file
+
+**Visit**:
+A Business Day on which a Guest had at least one Booking checked out. Several Services that day are still one Visit; buying a Voucher, a no-show or a cancellation is not a Visit.
+
+**Regular**:
+A Guest with at least a set number of Visits in a recent window (by default 3 visits in 90 days), whether Walk-in or Scheduled.
+_Avoid_: Suki, loyal customer, VIP
 
 **User Request**:
 A sign-up submitted from the login page that the Super Admin must approve (assigning a role) before the person can log in.
@@ -79,6 +106,10 @@ A table bed brought into a Room on a Guest's request; equipment, not extra capac
 **Walk-in**:
 A Booking made on arrival, assigned to a Therapist immediately.
 
+**Added Service**:
+A Service a Guest asks for partway through their stay, booked as a follow-on Booking in the same Room that starts when the current one ends; by default the same Therapist performs it. The whole stay is checked out and paid together and costs the Therapist one Rotation place.
+_Avoid_: Extension, upgrade, add-on (that is the oil)
+
 **Requested Therapist**:
 The specific Therapist a Guest asks for; takes priority over the Rotation and does not cost that Therapist their Rotation place.
 _Avoid_: Preferred therapist
@@ -92,8 +123,16 @@ A staff member's clock-in and clock-out times for a day; drives Rotation for The
 _Avoid_: Attendance, timesheet
 
 **Clock-in Screen**:
-The screen on the logged-in front-desk device where Staff tap their name and enter a personal PIN to clock in or out.
+The screen where Staff tap their name and enter a personal PIN to clock in or out. Reachable on the Front-desk Device without anyone logged in; shows the date and time, whether today is a Holiday, and a birthday greeting on the clock-in.
 _Avoid_: Kiosk, time clock
+
+**Front-desk Device**:
+The PC at the reception table, marked once by the Super Admin, whose login page offers the Clock-in Screen without logging in; the Receptionist also logs in on it. No other device does.
+_Avoid_: Kiosk, terminal
+
+**DTR Review**:
+The Super Admin's check of every DTR entry added by hand, corrected, or still missing its clock-out, regardless of date, each marked Reviewed once checked.
+_Avoid_: DTR audit, approval
 
 **Business Day**:
 The span from opening (2:00pm) until that day's Day Close, even past midnight; all sales and DTR belong to it. Activity before 6:00am counts toward the previous day.
@@ -125,7 +164,7 @@ A time-boxed Discount defined by Service, time-of-day window and validity dates.
 The Promo giving 10% off Swedish Massage (1hr) when the Service starts 2:00–6:00pm, valid until 2026-11-30.
 
 **Voucher**:
-A serial-numbered, non-expiring prepaid entitlement to one specific Service, redeemable once by whoever presents the serial, only at this branch. Sold at that Service's Regular Price to a named buyer. The Receptionist only sells serials she has Received through a Voucher Endorsement, picking each one herself.
+A serial-numbered, non-expiring prepaid entitlement to one specific Service, redeemable once by whoever presents the serial, only at this branch. Sold at that Service's Regular Price to a buyer, who is a Guest with a Guest Record. The Receptionist only sells serials she has Received through a Voucher Endorsement, picking each one herself.
 _Avoid_: Gift certificate, GC
 
 **Voucher Serial**:
@@ -178,12 +217,33 @@ Sunday through Saturday. Its Payroll is released the following week.
 **Payroll**:
 The weekly computation of each staff member's pay for one Pay Week, net of Government Deductions and Cash Advance repayment.
 
+**Payslip**:
+One staff member's Payroll as they see it: coverage (Sunday–Saturday), what was earned and what was deducted, line by line. The Receptionist sees hers once released, with her Cash Advance history.
+
+**Pay Breakdown**:
+The Super Admin's table of everyone's Payroll for one Pay Week, every earning and deduction in its own column, with the same lines as the Payslips.
+_Avoid_: Payroll summary, register
+
+**Adjustment**:
+A labelled amount, added or taken off, that the Super Admin puts on a Payroll with a reason, e.g. a correction for an earlier week. Not part of basic pay for 13th Month Pay.
+_Avoid_: Add-on (that is the oil on a Service), bonus
+
+**Paper Payslip**:
+A blank printed form for writing a Therapist's or the Receptionist's Payslip by hand when the system can't be used; each has its own layout.
+
+**Minimum Wage Rate**:
+The current daily minimum wage in Cebu, set by the Super Admin; what a Reliever earns for a Relief Shift. Separate from the Receptionist's own daily rate, which is usually higher.
+
 **Government Deductions**:
 The employee share of SSS, PhilHealth (PHIC) and Pag-IBIG withheld each Pay Week, as a fixed amount per person.
 
 **Cash Advance (CA)**:
-Money given to a staff member ahead of Payroll and deducted from a later Payroll. A Therapist's CAs are capped at their unreleased net pay; the Receptionist repays a chosen amount per Payroll against a running balance.
+Money given to a staff member ahead of Payroll and deducted from a later Payroll. A Therapist's CAs are capped at their unreleased net pay; the Receptionist repays her CA Repayment each Payroll against a running balance.
 _Avoid_: Vale, loan
+
+**CA Repayment**:
+The amount taken from each of the Receptionist's Payrolls toward her Cash Advance balance: a standing amount the Super Admin sets (usually ₱500, sometimes ₱750 or ₱1,000), changeable for any single Payroll, never more than the balance left.
+_Avoid_: Amortization, installment
 
 **Overtime**:
 Receptionist time worked after 11:00pm, paid at a premium without needing approval.
@@ -202,7 +262,7 @@ _Avoid_: Therapist 13th month
 The Receptionist's statutory December payment.
 
 **Cash-out**:
-Cash taken out during the day for a recorded purpose: Petty cash (from the Petty Cash Fund), Laundry (from Sales Cash), a Cash Advance or On-call pay. Petty cash and Laundry are also Expenses.
+Cash taken out during the day for a recorded purpose: Petty cash (from the Petty Cash Fund), Laundry (from Sales Cash), a Cash Advance, On-call pay or an Outside Reliever's Relief pay. Petty cash and Laundry are also Expenses.
 _Avoid_: Petty cash withdrawal
 
 **Petty Cash Fund**:
@@ -217,7 +277,7 @@ Cash from sales held at the shop, often for several days, from which the Recepti
 _Avoid_: Cash on hand, drawer
 
 **Cash Handover**:
-The Receptionist giving the Super Admin all Sales Cash once that week's Payroll and Laundry are paid. It is complete only when the Super Admin confirms receipt, naming who received it if not them.
+The Receptionist giving the Super Admin all Sales Cash once that week's Payroll and Laundry are paid, or a Reliever doing so at the end of every Relief Shift. It is complete only when the Super Admin confirms receipt, naming who received it if not them.
 _Avoid_: Turnover (that is for Items), remittance
 
 **Employer Contributions**:

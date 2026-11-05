@@ -1,6 +1,6 @@
 # Implementation Plan — Massage Spa Booking & Management System
 
-Vocabulary follows [GLOSSARY.md](../GLOSSARY.md). Architecture decisions: [ADR 0001](adr/0001-cloudflare-d1-workers-pages.md) (Cloudflare D1/Workers/Pages), [ADR 0002](adr/0002-approval-email-admin-only.md) (user approval).
+Vocabulary follows [GLOSSARY.md](../GLOSSARY.md). Architecture decisions: [ADR 0001](adr/0001-cloudflare-d1-workers-pages.md) (Cloudflare D1/Workers/Pages), [ADR 0002](adr/0002-approval-email-admin-only.md) (user approval), [ADR 0003](adr/0003-day-close-counts-all-sales-cash.md) (Day Close), [ADR 0004](adr/0004-clock-in-on-front-desk-device-without-login.md) (Front-desk Device), [ADR 0005](adr/0005-shared-reliever-login.md) (Reliever Login). Current work: §15 (Phase 13, branch `cr-2`).
 
 ---
 
@@ -518,3 +518,76 @@ A day left open with a guest not checked out could never be closed: the Front De
 - Review of holidays and Happy Hours settings before go-live.
 - Approval email domain (see §12.3).
 - Whole-day offline entry: the paper sheet exists, but there is no bulk-entry screen.
+
+## 15. Phase 13: owner's second batch of change requests (branch `cr-2`)
+
+Every decision here was confirmed with the owner on 2026-11-05 (four grilling rounds, Q1–Q45). Vocabulary is in `GLOSSARY.md` (new: Reliever, Outside Reliever, Relief Shift, Reliever Login, Guest Record, Visit, Regular, Added Service, Front-desk Device, DTR Review, Payslip, Pay Breakdown, Adjustment, CA Repayment, Minimum Wage Rate, Paper Payslip). Security trade-offs are in ADR 0004 (Front-desk Device) and ADR 0005 (Reliever Login). Build on `cr-2`, one commit per slice, in this order; the next migration is `0018_*`. Nothing is built yet.
+
+**13.1 Pay Breakdown, Adjustments, CA Repayment, Minimum Wage Rate**
+
+1. **Payroll lines.** Split what `breakdownJson` already computes into named lines, stored on the Payroll so Payslip, Pay Breakdown and Paper Payslip all read the same thing:
+   - Therapist earnings: Commission at normal rates; Holiday extra (Commission at Holiday rate minus what normal rate would have paid); Adjustments; Relief pay (13.7).
+   - Receptionist earnings: basic pay; Overtime; Rest Day premium; Holiday pay worked (premium part) and Holiday pay not worked, shown apart; Adjustments.
+   - Deductions: SSS, PhilHealth, Pag-IBIG, late, undertime, CA.
+   - Late and undertime are today folded into paid minutes; show them as deductions at the day's rate so basic pay reads as days present × daily rate.
+2. **Pay Breakdown** tab on `PayrollPage` (Super Admin only): one table per Pay Week, one row per person, a column per line above, totals row. Print-friendly.
+3. **Adjustments** (new table `payroll_adjustments`: payrollId, label, amount signed centavos, reason, createdBy/At). Added and removed on draft Payrolls only, by the Super Admin, on both kinds. They change net and gross but not `basic` (13th Month). Staff see the label only; the reason is for the Super Admin and the audit log.
+4. **CA Repayment**: new `staff.caRepayment` (centavos, default ₱500) for the Receptionist, set from her Staff record or the CA screen with quick picks ₱500 / ₱750 / ₱1,000 / custom. Generating a Payroll uses it, capped at the balance; `PUT /payrolls/:id/ca-repayment` still overrides one Payroll. Replaces "default to last week's amount". Therapist CAs unchanged.
+5. **Minimum Wage Rate**: new `pay_rules` key `minimum_wage_daily`, ₱582 (Cebu), editable in Settings → Commission & Pay. The Receptionist's own ₱692 stays `staff.dailyRate` on her Staff record.
+
+**13.2 My Pay for the Receptionist**
+
+1. New page **My Pay** in the Receptionist's nav, read-only, her own records only (new capability `payroll.view_own`; the Reliever Login does not get it).
+2. Lists her **released** Payslips (no drafts or approved-unreleased). Each shows coverage (Sun–Sat dates), daily rate, days present, the per-day lines (in, out, late, undertime, OT, day type), every 13.1 line, net, and a Print button (reuse `PayslipPage`).
+3. **CA history**: each CA (date, amount), each repayment (Payroll week, amount), total CAs, total repaid, balance.
+4. API: `GET /me/payslips`, `GET /me/payslips/:id`, `GET /me/cash-advances`, all scoped to the logged-in User's linked Staff record.
+
+**13.3 Guest Records, Visits, Regulars**
+
+1. New table `guests`: name, phone (optional), statutoryType (`senior` | `pwd` | null), statutoryIdNo, mergedInto, createdAt/By. `bookings.guestId` and `voucher_sales.guestId` (nullable); `guestName`/`guestPhone` kept for history and for Bookings without a record.
+2. **Pick or create** in `NewBookingDialog` (Walk-in and Scheduled) and `SellVouchersDialog`: typing searches name and phone, pick one or create new. Leaving it as a typed name with no record still works.
+3. **Checkout** pre-fills Senior/PWD and the ID number from the Guest Record; entering a new ID at checkout offers to save it to the record.
+4. **Guests page** (Receptionist and Super Admin): list with search, Regular badge, Visits, last Visit; Guest page with visit history (date, Services, Therapist), average days between Visits, Vouchers bought. SC/PWD ID masked (`••••4821`) except at checkout and in the edit form.
+5. **Visit** = a Business Day with at least one checked-out Booking for that Guest. **Regular** = at least 3 Visits in the last 90 days; both numbers are `pay_rules`-style settings (`regular_guest_rule`) editable by the Super Admin.
+6. **Merge duplicates** (Super Admin only): moves Bookings and Voucher sales to the kept record, sets `mergedInto` on the other.
+7. No backfill: Bookings and Voucher sales before this slice stay unlinked.
+
+**13.4 Added Services**
+
+1. New `bookings.parentBookingId` (the Booking it follows). "Add Service" on an in-service Booking on the Front Desk: pick Service, Therapist (default the same one; any free clocked-in Therapist allowed), same Room; it starts when the current one ends and becomes `in_service` then automatically.
+2. Warn, don't block, when the extra time runs into that Therapist's or Room's next Scheduled Booking, naming the clash.
+3. **Rotation**: the Therapist goes to the back once, after the last linked Booking is done; an Added Service costs no extra Rotation place. Update `packages/domain` rotation rules and tests.
+4. **Checkout** for the stay: one dialog listing every linked Booking, each with its own Discount (Happy Hours judged by that Booking's own start), SC/PWD ID entered once for all, one payment (Cash / GCash / split). Still one Sale per Booking (`sales_one_per_booking` unchanged); split payments apportioned across the Sales.
+5. An Added Service can be cancelled until it starts; once started it is paid or made a Complimentary Service.
+6. Day Close blockers (the `d0d4f7a` dialog) handle linked Bookings the same way.
+
+**13.5 Front-desk Device and Clock-in Screen** (ADR 0004)
+
+1. **Mark this device**: the Super Admin, logged in on the reception PC, marks it in Settings. This stores a long random device token (hashed in a new table `front_desk_devices`: label, tokenHash, createdAt/By, revokedAt) and sets it in a long-lived cookie. Settings lists marked devices with date and lets the Super Admin remove one (re-mark when the PC is replaced).
+2. The **login page** on a marked device shows a large **Clock in** button opening `/clock` without a User session. `/clock/staff` and `/clock/punch` accept either a User session (as today) or a valid device token; nothing else under the API does. PIN lockout rules unchanged.
+3. Clock-in Screen shows the date and a running clock, and a banner "Regular Holiday: <name>" / "Special day: <name>" or "Regular day".
+4. **Birthday**: after a successful clock-in (not clock-out) on the staff member's birthday, a full-screen celebration card ("Happy birthday, <Name>! 🎂", confetti) until the next tap, once per day. The Front Desk shows a highlighted banner all day: "🎂 Today is <Name>'s birthday, greet them!"
+5. The Therapist's "Commission so far this Pay Week" after punching stays.
+
+**13.6 DTR bulk entry and DTR Review**
+
+1. **Add missing entries** on `DtrPage`: pick one Staff member, add rows (Business Day, clock-in, clock-out), one shared reason with optional per-row reasons. New `POST /dtr/batch`; all rows saved or none, with the overlapping/invalid rows highlighted. Permissions as today: Receptionist for Therapists, Super Admin for anyone.
+2. **DTR Review** tab (Super Admin): every entry with `source = 'manual'`, a correction, or no clock-out, regardless of date, newest first, filter by person. New `dtr.reviewedAt`/`reviewedBy`; editing an entry again clears them. Bulk "Mark reviewed".
+3. **Needs attention** gets one item, "N DTR entries to review", linking to the DTR Review tab. The rest of Needs attention is unchanged (its title links were already what the owner wanted; no buttons).
+
+**13.7 Relievers** (ADR 0005)
+
+1. **Relief Shift** on DTR: new `dtr.isRelief`. On the Clock-in Screen a Therapist clocking in can tick "Relieving the front desk today"; an Outside Reliever's clock-ins are always relief. Super Admin and Receptionist can set or clear it later on the DTR page (reason required). A Therapist on a relief entry is out of the Rotation; covering part of a day is a relief entry, then they clock out and back in normally to rejoin the Rotation.
+2. **Outside Reliever**: `staff.kind` gains `reliever`, needing only name and PIN; `staff.reliefPay` (`on_return` | `weekly`, default `on_return`). No contribution base, no Government Deductions.
+3. **Relief pay** (new domain function beside the Receptionist's day calculation): the Receptionist's DTR rules at the Minimum Wage Rate: late, undertime, OT and Holiday premiums apply; **no Rest Day premium**; no Government Deductions.
+   - Shop Therapist: a Relief pay line on their Therapist Payroll for that Pay Week; not Commission, so not in the Year-end Bonus; their Government Deductions unchanged.
+   - Outside, `on_return`: when the Receptionist next clocks in, the Front Desk shows "Pay <Reliever> ₱X for <dates>"; the button records a `relief_pay` Cash-out from Sales Cash (counted at Day Close, a staff cost on the Income Statement).
+   - Outside, `weekly`: their own weekly Payroll (new `payrolls.kind` value `reliever`), same flow as the Receptionist's.
+4. **Reliever Login**: one shared User with a new role `reliever`. Login is refused unless someone has an open relief DTR entry; every action under it is credited to that Reliever in the audit log ("Reliever Login (Marites)"). Capabilities: the Receptionist's minus Payroll generate/release (and minus `payroll.view_own`); Cash Handover included.
+5. **Reliever Cash Handover**: after each Relief Shift's Day Close, the Front Desk asks the Reliever to record a Cash Handover of all Sales Cash in the shop (Petty Cash stays at ₱800), without the Payroll/Laundry reminder rule. The Super Admin confirms with **Received** as today.
+
+**13.8 Paper Payslips**
+
+1. Printable blank forms beside `PaperSheetPage`, half A4, two per sheet.
+2. **Therapist**: name, Pay Week; 7 day rows (date, sales, commission, Holiday rate tick); CAs taken (date, amount); Adjustments; SSS / PhilHealth / Pag-IBIG; total CA; net; signatures.
+3. **Receptionist**: name, Pay Week, daily rate; 7 day rows (in, out, late, undertime, OT minutes, day type); the 13.1 earnings and deduction lines; CA balance before, repayment, balance after; net; signatures.

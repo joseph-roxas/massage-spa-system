@@ -20,6 +20,7 @@ import { GoLivePage } from './pages/GoLivePage';
 import { PaperSheetPage } from './pages/PaperSheetPage';
 import { PayslipPage } from './pages/payroll/PayslipPage';
 import { MyPayPage, MyPayslipPage } from './pages/MyPayPage';
+import { GuestPage, GuestsPage } from './pages/GuestsPage';
 import { SettingsLayout } from './pages/settings/SettingsLayout';
 import { ServicesSettings } from './pages/settings/ServicesSettings';
 import { PromosSettings } from './pages/settings/PromosSettings';
@@ -137,6 +138,22 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="payroll.therapist.generate">
             <PayslipPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/guests',
+        element: (
+          <RequireCapability capability="bookings.manage">
+            <GuestsPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/guests/:id',
+        element: (
+          <RequireCapability capability="bookings.manage">
+            <GuestPage />
           </RequireCapability>
         ),
       },

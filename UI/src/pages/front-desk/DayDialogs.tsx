@@ -146,7 +146,7 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
   if (paying) {
     return (
       <CheckoutDialog
-        booking={{ id: paying.bookingId, guestName: paying.guestName, serviceId: paying.serviceId, serviceName: paying.service, therapistName: paying.therapistName }}
+        booking={{ id: paying.bookingId, guestName: paying.guestName, guestId: paying.guestId, serviceId: paying.serviceId, serviceName: paying.service, therapistName: paying.therapistName }}
         onClose={() => setPaying(null)}
       />
     );

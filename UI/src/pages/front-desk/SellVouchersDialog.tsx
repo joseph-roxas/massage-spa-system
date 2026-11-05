@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { BUNDLE_SIZE } from '@spa/domain';
 import { Alert, Badge, Button, Field, Input, Select } from '../../components/ui';
+import { GuestPicker, guestBody, NO_GUEST, type GuestChoice } from '../../components/GuestPicker';
 import { Modal } from '../../components/Modal';
 import { useServices } from '../../lib/catalogue';
 import { duration, peso } from '../../lib/format';
@@ -18,8 +19,8 @@ export function SellVouchersDialog({ onClose }: { onClose: () => void }) {
   const [qty, setQty] = useState(BUNDLE_SIZE);
   // One picked card per slot: the paid ones, then the free ones.
   const [picked, setPicked] = useState<string[]>([]);
-  const [buyerName, setBuyerName] = useState('');
-  const [buyerPhone, setBuyerPhone] = useState('');
+  const [buyer, setBuyer] = useState<GuestChoice>(NO_GUEST);
+  const buyerName = buyer.guestName.trim();
   const [sold, setSold] = useState<Sold | null>(null);
 
   const service = eligible.find((s) => s.id === serviceId) ?? eligible[0];
@@ -45,7 +46,7 @@ export function SellVouchersDialog({ onClose }: { onClose: () => void }) {
     e.preventDefault();
     if (!service) return;
     save.mutate(
-      { path: '/voucher-sales', body: { serviceId: service.id, qty: count, serials: slots, buyerName, buyerPhone, payments: pay.payments } },
+      { path: '/voucher-sales', body: { serviceId: service.id, qty: count, serials: slots, ...guestBody(buyer), buyerName, buyerPhone: buyer.guestPhone, payments: pay.payments } },
       { onSuccess: (res) => setSold({ total: res.total!, serviceName: service.name, buyerName, serials: res.serials! }) },
     );
   }
@@ -121,14 +122,7 @@ export function SellVouchersDialog({ onClose }: { onClose: () => void }) {
           </fieldset>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Buyer name">
-            <Input required minLength={2} value={buyerName} onChange={(e) => setBuyerName(e.target.value)} />
-          </Field>
-          <Field label="Buyer phone (optional)">
-            <Input value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} />
-          </Field>
-        </div>
+        <GuestPicker value={buyer} onChange={setBuyer} nameLabel="Buyer name" required />
 
         <div className="space-y-1 rounded-lg bg-stone-50 p-4 text-sm">
           <div className="flex justify-between">

@@ -17,3 +17,4 @@ export * from './inventory';
 export * from './expenses';
 export * from './reports';
 export * from './export';
+export * from './guests';

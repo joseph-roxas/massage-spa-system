@@ -9,8 +9,12 @@ export type Booking = {
   id: string;
   kind: 'walk_in' | 'scheduled';
   status: BookingStatus;
+  guestId: string | null;
   guestName: string | null;
   guestPhone: string | null;
+  /** From the Guest Record: Visits so far and whether they are a Regular. */
+  guestVisits: number | null;
+  guestIsRegular: boolean;
   serviceId: string;
   serviceCode: string;
   serviceName: string;

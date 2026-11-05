@@ -3,6 +3,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** The whole error body, for errors that say more, e.g. which rows of a batch failed. */
+    readonly body: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -19,7 +21,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   });
   const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
   if (!res.ok) {
-    throw new ApiError(res.status, data.error ?? 'error', data.message ?? `Request failed (${res.status})`);
+    throw new ApiError(res.status, data.error ?? 'error', data.message ?? `Request failed (${res.status})`, data);
   }
   return data as T;
 }

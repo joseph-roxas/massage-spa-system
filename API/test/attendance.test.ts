@@ -195,3 +195,68 @@ describe('Front-desk Device', () => {
     await owner.post('/clock/punch', { staffId: id, pin: '1234', action: 'out' });
   });
 });
+
+describe('DTR batch entry and DTR Review', () => {
+  const daysAgo = (n: number) => {
+    const d = new Date(`${businessDayOf(new Date())}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  const shift = (day: string, from = '14:00', to = '23:00') => ({ clockIn: manilaInstant(day, from).toISOString(), clockOut: manilaInstant(day, to).toISOString() });
+  type Review = { entries: { id: string; staffId: string; businessDay: string; correctionReason: string; reviewedAt: string | null }[] };
+  type Attention = { items: { key: string; title: string; link: string }[] };
+
+  it('adds several missing entries for one person, all or nothing', async () => {
+    const owner = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await addStaff(owner);
+    const r = await addStaff(owner, { kind: 'receptionist', dailyRate: 69200 });
+    expect((await desk.post('/dtr/batch', { staffId: r, reason: 'Forgot to clock in', rows: [shift(daysAgo(12))] })).status).toBe(403);
+
+    const bad = await desk.post('/dtr/batch', {
+      staffId: t,
+      reason: 'Forgot to clock in',
+      rows: [shift(daysAgo(12)), shift(daysAgo(12), '20:00', '23:30'), shift(daysAgo(11))],
+    });
+    expect(bad.status).toBe(400);
+    const body = await json<{ problems: { index: number; message: string }[] }>(bad);
+    expect(body.problems.map((p) => p.index)).toEqual([0, 1]);
+    expect((await json<{ entries: unknown[] }>(await desk.get(`/dtr?day=${daysAgo(11)}`))).entries.filter((e) => (e as { staffId: string }).staffId === t)).toHaveLength(0);
+
+    const ok = await desk.post('/dtr/batch', {
+      staffId: t,
+      reason: 'Forgot to clock in',
+      rows: [shift(daysAgo(12)), { ...shift(daysAgo(11)), reason: 'Phone was dead' }],
+    });
+    expect(ok.status).toBe(201);
+    const day11 = await json<{ entries: { staffId: string; correctionReason: string; source: string }[] }>(await desk.get(`/dtr?day=${daysAgo(11)}`));
+    expect(day11.entries.find((e) => e.staffId === t)).toMatchObject({ source: 'manual', correctionReason: 'Phone was dead' });
+  });
+
+  it('lists entries to review whatever their date, until the Super Admin ticks them', async () => {
+    const owner = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await addStaff(owner);
+    await desk.post('/dtr/batch', { staffId: t, reason: 'Paper DTR', rows: [shift(daysAgo(20)), shift(daysAgo(19))] });
+    // A clock-in never closed on an earlier day is listed too.
+    await env.DB.prepare(`INSERT INTO dtr (id, staff_id, business_day, clock_in, source, created_at) VALUES (?, ?, ?, ?, 'pin', ?)`)
+      .bind(crypto.randomUUID(), t, daysAgo(18), shift(daysAgo(18)).clockIn, new Date().toISOString())
+      .run();
+
+    expect((await desk.get('/dtr/review')).status).toBe(403);
+    const mine = async () => (await json<Review>(await owner.get('/dtr/review'))).entries.filter((e) => e.staffId === t);
+    expect((await mine()).map((e) => e.businessDay)).toEqual([daysAgo(18), daysAgo(19), daysAgo(20)]);
+    expect((await json<Attention>(await owner.get('/attention'))).items.find((i) => i.key === 'dtr-review')).toMatchObject({ link: '/dtr?tab=review' });
+
+    const [open, d19, d20] = await mine();
+    expect((await owner.post('/dtr/review', { ids: [d19!.id, d20!.id] })).status).toBe(200);
+    expect((await mine()).map((e) => e.id)).toEqual([open!.id]);
+    expect((await json<Review>(await owner.get('/dtr/review?all=1'))).entries.filter((e) => e.staffId === t)).toHaveLength(3);
+
+    // Changed again: back on the list.
+    const fixed = shift(daysAgo(19), '14:05', '23:00');
+    expect((await owner.send('PATCH', `/dtr/${d19!.id}`, { ...fixed, reason: 'Arrived 14:05' })).status).toBe(200);
+    expect((await mine()).map((e) => e.id).sort()).toEqual([open!.id, d19!.id].sort());
+    await owner.send('PATCH', `/dtr/${open!.id}`, { ...shift(daysAgo(18)), reason: 'Closing old entry' });
+  });
+});

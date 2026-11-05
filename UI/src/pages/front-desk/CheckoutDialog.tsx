@@ -48,7 +48,10 @@ function BundlePanel({ bundle }: { bundle: VoucherBundle }) {
   );
 }
 
-export function CheckoutDialog({ booking, onClose }: { booking: Booking; onClose: () => void }) {
+/** What checkout needs of a booking; the Day Close dialog passes one from an earlier day. */
+export type CheckoutBooking = Pick<Booking, 'id' | 'guestName' | 'serviceId' | 'serviceName' | 'therapistName'>;
+
+export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking; onClose: () => void }) {
   const canComp = useCan('sales.complimentary');
   const addons = useAddons();
   const save = useDayAction();

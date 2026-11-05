@@ -229,6 +229,44 @@ describe('Day Close', () => {
     expect((await desk.post('/bookings', { kind: 'walk_in', serviceId: 'thai-60' })).status).toBe(201);
   });
 
+  it('finishes and checks out guests left on an earlier day, then closes it', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t1 = await therapist(admin);
+    const t2 = await therapist(admin);
+    const doneGuest = await served(desk, t1, 'thai-60');
+    const { id: inService } = await json<{ id: string }>(await desk.post('/bookings', { kind: 'walk_in', serviceId: 'thai-60' }));
+    const s = await json<{ room: { roomId: number; flexMode: string | null } }>(await desk.get(`/bookings/${inService}/suggest`));
+    await desk.post(`/bookings/${inService}/start`, { therapistId: t2, roomId: s.room.roomId, flexMode: s.room.flexMode, overrideReason: 'test picks the therapist' });
+    const { id: waiting } = await json<{ id: string }>(await desk.post('/bookings', { kind: 'walk_in', serviceId: 'thai-60' }));
+    // The day was never closed and it is now the next morning.
+    const past = '2026-01-06';
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE business_days SET date = ?`).bind(past),
+      env.DB.prepare(`UPDATE bookings SET business_day = ?`).bind(past),
+    ]);
+
+    const preview = await json<Preview>(await desk.get(`/days/${past}/close-preview`));
+    expect(preview.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ bookingId: doneGuest, status: 'done', therapistName: expect.any(String) }),
+        expect.objectContaining({ bookingId: inService, status: 'in_service' }),
+        expect.objectContaining({ bookingId: waiting, status: 'waiting' }),
+      ]),
+    );
+
+    expect((await desk.post('/sales', { bookingId: doneGuest, payments: cash(50000) })).status).toBe(201);
+    expect((await desk.post(`/bookings/${inService}/done`)).status).toBe(200);
+    expect((await desk.post('/sales', { bookingId: inService, payments: cash(50000) })).status).toBe(201);
+    expect((await desk.post(`/bookings/${waiting}/cancel`, { reason: 'Left without service' })).status).toBe(200);
+
+    // The sales count toward the day they were served, and that day now closes.
+    const { sales } = await json<{ sales: unknown[] }>(await admin.get(`/sales?day=${past}`));
+    expect(sales).toHaveLength(2);
+    expect((await desk.post(`/days/${past}/close`, { countedCash: 100000 })).status).toBe(200);
+    expect((await desk.post('/bookings', { kind: 'walk_in', serviceId: 'thai-60' })).status).toBe(201);
+  });
+
   it('lets the Super Admin log out with the day open', async () => {
     const desk = await loggedIn('receptionist');
     await desk.post('/bookings', { kind: 'walk_in', serviceId: 'thai-60' });

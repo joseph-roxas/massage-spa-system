@@ -1,8 +1,8 @@
 import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
-import { sessions, users } from '@spa/db';
+import { dtr, sessions, staff, users } from '@spa/db';
 import type { AppEnv, AuthedEnv, SessionUser } from '../env';
 import { nowIso } from '../lib/time';
 
@@ -56,6 +56,13 @@ export async function readSession(
     .get();
   const u = row?.user;
   if (!u || u.status !== 'active' || !u.role) return null;
+  // The Reliever Login works only while someone is clocked in on a Relief Shift (ADR 0005).
+  let actingAs: SessionUser['actingAs'];
+  if (u.role === 'reliever') {
+    const relieving = await openRelief(c.var.db);
+    if (!relieving) return null;
+    actingAs = relieving;
+  }
   return {
     tokenHash,
     user: {
@@ -65,8 +72,22 @@ export async function readSession(
       email: u.email,
       role: u.role,
       mustChangePassword: u.mustChangePassword,
+      ...(actingAs ? { actingAs } : {}),
     },
   };
+}
+
+/** Who is clocked in on a Relief Shift right now, latest first. */
+export async function openRelief(db: DrizzleD1Database) {
+  return (
+    (await db
+      .select({ staffId: staff.id, displayName: staff.displayName })
+      .from(dtr)
+      .innerJoin(staff, eq(staff.id, dtr.staffId))
+      .where(and(eq(dtr.isRelief, true), isNull(dtr.clockOut)))
+      .orderBy(desc(dtr.clockIn))
+      .get()) ?? null
+  );
 }
 
 export async function endSession(c: Context<AuthedEnv>): Promise<void> {

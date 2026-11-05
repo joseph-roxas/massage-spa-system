@@ -50,7 +50,8 @@ export async function frontDeskState(db: DrizzleD1Database, day: string, now: st
     }));
 
   const rotation = computeRotation(
-    therapists.map((t) => ({ staffId: t.id, shifts: entries.filter((e) => e.staffId === t.id) })),
+    // A Therapist on a Relief Shift is running the front desk, not in the Rotation.
+    therapists.map((t) => ({ staffId: t.id, shifts: entries.filter((e) => e.staffId === t.id && !e.isRelief) })),
     turns,
   );
 
@@ -64,7 +65,10 @@ export async function frontDeskState(db: DrizzleD1Database, day: string, now: st
     if (span) heldSpans.set(b.requestedTherapistId, [...(heldSpans.get(b.requestedTherapistId) ?? []), span]);
   }
 
-  return { therapists, rotation, next: nextInRotation(rotation), dayBookings, rooms: allRooms, occupiedRoomIds, heldSpans };
+  // Who is running the front desk on a Relief Shift right now.
+  const relieving = entries.filter((e) => e.isRelief && !e.clockOut).map((e) => e.staffId);
+
+  return { therapists, rotation, next: nextInRotation(rotation), dayBookings, rooms: allRooms, occupiedRoomIds, heldSpans, relieving };
 }
 
 /** A therapist's Bookings that could clash with a new one: held for them by request, or in progress. */

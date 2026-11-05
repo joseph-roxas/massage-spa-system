@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 
-export type PayrollKind = 'therapist' | 'receptionist';
+/** `reliever`: an Outside Reliever on long cover, paid weekly. */
+export type PayrollKind = 'therapist' | 'receptionist' | 'reliever';
 export type PayrollStatus = 'draft' | 'approved' | 'released';
 export type PayWeek = { start: string; end: string };
 
@@ -34,7 +35,7 @@ export type Payroll = {
 /** The reason is sent to the Super Admin only. */
 export type Adjustment = { id: string; label: string; amount: number; reason?: string };
 
-export type EarningKey = 'commission' | 'holidayExtra' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
+export type EarningKey = 'commission' | 'holidayExtra' | 'reliefPay' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
 export type DeductionKey = 'late' | 'undertime' | 'sss' | 'phic' | 'pagibig' | 'ca';
 export type PayLines = {
   earnings: Record<EarningKey, number>;
@@ -49,6 +50,7 @@ export const EARNING_LINES: Record<PayrollKind, [EarningKey, string][]> = {
   therapist: [
     ['commission', 'Commission'],
     ['holidayExtra', 'Holiday Commission (extra)'],
+    ['reliefPay', 'Relief pay (front desk)'],
     ['adjustments', 'Adjustments'],
   ],
   receptionist: [
@@ -56,6 +58,12 @@ export const EARNING_LINES: Record<PayrollKind, [EarningKey, string][]> = {
     ['restDayPremium', 'Rest Day premium'],
     ['holidayPremium', 'Holiday premium (worked)'],
     ['holidayUnworked', 'Holiday pay (not worked)'],
+    ['overtime', 'Overtime'],
+    ['adjustments', 'Adjustments'],
+  ],
+  reliever: [
+    ['basic', 'Basic pay (Minimum Wage Rate)'],
+    ['holidayPremium', 'Holiday premium (worked)'],
     ['overtime', 'Overtime'],
     ['adjustments', 'Adjustments'],
   ],
@@ -75,9 +83,13 @@ export const DEDUCTION_LINES: Record<PayrollKind, [DeductionKey, string][]> = {
     ['pagibig', 'Pag-IBIG'],
     ['ca', 'Cash Advance'],
   ],
+  reliever: [
+    ['late', 'Late'],
+    ['undertime', 'Undertime'],
+  ],
 };
 
-export type TherapistDay = { date: string; services: number; commission: number; holidayExtra?: number };
+export type TherapistDay = { date: string; services: number; commission: number; holidayExtra?: number; reliefPay?: number };
 export type DayKind = 'ordinary' | 'restDay' | 'special' | 'specialOnRestDay' | 'regular' | 'regularOnRestDay';
 export type ReceptionistDay = {
   date: string;

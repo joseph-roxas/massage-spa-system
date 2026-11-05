@@ -45,6 +45,8 @@ function BatchForm({ day, onDone }: { day: string; onDone: () => void }) {
   const [staffId, setStaffId] = useState('');
   const [reason, setReason] = useState('');
   const [rows, setRows] = useState<BatchRow[]>([{ day, inAt: '14:00', outAt: '23:00', reason: '' }]);
+  const [isRelief, setRelief] = useState(false);
+  const kind = staff.data?.staff.find((s) => s.id === staffId)?.kind;
   const problems = change.error instanceof ApiError ? ((change.error.body.problems as { index: number; message: string }[] | undefined) ?? []) : [];
   const setRow = (i: number, r: Partial<BatchRow>) => setRows((all) => all.map((x, j) => (j === i ? { ...x, ...r } : x)));
   const choices = staff.data?.staff.filter((s) => s.kind === 'therapist' || canFixReceptionist) ?? [];
@@ -53,7 +55,7 @@ function BatchForm({ day, onDone }: { day: string; onDone: () => void }) {
   function submit(e: FormEvent) {
     e.preventDefault();
     change.mutate(
-      { path: '/dtr/batch', method: 'POST', body: { staffId, reason, rows: rows.map((r) => ({ ...rowTimes(r), ...(r.reason.trim() ? { reason: r.reason } : {}) })) } },
+      { path: '/dtr/batch', method: 'POST', body: { staffId, reason, isRelief, rows: rows.map((r) => ({ ...rowTimes(r), ...(r.reason.trim() ? { reason: r.reason } : {}) })) } },
       { onSuccess: onDone },
     );
   }
@@ -117,6 +119,7 @@ function BatchForm({ day, onDone }: { day: string; onDone: () => void }) {
         </tbody>
       </table>
       <p className="text-xs text-stone-500">A time out earlier than the time in is after midnight. Leave Out blank only if they are still here.</p>
+      {kind === 'therapist' && <Checkbox label="Relief Shifts: ran the front desk on these days" checked={isRelief} onChange={(e) => setRelief(e.target.checked)} />}
       <div className="flex gap-2">
         <Button type="button" variant="secondary" disabled={rows.length >= 14} onClick={() => setRows((all) => [...all, { ...last, day: nextDay(last.day), reason: '' }])}>
           + Another day
@@ -221,7 +224,7 @@ function ReviewTab() {
   );
 }
 
-type Draft = { staffId: string; clockIn: string; clockOut: string; reason: string };
+type Draft = { staffId: string; clockIn: string; clockOut: string; reason: string; isRelief: boolean };
 
 function EntryForm({ entry, day, onDone }: { entry?: DtrEntry; day: string; onDone: () => void }) {
   const staff = useClockStaff();
@@ -231,13 +234,15 @@ function EntryForm({ entry, day, onDone }: { entry?: DtrEntry; day: string; onDo
     clockIn: entry ? toLocalInput(entry.clockIn) : `${day}T14:00`,
     clockOut: entry?.clockOut ? toLocalInput(entry.clockOut) : '',
     reason: '',
+    isRelief: entry?.isRelief ?? false,
   });
   const change = useDtrChange();
-  const set = <K extends keyof Draft>(k: K, v: string) => setD((x) => ({ ...x, [k]: v }));
+  const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
+  const kind = entry?.kind ?? staff.data?.staff.find((s) => s.id === d.staffId)?.kind;
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const body = { clockIn: fromLocalInput(d.clockIn), clockOut: d.clockOut ? fromLocalInput(d.clockOut) : null, reason: d.reason };
+    const body = { clockIn: fromLocalInput(d.clockIn), clockOut: d.clockOut ? fromLocalInput(d.clockOut) : null, reason: d.reason, isRelief: d.isRelief };
     change.mutate(
       entry
         ? { path: `/dtr/${entry.id}`, method: 'PATCH', body }
@@ -276,6 +281,9 @@ function EntryForm({ entry, day, onDone }: { entry?: DtrEntry; day: string; onDo
           <Input required minLength={3} value={d.reason} onChange={(e) => set('reason', e.target.value)} />
         </Field>
       </div>
+      {kind === 'therapist' && (
+        <Checkbox label="Relief Shift: ran the front desk (paid the Minimum Wage Rate, out of the Rotation)" checked={d.isRelief} onChange={(e) => set('isRelief', e.target.checked)} />
+      )}
       <div className="flex gap-2">
         <Button type="submit" disabled={change.isPending}>{entry ? 'Save correction' : 'Add entry'}</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
@@ -300,7 +308,15 @@ function EntryRow({ entry, day }: { entry: DtrEntry; day: string }) {
     <tr>
       <td className={td}>
         <p className="font-medium">{entry.displayName}</p>
-        <p className="text-xs text-stone-500">{entry.kind === 'receptionist' ? 'Receptionist' : 'Therapist'}</p>
+        <p className="text-xs text-stone-500">
+          {entry.kind === 'receptionist' ? 'Receptionist' : entry.kind === 'reliever' ? 'Outside Reliever' : 'Therapist'}
+          {entry.isRelief && (
+            <>
+              {' '}
+              <Badge tone="teal">Relief</Badge>
+            </>
+          )}
+        </p>
       </td>
       <td className={`${td} whitespace-nowrap tabular-nums`}>{manilaTime(entry.clockIn)}</td>
       <td className={`${td} whitespace-nowrap tabular-nums`}>{entry.clockOut ? manilaTime(entry.clockOut) : <Badge tone="teal">Still in</Badge>}</td>

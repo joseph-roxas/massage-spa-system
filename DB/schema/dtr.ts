@@ -1,4 +1,4 @@
-import { index, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { staff } from './staff';
 
 export const DTR_SOURCES = ['pin', 'manual'] as const;
@@ -23,6 +23,10 @@ export const dtr = sqliteTable(
     correctedBy: text('corrected_by'),
     correctedAt: text('corrected_at'),
     correctionReason: text('correction_reason'),
+    /** A Relief Shift: this time was spent running the front desk, paid at the Minimum Wage Rate. */
+    isRelief: integer('is_relief', { mode: 'boolean' }).notNull().default(false),
+    /** An Outside Reliever's relief time paid in cash when the Receptionist returned. */
+    reliefPaidAt: text('relief_paid_at'),
     /** The Super Admin's DTR Review tick; cleared whenever the entry changes again. */
     reviewedAt: text('reviewed_at'),
     reviewedBy: text('reviewed_by'),

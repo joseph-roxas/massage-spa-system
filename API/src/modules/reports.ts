@@ -44,7 +44,7 @@ import { requireAuth } from '../auth/middleware';
 type Db = DrizzleD1Database;
 type Range = { from: string; to: string };
 
-const CASH_OUT_LABELS: Record<string, string> = { petty_cash: 'Petty cash', laundry: 'Laundry', supplies: 'Supplies', food: 'Food / rice', transport: 'Transport', other: 'Other' };
+const CASH_OUT_LABELS: Record<string, string> = { relief_pay: 'Relief pay', petty_cash: 'Petty cash', laundry: 'Laundry', supplies: 'Supplies', food: 'Food / rice', transport: 'Transport', other: 'Other' };
 
 const col = (key: string, label: string, type: Column['type'] = 'text'): Column => ({ key, label, type });
 const n = (v: unknown) => Number(v ?? 0);
@@ -298,7 +298,7 @@ async function payroll(db: Db, r: Range): Promise<Report> {
   const rows = rows0.map(({ p, name }) => ({
     week: p.weekStart,
     name,
-    kind: p.kind === 'therapist' ? 'Therapist' : 'Receptionist',
+    kind: p.kind === 'therapist' ? 'Therapist' : p.kind === 'reliever' ? 'Outside Reliever' : 'Receptionist',
     status: STATUS[p.status],
     gross: p.gross,
     gov: p.govSss + p.govPhic + p.govPagibig,

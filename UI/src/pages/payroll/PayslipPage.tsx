@@ -204,7 +204,7 @@ export function PayslipSheet({ payroll: p, week, children }: { payroll: Payroll 
           <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Payslip</p>
           <h1 className="text-xl font-semibold">{p.fullName}</h1>
           <p className="text-sm text-stone-600">
-            {p.kind === 'receptionist' ? 'Receptionist' : p.therapistClass === 'lmt' ? 'Licensed Massage Therapist' : 'Therapist'} · Pay Week{' '}
+            {p.kind === 'receptionist' ? 'Receptionist' : p.kind === 'reliever' ? 'Outside Reliever' : p.therapistClass === 'lmt' ? 'Licensed Massage Therapist' : 'Therapist'} · Pay Week{' '}
             {longDate(week.start)} – {longDate(week.end)}
           </p>
           {p.kind === 'receptionist' && (

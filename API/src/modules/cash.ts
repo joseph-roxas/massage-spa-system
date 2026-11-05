@@ -55,13 +55,20 @@ export const cashRoutes = new Hono<AuthedEnv>()
       db.select().from(cashTransfers).where(and(eq(cashTransfers.kind, 'handover'), isNull(cashTransfers.confirmedAt))).orderBy(desc(cashTransfers.createdAt)),
     ]);
     const payrollReleased = weekPayrolls.length > 0 && weekPayrolls.every((p) => p.status === 'released');
-    const reminder = handoverReminder({ salesCash: now.amount, payrollReleased: payrollReleased && !handedThisWeek, laundryPaid: !!laundry });
+    // A Reliever hands over all Sales Cash at the end of every Relief Shift, without the Payroll and Laundry rule.
+    const relief = c.var.user.role === 'reliever';
+    const reminder = relief
+      ? now.amount > 0
+        ? 'hand_over'
+        : 'none'
+      : handoverReminder({ salesCash: now.amount, payrollReleased: payrollReleased && !handedThisWeek, laundryPaid: !!laundry });
     return c.json({
       day: now.day,
       salesCash: now.amount,
       pettyCash: petty,
       topUpDue: isTopUpDay(today) ? topUpNeeded(petty) : 0,
       reminder,
+      relief,
       payWeek: lastWeek,
       payrollReleased,
       laundryPaid: !!laundry,

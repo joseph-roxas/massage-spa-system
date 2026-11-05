@@ -591,6 +591,7 @@ Every decision here was confirmed with the owner on 2026-11-05 (four grilling ro
    - Outside, `weekly`: their own weekly Payroll (new `payrolls.kind` value `reliever`), same flow as the Receptionist's.
 4. **Reliever Login**: one shared User with a new role `reliever`. Login is refused unless someone has an open relief DTR entry; every action under it is credited to that Reliever in the audit log ("Reliever Login (Marites)"). Capabilities: the Receptionist's minus Payroll generate/release (and minus `payroll.view_own`); Cash Handover included.
 5. **Reliever Cash Handover**: after each Relief Shift's Day Close, the Front Desk asks the Reliever to record a Cash Handover of all Sales Cash in the shop (Petty Cash stays at ₱800), without the Payroll/Laundry reminder rule. The Super Admin confirms with **Received** as today.
+6. **As built** (migration 0023): `dtr.isRelief`/`reliefPaidAt`, `staff.reliefPay`, kinds/roles/payroll kind `reliever`, Cash-out category `relief_pay`, and `audit_log.acting_staff_id` filled by a trigger (ADR 0005). Relief pay is `reliefDay` in the domain; a cover of 5 hours or less takes no meal break (owner to confirm). `GET/POST /relief-pay` pays short-cover Outside Relievers from Sales Cash; the Front Desk prompt shows whenever one is owed (not only right after the Receptionist clocks in). The Reliever Login session ends when no relief entry is open. Not checked in the browser: logging in with the Reliever Login, the long-cover payroll screen. API tests: 113.
 
 **13.8 Paper Payslips**
 

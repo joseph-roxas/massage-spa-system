@@ -24,6 +24,8 @@ const punchBody = z.object({
   staffId: z.string().min(1),
   pin: z.string().regex(/^\d{4}$/),
   action: z.enum(['in', 'out']),
+  /** A Therapist clocking in to run the front desk: a Relief Shift. An Outside Reliever's clock-ins always are. */
+  relief: z.boolean().default(false),
 });
 
 const entryBody = z.object({
@@ -31,6 +33,8 @@ const entryBody = z.object({
   clockIn: instant,
   clockOut: instant.nullable(),
   reason,
+  /** A Relief Shift (front desk) rather than therapist time. */
+  isRelief: z.boolean().optional(),
 });
 
 const editBody = entryBody.omit({ staffId: true });
@@ -39,6 +43,8 @@ const editBody = entryBody.omit({ staffId: true });
 const batchBody = z.object({
   staffId: z.string().min(1),
   reason,
+  /** Every row is a Relief Shift. */
+  isRelief: z.boolean().optional(),
   rows: z
     .array(z.object({ clockIn: instant, clockOut: instant.nullable(), reason: reason.optional() }))
     .min(1)
@@ -58,10 +64,13 @@ export async function dtrToReviewCount(db: AuthedEnv['Variables']['db']): Promis
   return Number(row?.n ?? 0);
 }
 
-/** Who may correct whose DTR: the Receptionist can't edit her own kind's records. */
-function correctionCapability(kind: 'therapist' | 'receptionist'): Capability {
+/** Who may correct whose DTR: the Receptionist corrects Therapists; the Super Admin everyone, Outside Relievers included. */
+function correctionCapability(kind: 'therapist' | 'receptionist' | 'reliever'): Capability {
   return kind === 'therapist' ? 'dtr.correct.therapist' : 'dtr.correct.receptionist';
 }
+
+/** An Outside Reliever's time is always a Relief Shift; a Therapist's when marked so; the Receptionist's never. */
+const reliefFor = (kind: 'therapist' | 'receptionist' | 'reliever', marked: boolean | undefined) => kind === 'reliever' || (kind === 'therapist' && !!marked);
 
 /** Problems with a proposed entry, checked against the person's other entries. */
 async function entryProblem(
@@ -123,7 +132,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         .from(staff)
         .where(eq(staff.active, true))
         .orderBy(asc(staff.kind), asc(staff.displayName)),
-      db.select({ staffId: dtr.staffId, clockIn: dtr.clockIn }).from(dtr).where(isNull(dtr.clockOut)),
+      db.select({ staffId: dtr.staffId, clockIn: dtr.clockIn, isRelief: dtr.isRelief }).from(dtr).where(isNull(dtr.clockOut)),
       db.select({ name: holidays.name, type: holidays.type }).from(holidays).where(eq(holidays.date, day)).get(),
     ]);
     return c.json({
@@ -132,11 +141,12 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         ...p,
         hasPin: pinHash !== null,
         clockedInAt: open.find((o) => o.staffId === p.id)?.clockIn ?? null,
+        relieving: open.find((o) => o.staffId === p.id)?.isRelief ?? false,
       })),
     });
   })
   .post('/clock/punch', zValidator('json', punchBody, invalidInput), async (c) => {
-    const { staffId, pin, action } = c.req.valid('json');
+    const { staffId, pin, action, relief } = c.req.valid('json');
     const db = c.var.db;
     const person = await db.select().from(staff).where(eq(staff.id, staffId)).get();
     if (!person || !person.active) return fail(c, 404, 'not_found', 'Staff member not found.');
@@ -188,6 +198,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
           clockIn: now,
           source: 'pin',
           createdAt: now,
+          isRelief: person.kind === 'reliever' || (person.kind === 'therapist' && relief),
         }),
       ]);
     } else {
@@ -224,6 +235,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         source: dtr.source,
         correctedAt: dtr.correctedAt,
         correctionReason: dtr.correctionReason,
+        isRelief: dtr.isRelief,
       })
       .from(dtr)
       .innerJoin(staff, eq(staff.id, dtr.staffId))
@@ -254,6 +266,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
       correctedBy: c.var.user.id,
       correctedAt: now,
       correctionReason: input.reason,
+      isRelief: reliefFor(person.kind, input.isRelief),
     };
     await db.batch([
       db.insert(dtr).values(entry),
@@ -296,6 +309,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
       correctedBy: c.var.user.id,
       correctedAt: now,
       correctionReason: row.reason || input.reason,
+      isRelief: reliefFor(person.kind, input.isRelief),
     }));
     await db.batch([
       auditInsert(db, { actorUserId: c.var.user.id, action: 'dtr.add_batch', entity: 'staff', entityId: input.staffId, after: entries, reason: input.reason }),
@@ -362,6 +376,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
       correctedBy: c.var.user.id,
       correctedAt: nowIso(),
       correctionReason: input.reason,
+      ...(input.isRelief !== undefined ? { isRelief: reliefFor(row.kind, input.isRelief) } : {}),
       // Changed again: back on the DTR Review list.
       reviewedAt: null,
       reviewedBy: null,

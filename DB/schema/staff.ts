@@ -1,7 +1,10 @@
 import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { users } from './users';
 
-export const STAFF_KINDS = ['therapist', 'receptionist'] as const;
+/** An Outside Reliever is sent by headquarters to cover the front desk; known only by name and PIN. */
+export const STAFF_KINDS = ['therapist', 'receptionist', 'reliever'] as const;
+/** When an Outside Reliever is paid: in cash when the Receptionist returns, or by weekly Payroll (long cover). */
+export const RELIEF_PAY = ['on_return', 'weekly'] as const;
 export const THERAPIST_CLASSES = ['regular', 'lmt'] as const;
 export const GENDERS = ['female', 'male'] as const;
 export const CIVIL_STATUSES = ['single', 'married', 'widowed', 'separated'] as const;
@@ -23,6 +26,8 @@ export const staff = sqliteTable('staff', {
   therapistClass: text('therapist_class', { enum: THERAPIST_CLASSES }),
   /** On-call Therapists are paid daily with no Government Deductions or Cash Advances. */
   isOnCall: integer('is_on_call', { mode: 'boolean' }).notNull().default(false),
+  /** Outside Reliever only. */
+  reliefPay: text('relief_pay', { enum: RELIEF_PAY }),
   /** Receptionist only, centavos. */
   dailyRate: integer('daily_rate'),
   /** Receptionist only: the standing CA Repayment taken from each Payroll, centavos. */

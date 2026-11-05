@@ -244,6 +244,7 @@ export const dayRoutes = new Hono<AuthedEnv>()
     if (!row) return fail(c, 404, 'not_found', 'Cash-out not found.');
     if (row.category === 'on_call_commission') return fail(c, 409, 'on_call_pay', 'On-call pay is recorded by Day Close.');
     if (row.category === 'cash_advance') return fail(c, 409, 'cash_advance', 'Remove the Cash Advance itself instead.');
+    if (row.category === 'relief_pay') return fail(c, 409, 'relief_pay', 'Relief pay is recorded from the Front Desk prompt. Ask the Super Admin to correct it.');
     const stocked = await db.select({ id: stockIns.id }).from(stockIns).where(eq(stockIns.cashOutId, row.id)).get();
     if (stocked) return fail(c, 409, 'inventory_purchase', 'This paid for an inventory purchase. Ask the Super Admin to correct it.');
     const blocked = await requireOpenDay(c, row.businessDay);

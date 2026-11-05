@@ -6,12 +6,13 @@ import { usePayRules, useSave, useStaff, type Certificate, type Qualification, t
 import { api } from '../../lib/api';
 import { longDate, parsePesos, peso, pesosText, todayManila } from '../../lib/format';
 
-type Role = 'regular' | 'lmt' | 'receptionist';
+type Role = 'regular' | 'lmt' | 'receptionist' | 'reliever';
 
 const ROLE_LABEL: Record<Role, string> = {
   regular: 'Regular Therapist',
   lmt: 'Licensed Massage Therapist',
   receptionist: 'Receptionist',
+  reliever: 'Outside Reliever',
 };
 
 const QUALIFICATION_LABEL: Record<Qualification, string> = {
@@ -23,7 +24,7 @@ const QUALIFICATION_LABEL: Record<Qualification, string> = {
 
 const CERT_LABEL = { nc2: 'TESDA NC-II', doh: 'DOH licence' } as const;
 
-const roleOf = (s: StaffMember): Role => (s.kind === 'receptionist' ? 'receptionist' : (s.therapistClass ?? 'regular'));
+const roleOf = (s: StaffMember): Role => (s.kind === 'therapist' ? (s.therapistClass ?? 'regular') : s.kind);
 
 type Draft = {
   lastName: string;
@@ -47,6 +48,7 @@ type Draft = {
   isOnCall: boolean;
   dailyRate: string;
   userId: string;
+  reliefPay: 'on_return' | 'weekly';
   contributionBase: string;
   govSss: string;
   govPhic: string;
@@ -93,6 +95,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
     isOnCall: member?.isOnCall ?? false,
     dailyRate: member?.dailyRate != null ? pesosText(member.dailyRate) : '',
     userId: member?.userId ?? '',
+    reliefPay: member?.reliefPay ?? 'on_return',
     contributionBase: member?.contributionBase != null ? pesosText(member.contributionBase) : '',
     govSss: member ? pesosText(member.govSss) : '',
     govPhic: member ? pesosText(member.govPhic) : '',
@@ -107,6 +110,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
   );
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
   const isReceptionist = d.role === 'receptionist';
+  const isReliever = d.role === 'reliever';
   const rules = usePayRules();
   const logins = useQuery({
     queryKey: ['users', 'receptionist-logins'],
@@ -118,6 +122,20 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
   function submit(e: FormEvent) {
     e.preventDefault();
     if (d.role === 'lmt' && d.qualification !== 'doh') return setError('Only a DOH-licensed therapist can be a Licensed Massage Therapist.');
+    // An Outside Reliever needs only a name, when they are paid, and (afterwards) a PIN.
+    if (isReliever) {
+      const reliever: Record<string, unknown> = {
+        lastName: d.lastName,
+        firstName: d.firstName,
+        middleName: d.middleName,
+        displayName: d.displayName || d.firstName,
+        active: d.active,
+        reliefPay: d.reliefPay,
+      };
+      if (!member) Object.assign(reliever, { kind: 'reliever', therapistClass: null, isOnCall: false, dailyRate: null, govSss: 0, govPhic: 0, govPagibig: 0 });
+      setError(null);
+      return save.mutate(reliever, { onSuccess: onDone });
+    }
     const body: Record<string, unknown> = {
       lastName: d.lastName,
       firstName: d.firstName,
@@ -188,20 +206,28 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
         <Field label="Role">
           <Select
             value={d.role}
-            disabled={!!member && (member.kind === 'receptionist') !== isReceptionist}
+            disabled={!!member && member.kind !== 'therapist'}
             onChange={(e) => {
               const role = e.target.value as Role;
               setD((x) => ({ ...x, role, qualification: role === 'lmt' ? 'doh' : x.qualification }));
             }}
           >
-            {(member ? (member.kind === 'receptionist' ? ['receptionist'] : ['regular', 'lmt']) : ['regular', 'lmt', 'receptionist']).map((r) => (
+            {(member ? (member.kind === 'therapist' ? ['regular', 'lmt'] : [member.kind]) : ['regular', 'lmt', 'receptionist', 'reliever']).map((r) => (
               <option key={r} value={r}>
                 {ROLE_LABEL[r as Role]}
               </option>
             ))}
           </Select>
         </Field>
-        {!isReceptionist && (
+        {isReliever && (
+          <Field label="Paid" hint="Paid the Minimum Wage Rate, with no government deductions">
+            <Select value={d.reliefPay} onChange={(e) => set('reliefPay', e.target.value as Draft['reliefPay'])}>
+              <option value="on_return">In cash when the Receptionist returns (short cover)</option>
+              <option value="weekly">By weekly payroll (long cover)</option>
+            </Select>
+          </Field>
+        )}
+        {!isReceptionist && !isReliever && (
           <Field label="Qualification" hint={d.role === 'lmt' ? 'An LMT must be DOH-licensed' : undefined}>
             <Select value={d.qualification} onChange={(e) => set('qualification', e.target.value as Qualification | '')}>
               <option value="">—</option>
@@ -213,11 +239,15 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
             </Select>
           </Field>
         )}
-        <Field label="Hire date">
-          <Input type="date" required value={d.hireDate} onChange={(e) => set('hireDate', e.target.value)} />
-        </Field>
+        {!isReliever && (
+          <Field label="Hire date">
+            <Input type="date" required value={d.hireDate} onChange={(e) => set('hireDate', e.target.value)} />
+          </Field>
+        )}
       </div>
 
+      {!isReliever && (
+      <>
       <h4 className="pt-2 text-sm font-semibold text-stone-700">Personal record</h4>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Field label="Gender">
@@ -306,8 +336,10 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
           </>
         )}
       </div>
+      </>
+      )}
       <div className="flex flex-wrap gap-6">
-        {!isReceptionist && (
+        {!isReceptionist && !isReliever && (
           <Checkbox
             label="On-call (paid end of day, no deductions or cash advances)"
             checked={d.isOnCall}
@@ -443,7 +475,7 @@ function StaffRow({ member }: { member: StaffMember }) {
             ))}
           </div>
         </td>
-        <td className={`${td} tabular-nums`}>{member.dailyRate != null ? `${peso(member.dailyRate)}/day` : 'Commission'}</td>
+        <td className={`${td} tabular-nums`}>{member.dailyRate != null ? `${peso(member.dailyRate)}/day` : member.kind === 'reliever' ? (member.reliefPay === 'weekly' ? 'Minimum wage · weekly' : 'Minimum wage · on return') : 'Commission'}</td>
         <td className={`${td} text-xs tabular-nums text-stone-600`}>
           {member.isOnCall
             ? '—'

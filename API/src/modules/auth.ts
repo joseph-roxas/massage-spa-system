@@ -10,7 +10,7 @@ import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { requireAuth } from '../auth/middleware';
 import { DUMMY_HASH, hashPassword, MIN_PASSWORD_LENGTH, verifyPassword } from '../auth/password';
-import { endSession, startSession } from '../auth/session';
+import { endSession, openRelief, startSession } from '../auth/session';
 
 const email = z.string().trim().toLowerCase().pipe(z.email());
 const password = z.string().min(MIN_PASSWORD_LENGTH).max(200);
@@ -36,8 +36,8 @@ const authed = new Hono<AuthedEnv>()
   .use(requireAuth)
   .get('/me', (c) => c.json({ user: c.var.user }))
   .post('/logout', async (c) => {
-    // The Receptionist may not leave a Business Day open; the Super Admin may.
-    if (c.var.user.role === 'receptionist') {
+    // The Receptionist (and a Reliever) may not leave a Business Day open; the Super Admin may.
+    if (c.var.user.role === 'receptionist' || c.var.user.role === 'reliever') {
       const [open] = await openDays(c.var.db);
       if (open) return fail(c, 409, 'day_open', `Close the Business Day of ${open.date} before logging out.`);
     }
@@ -108,6 +108,9 @@ export const authRoutes = new Hono<AppEnv>()
     if (!user || !ok) return fail(c, 401, 'invalid_credentials', 'Email or password is incorrect.');
     if (user.status !== 'active') {
       return fail(c, 403, user.status, STATUS_MESSAGES[user.status]);
+    }
+    if (user.role === 'reliever' && !(await openRelief(c.var.db))) {
+      return fail(c, 403, 'no_relief_shift', 'The Reliever login works only during a Relief Shift. Clock in as relieving the front desk first.');
     }
     await startSession(c, user.id);
     return c.json({

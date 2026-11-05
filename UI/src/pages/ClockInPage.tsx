@@ -59,18 +59,24 @@ function BirthdayCard({ name, onClose }: { name: string; onClose: () => void }) 
 }
 
 const ROLE = (s: ClockStaff) =>
-  s.kind === 'receptionist' ? 'Receptionist' : `${s.therapistClass === 'lmt' ? 'LMT' : 'Therapist'}${s.isOnCall ? ' · On-call' : ''}`;
+  s.kind === 'receptionist'
+    ? 'Receptionist'
+    : s.kind === 'reliever'
+      ? 'Outside Reliever'
+      : `${s.therapistClass === 'lmt' ? 'LMT' : 'Therapist'}${s.isOnCall ? ' · On-call' : ''}`;
 
 function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () => void; onDone: (msg: string, birthdayName: string | null) => void }) {
   const [pin, setPin] = useState('');
   const punch = usePunch();
   const action = person.clockedInAt ? 'out' : 'in';
+  // A Therapist covering the front desk; an Outside Reliever always is.
+  const [relief, setRelief] = useState(false);
 
   // Submit as soon as the fourth digit is in.
   useEffect(() => {
     if (pin.length !== 4 || punch.isPending) return;
     punch.mutate(
-      { staffId: person.id, pin, action },
+      { staffId: person.id, pin, action, relief },
       {
         onSuccess: (r) =>
           onDone(
@@ -102,6 +108,12 @@ function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () =
       <div className="w-full max-w-xs rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <p className="text-center text-sm text-stone-500">{action === 'in' ? 'Clock in' : 'Clock out'}</p>
         <p className="text-center text-2xl font-semibold">{person.displayName}</p>
+        {action === 'in' && person.kind === 'therapist' && !person.isOnCall && (
+          <label className="mt-3 flex items-center justify-center gap-2 text-sm">
+            <input type="checkbox" checked={relief} onChange={(e) => setRelief(e.target.checked)} /> Relieving the front desk today
+          </label>
+        )}
+        {action === 'in' && person.kind === 'reliever' && <p className="mt-2 text-center text-sm text-teal-800">Relief Shift at the front desk</p>}
         <div className="my-5 flex justify-center gap-3" aria-label={`${pin.length} of 4 digits entered`}>
           {[0, 1, 2, 3].map((i) => (
             <span key={i} className={`h-4 w-4 rounded-full ${i < pin.length ? 'bg-teal-700' : 'bg-stone-200'}`} />
@@ -181,7 +193,7 @@ export function ClockInPage() {
             <p className="text-xl font-semibold">{p.displayName}</p>
             <p className="text-sm text-stone-500">{ROLE(p)}</p>
             <p className={`mt-3 text-sm font-medium ${p.clockedInAt ? 'text-teal-800' : 'text-stone-400'}`}>
-              {!p.hasPin ? 'No PIN set' : p.clockedInAt ? `In since ${manilaTime(p.clockedInAt)}` : 'Not clocked in'}
+              {!p.hasPin ? 'No PIN set' : p.clockedInAt ? `${p.relieving ? 'Relieving the front desk' : 'In'} since ${manilaTime(p.clockedInAt)}` : 'Not clocked in'}
             </p>
           </button>
         ))}

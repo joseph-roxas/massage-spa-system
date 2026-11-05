@@ -22,10 +22,8 @@ import {
   type Capability,
   type PayrollTotals,
   type PayWeek,
-  type Premiums,
   type ReceptionistDay,
   type ReceptionistRules,
-  type ShiftHours,
   type TherapistDay,
 } from '@spa/domain';
 import {
@@ -38,7 +36,6 @@ import {
   commissionRates,
   dtr,
   holidays,
-  payRules,
   payrollAdjustments,
   payrolls,
   PAYROLL_KINDS,
@@ -53,6 +50,7 @@ import { contributionRates, weeklyDeductions } from '../lib/contributions';
 import { currentTransferDay } from '../lib/sales-cash';
 import { nowIso } from '../lib/time';
 import { centavos, isoDate } from '../lib/validation';
+import { receptionistRules, reliefDays } from '../lib/relief';
 import { requireAuth, requireCapability } from '../auth/middleware';
 
 type Db = DrizzleD1Database;
@@ -65,17 +63,21 @@ const weekParam = z.object({ start: weekStart });
 const year = z.number().int().min(2020).max(2100);
 
 /** Who may see and prepare each kind of Payroll, and who approves it. */
-const PREPARE: Record<Kind, Capability> = { therapist: 'payroll.therapist.generate', receptionist: 'payroll.receptionist.manage' };
-const APPROVE: Record<Kind, Capability> = { therapist: 'payroll.therapist.approve', receptionist: 'payroll.receptionist.manage' };
-const ADVANCE: Record<Kind, Capability> = { therapist: 'cash_advance.therapist', receptionist: 'payroll.receptionist.manage' };
+const PREPARE: Record<Kind, Capability> = { therapist: 'payroll.therapist.generate', receptionist: 'payroll.receptionist.manage', reliever: 'payroll.receptionist.manage' };
+const APPROVE: Record<Kind, Capability> = { therapist: 'payroll.therapist.approve', receptionist: 'payroll.receptionist.manage', reliever: 'payroll.receptionist.manage' };
+// Outside Relievers take no Cash Advances; the entry is only there to complete the map.
+const ADVANCE: Record<Kind, Capability> = { therapist: 'cash_advance.therapist', receptionist: 'payroll.receptionist.manage', reliever: 'payroll.receptionist.manage' };
 
-const kindOf = (s: Staff): Kind => (s.kind === 'receptionist' ? 'receptionist' : 'therapist');
+const kindOf = (s: Staff): Kind => s.kind;
 const today = () => businessDayOf(new Date());
 
-async function receptionistRules(db: Db): Promise<ReceptionistRules> {
-  const rows = await db.select().from(payRules).where(inArray(payRules.key, ['receptionist_shift', 'receptionist_rest_weekday', 'receptionist_premiums']));
-  const get = (key: string) => JSON.parse(rows.find((r) => r.key === key)!.valueJson) as unknown;
-  return { shift: get('receptionist_shift') as ShiftHours, restWeekday: get('receptionist_rest_weekday') as number, premiums: get('receptionist_premiums') as Premiums };
+/** Relief pay per day for a person's closed Relief Shifts in a Pay Week. */
+async function reliefWeek(db: Db, person: Staff, week: PayWeek) {
+  const entries = await db
+    .select()
+    .from(dtr)
+    .where(and(eq(dtr.staffId, person.id), eq(dtr.isRelief, true), gte(dtr.businessDay, week.start), lte(dtr.businessDay, week.end)));
+  return reliefDays(db, entries);
 }
 
 /** Σ of the ledger: opening + advances − repayments. */
@@ -108,7 +110,7 @@ const sumOf = (rows: readonly { amount: number }[] | undefined) => (rows ?? []).
 
 /** A Therapist's week as it stands now, from sales, DTR and CAs taken against it. */
 async function therapistWeek(db: Db, person: Staff, week: PayWeek) {
-  const [sold, worked, advances, rates, commissionRows, adjustments] = await Promise.all([
+  const [sold, worked, advances, rates, commissionRows, adjustments, relief] = await Promise.all([
     db
       .select({ businessDay: sales.businessDay, amount: sales.commissionAmount, regularPrice: sales.regularPrice, isHoliday: sales.isHoliday })
       .from(sales)
@@ -121,6 +123,7 @@ async function therapistWeek(db: Db, person: Staff, week: PayWeek) {
     contributionRates(db),
     db.select().from(commissionRates),
     adjustmentsFor(db, week.start, [person.id]),
+    reliefWeek(db, person, week),
   ]);
   const taken = advances.reduce((s, a) => s + a.amount, 0);
   // What the Holiday rate added on top of the normal rate, for the Payslip.
@@ -136,6 +139,7 @@ async function therapistWeek(db: Db, person: Staff, week: PayWeek) {
     gov: weeklyDeductions(person, rates, week.end),
     cashAdvances: taken,
     adjustments: sumOf(adjustments.get(person.id)),
+    relief: relief.map((d) => ({ date: d.date, pay: d.total })),
   });
   return { pay, taken, advances };
 }
@@ -317,14 +321,32 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     if (unclosed) return fail(c, 409, 'day_open', `The Business Day of ${unclosed.date} is not closed yet. Close it first.`);
 
     const [people, existing] = await Promise.all([
-      db.select().from(staff).where(kind === 'receptionist' ? eq(staff.kind, 'receptionist') : and(eq(staff.kind, 'therapist'), eq(staff.isOnCall, false))),
+      db
+        .select()
+        .from(staff)
+        .where(
+          kind === 'therapist'
+            ? and(eq(staff.kind, 'therapist'), eq(staff.isOnCall, false))
+            : kind === 'reliever'
+              ? and(eq(staff.kind, 'reliever'), eq(staff.reliefPay, 'weekly'))
+              : eq(staff.kind, 'receptionist'),
+        ),
       db.select().from(payrolls).where(and(eq(payrolls.weekStart, week.start), eq(payrolls.kind, kind))),
     ]);
     const fixed = new Set(existing.filter((p) => p.status !== 'draft').map((p) => p.staffId));
     const now = nowIso();
     const rows: (typeof payrolls.$inferInsert)[] = [];
 
-    if (kind === 'therapist') {
+    if (kind === 'reliever') {
+      // Outside Relievers on long cover: Relief pay only, no Government Deductions or CAs.
+      const adjustments = await adjustmentsFor(db, week.start);
+      for (const person of people.filter((p) => !fixed.has(p.id))) {
+        const days = await reliefWeek(db, person, week);
+        if (!days.length) continue;
+        const { basic, ...pay } = receptionistPayroll({ days, gov: { sss: 0, phic: 0, pagibig: 0 }, caRepayment: 0, adjustments: sumOf(adjustments.get(person.id)) });
+        rows.push({ id: crypto.randomUUID(), weekStart: week.start, staffId: person.id, kind, ...pay, basic, breakdownJson: JSON.stringify(days), generatedAt: now, generatedBy: c.var.user.id });
+      }
+    } else if (kind === 'therapist') {
       for (const person of people.filter((p) => !fixed.has(p.id))) {
         const { pay, taken } = await therapistWeek(db, person, week);
         if (!pay.gross && !taken && pay.govSss === 0) continue; // nothing happened this week
@@ -487,7 +509,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     const kinds = PAYROLL_KINDS.filter((k) => can(c.var.user.role, ADVANCE[k]));
     if (!kinds.length) return fail(c, 403, 'forbidden', 'You do not have access to this.');
     const db = c.var.db;
-    const people = (await db.select().from(staff).where(eq(staff.isOnCall, false)).orderBy(asc(staff.displayName))).filter((p) => kinds.includes(kindOf(p)));
+    const people = (await db.select().from(staff).where(eq(staff.isOnCall, false)).orderBy(asc(staff.displayName))).filter((p) => p.kind !== 'reliever' && kinds.includes(kindOf(p)));
     const balances = await caBalances(db);
     const out = [];
     for (const p of people) {
@@ -521,6 +543,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     const kind = kindOf(person);
     if (!can(c.var.user.role, ADVANCE[kind])) return fail(c, 403, 'forbidden', 'You do not have access to this.');
     if (person.isOnCall) return fail(c, 409, 'on_call', 'On-call Therapists are paid daily and cannot take a Cash Advance.');
+    if (person.kind === 'reliever') return fail(c, 409, 'reliever', 'Outside Relievers cannot take a Cash Advance.');
 
     let against: string | null = null;
     let overrideBy: string | null = null;

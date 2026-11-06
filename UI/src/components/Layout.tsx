@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { ApiError } from '../lib/api';
+import { BrandMark } from './Brand';
 import { can, type Capability, type Role } from '@spa/domain';
 import { ROLE_LABELS, useCurrentUser, useLogout } from '../lib/auth';
 import { useAttention } from '../lib/attention';
@@ -55,11 +56,11 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen bg-stone-100 text-stone-800">
-      <aside className="flex w-60 shrink-0 print:hidden flex-col border-r border-stone-200 bg-white">
+      <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-stone-200 bg-white print:hidden">
         <div className="px-5 py-5">
-          <p className="text-sm font-semibold uppercase tracking-widest text-teal-700">Spa System</p>
+          <BrandMark />
         </div>
-        <nav className="flex-1 space-y-1 px-3">
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3">
           {NAV.filter((n) => (!n.capability || can(user.role, n.capability)) && n.hideFor !== user.role).map((n) => (
             <NavLink
               key={n.to}
@@ -85,7 +86,7 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="border-t border-stone-200 p-4">
+        <div className="shrink-0 border-t border-stone-200 p-4">
           <p className="text-sm font-medium">
             {user.firstName} {user.lastName}
           </p>

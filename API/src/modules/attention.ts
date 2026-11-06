@@ -3,6 +3,7 @@ import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { businessDayOf, certificateStatus, previousQuarter, quarterOf } from '@spa/domain';
 import { cashTransfers, certificates, expenses, staff, takeoutRequests, turnovers } from '@spa/db';
 import { dtrToReviewCount } from './attendance';
+import { handoverState } from '../lib/sales-cash';
 import type { AuthedEnv } from '../env';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { quarterStatus } from './finance';
@@ -16,13 +17,16 @@ export type AttentionItem = {
   link: string;
 };
 
+/** A Cash Handover due this long reaches the Super Admin as urgent. */
+const HANDOVER_OVERDUE_HOURS = 24;
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Everything waiting on the Super Admin, most urgent first; each item links to where it is acted on. */
 export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAuth, requireCapability('settings.manage'), async (c) => {
   const db = c.var.db;
   const today = businessDayOf(new Date());
-  const [requests, shortfalls, handovers, people, certs, drafts, tax, dtrToReview] = await Promise.all([
+  const [requests, shortfalls, handovers, people, certs, drafts, tax, dtrToReview, cash] = await Promise.all([
     db.select({ id: takeoutRequests.id, level: takeoutRequests.level }).from(takeoutRequests).where(isNull(takeoutRequests.resolvedAt)),
     db
       .select({ id: turnovers.id })
@@ -34,6 +38,7 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
     db.select({ n: sql<number>`count(*)` }).from(expenses).where(eq(expenses.status, 'pending')).get(),
     quarterStatus(db, previousQuarter(quarterOf(today))),
     dtrToReviewCount(db),
+    handoverState(db, today),
   ]);
 
   const items: AttentionItem[] = [];
@@ -45,6 +50,18 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
       title: `File 2551Q for ${tax.quarter}`,
       detail: `₱${(tax.tax / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })} · ${tax.daysLeft < 0 ? `${-tax.daysLeft} days late` : tax.daysLeft === 0 ? 'due today' : `due in ${plural(tax.daysLeft, 'day')}`}`,
       link: '/finance',
+    });
+  }
+
+  const hoursDue = cash.dueSince ? Math.floor((Date.now() - new Date(cash.dueSince).getTime()) / 3_600_000) : 0;
+  if (hoursDue >= HANDOVER_OVERDUE_HOURS) {
+    const days = Math.floor(hoursDue / 24);
+    items.push({
+      key: 'handover-overdue',
+      tone: 'urgent',
+      title: 'Sales cash not handed over',
+      detail: `₱${(cash.now.amount / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })} at the shop · due for ${plural(days, 'day')}`,
+      link: '/cash',
     });
   }
 

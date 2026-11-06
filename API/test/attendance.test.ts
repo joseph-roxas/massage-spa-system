@@ -253,10 +253,10 @@ describe('DTR batch entry and DTR Review', () => {
     expect((await mine()).map((e) => e.id)).toEqual([open!.id]);
     expect((await json<Review>(await owner.get('/dtr/review?all=1'))).entries.filter((e) => e.staffId === t)).toHaveLength(3);
 
-    // Changed again: back on the list.
+    // The Super Admin's own correction stands as Reviewed.
     const fixed = shift(daysAgo(19), '14:05', '23:00');
     expect((await owner.send('PATCH', `/dtr/${d19!.id}`, { ...fixed, reason: 'Arrived 14:05' })).status).toBe(200);
-    expect((await mine()).map((e) => e.id).sort()).toEqual([open!.id, d19!.id].sort());
+    expect((await mine()).map((e) => e.id)).toEqual([open!.id]);
     await owner.send('PATCH', `/dtr/${open!.id}`, { ...shift(daysAgo(18)), reason: 'Closing old entry' });
   });
 });

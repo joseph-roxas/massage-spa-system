@@ -2,13 +2,13 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
-import { businessDayOf, handoverReminder, isTopUpDay, lastCompletedPayWeek, payWeekOf, topUpNeeded } from '@spa/domain';
-import { cashOuts, cashTransfers, payrolls, users } from '@spa/db';
+import { businessDayOf, isTopUpDay, topUpNeeded } from '@spa/domain';
+import { cashTransfers, users } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { requireOpenDay } from '../lib/business-days';
 import { fail, invalidInput } from '../lib/http';
-import { currentTransferDay, pettyCashNow, salesCashNow } from '../lib/sales-cash';
+import { currentTransferDay, handoverState, pettyCashNow, salesCashNow } from '../lib/sales-cash';
 import { nowIso } from '../lib/time';
 import { centavos, isoDate, todayInManila } from '../lib/validation';
 import { requireAuth, requireCapability } from '../auth/middleware';
@@ -35,43 +35,27 @@ export const cashRoutes = new Hono<AuthedEnv>()
   .get('/cash/summary', async (c) => {
     const db = c.var.db;
     const today = businessDayOf(new Date());
-    const week = payWeekOf(today);
-    const lastWeek = lastCompletedPayWeek(today);
-    const [now, petty, weekPayrolls, laundry, lastHandover, handedThisWeek, waiting] = await Promise.all([
-      salesCashNow(db),
+    const [state, petty, lastHandover, waiting] = await Promise.all([
+      handoverState(db, today),
       pettyCashNow(db),
-      db.select({ status: payrolls.status }).from(payrolls).where(eq(payrolls.weekStart, lastWeek.start)),
-      db
-        .select({ id: cashOuts.id })
-        .from(cashOuts)
-        .where(and(eq(cashOuts.category, 'laundry'), gte(cashOuts.businessDay, week.start)))
-        .get(),
       db.select().from(cashTransfers).where(eq(cashTransfers.kind, 'handover')).orderBy(desc(cashTransfers.createdAt)).get(),
-      db
-        .select({ id: cashTransfers.id })
-        .from(cashTransfers)
-        .where(and(eq(cashTransfers.kind, 'handover'), gte(cashTransfers.businessDay, week.start)))
-        .get(),
       db.select().from(cashTransfers).where(and(eq(cashTransfers.kind, 'handover'), isNull(cashTransfers.confirmedAt))).orderBy(desc(cashTransfers.createdAt)),
     ]);
-    const payrollReleased = weekPayrolls.length > 0 && weekPayrolls.every((p) => p.status === 'released');
+    const { now } = state;
     // A Reliever hands over all Sales Cash at the end of every Relief Shift, without the Payroll and Laundry rule.
     const relief = c.var.user.role === 'reliever';
-    const reminder = relief
-      ? now.amount > 0
-        ? 'hand_over'
-        : 'none'
-      : handoverReminder({ salesCash: now.amount, payrollReleased: payrollReleased && !handedThisWeek, laundryPaid: !!laundry });
+    const reminder = relief ? (now.amount > 0 ? 'hand_over' : 'none') : state.reminder;
     return c.json({
       day: now.day,
       salesCash: now.amount,
       pettyCash: petty,
       topUpDue: isTopUpDay(today) ? topUpNeeded(petty) : 0,
       reminder,
+      dueSince: relief ? null : state.dueSince,
       relief,
-      payWeek: lastWeek,
-      payrollReleased,
-      laundryPaid: !!laundry,
+      payWeek: state.lastWeek,
+      payrollReleased: state.payrollReleased,
+      laundryPaid: state.laundryPaid,
       lastHandover: lastHandover ?? null,
       waiting,
     });

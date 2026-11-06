@@ -2,12 +2,13 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 import type { PaymentLine } from './sales';
 
-export type VoucherStatus = 'in_shop' | 'unused' | 'redeemed' | 'voided';
+export type VoucherStatus = 'in_shop' | 'unused' | 'redeemed' | 'used_before_golive' | 'voided';
 
 export const VOUCHER_STATUS_LABELS: Record<VoucherStatus, string> = {
   in_shop: 'In shop, not sold',
   unused: 'Sold, unused',
   redeemed: 'Used',
+  used_before_golive: 'Used before go-live',
   voided: 'Cancelled',
 };
 
@@ -21,6 +22,8 @@ export type Voucher = {
   status: VoucherStatus;
   imported: boolean;
   redeemedAt: string | null;
+  usedBeforeOn: string | null;
+  usedBeforeNote: string | null;
   buyerName: string | null;
   soldOn: string | null;
   voidReason: string | null;

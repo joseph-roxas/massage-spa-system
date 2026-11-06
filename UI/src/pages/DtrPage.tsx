@@ -138,6 +138,54 @@ function BatchForm({ day, onDone }: { day: string; onDone: () => void }) {
 
 type ReviewEntry = DtrEntry & { reviewedAt: string | null };
 
+/** One flagged entry; the Super Admin can tick it, or correct or remove it on the spot. */
+function ReviewRow({ entry: e, picked, onPick, act }: { entry: ReviewEntry; picked: boolean; onPick: (on: boolean) => void; act: ReturnType<typeof useDtrChange> }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <tr>
+        <td colSpan={7} className="py-2">
+          <EntryForm entry={e} day={e.businessDay} onDone={() => setEditing(false)} />
+        </td>
+      </tr>
+    );
+  }
+  return (
+    <tr>
+      <td className={td}>
+        {e.reviewedAt ? <Badge>Reviewed</Badge> : <input type="checkbox" aria-label={`Pick ${e.displayName} on ${e.businessDay}`} checked={picked} onChange={(ev) => onPick(ev.target.checked)} />}
+      </td>
+      <td className={`${td} whitespace-nowrap`}>{longDate(e.businessDay)}</td>
+      <td className={td}>{e.displayName}</td>
+      <td className={`${td} whitespace-nowrap tabular-nums`}>{manilaTime(e.clockIn)}</td>
+      <td className={`${td} whitespace-nowrap tabular-nums`}>{e.clockOut ? manilaTime(e.clockOut) : <Badge tone="red">No clock-out</Badge>}</td>
+      <td className={td}>
+        {e.correctedAt ? (
+          <>
+            <Badge tone="amber">{e.source === 'manual' ? 'Added by hand' : 'Corrected'}</Badge>
+            <span className="ml-2 text-xs text-stone-500">{e.correctionReason}</span>
+          </>
+        ) : (
+          <span className="text-xs text-stone-500">Never clocked out</span>
+        )}
+      </td>
+      <td className={`${td} whitespace-nowrap text-right`}>
+        <Button variant="secondary" className="h-8 px-3" onClick={() => setEditing(true)}>Edit</Button>{' '}
+        <Button
+          variant="danger"
+          className="h-8 px-3"
+          onClick={() => {
+            const reason = prompt(`Why remove ${e.displayName}'s entry?`);
+            if (reason && reason.trim().length >= 3) act.mutate({ path: `/dtr/${e.id}`, method: 'DELETE', body: { reason } });
+          }}
+        >
+          Remove
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
 /** The Super Admin's DTR Review: entries added by hand, corrected or never clocked out, whatever their date. */
 function ReviewTab() {
   const [all, setAll] = useState(false);
@@ -163,7 +211,7 @@ function ReviewTab() {
         </div>
       }
     >
-      <p className="mb-4 text-sm text-stone-500">Entries added by hand, corrected, or never clocked out on an earlier day. An entry changed again comes back here.</p>
+      <p className="mb-4 text-sm text-stone-500">Entries added by hand, corrected, or never clocked out on an earlier day. Edit one here and your version stands: it counts as reviewed, and the receptionist can no longer change it.</p>
       {problem && <Alert>{problem.message}</Alert>}
       {entries.length === 0 ? (
         <p className="text-sm text-stone-500">Nothing to review.</p>
@@ -184,38 +232,12 @@ function ReviewTab() {
               <th className={th}>In</th>
               <th className={th}>Out</th>
               <th className={th}>Why</th>
+              <th className={th} />
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
             {entries.map((e) => (
-              <tr key={e.id}>
-                <td className={td}>
-                  {e.reviewedAt ? (
-                    <Badge>Reviewed</Badge>
-                  ) : (
-                    <input
-                      type="checkbox"
-                      aria-label={`Pick ${e.displayName} on ${e.businessDay}`}
-                      checked={picked.includes(e.id)}
-                      onChange={(ev) => setPicked((p) => (ev.target.checked ? [...p, e.id] : p.filter((x) => x !== e.id)))}
-                    />
-                  )}
-                </td>
-                <td className={`${td} whitespace-nowrap`}>{longDate(e.businessDay)}</td>
-                <td className={td}>{e.displayName}</td>
-                <td className={`${td} whitespace-nowrap tabular-nums`}>{manilaTime(e.clockIn)}</td>
-                <td className={`${td} whitespace-nowrap tabular-nums`}>{e.clockOut ? manilaTime(e.clockOut) : <Badge tone="red">No clock-out</Badge>}</td>
-                <td className={td}>
-                  {e.correctedAt ? (
-                    <>
-                      <Badge tone="amber">{e.source === 'manual' ? 'Added by hand' : 'Corrected'}</Badge>
-                      <span className="ml-2 text-xs text-stone-500">{e.correctionReason}</span>
-                    </>
-                  ) : (
-                    <span className="text-xs text-stone-500">Open that day under By day to fix it</span>
-                  )}
-                </td>
-              </tr>
+              <ReviewRow key={e.id} entry={e} picked={picked.includes(e.id)} onPick={(on) => setPicked((p) => (on ? [...p, e.id] : p.filter((x) => x !== e.id)))} act={mark} />
             ))}
           </tbody>
         </table>
@@ -332,6 +354,7 @@ function EntryRow({ entry, day }: { entry: DtrEntry; day: string }) {
         )}
       </td>
       <td className={`${td} whitespace-nowrap text-right`}>
+        {entry.lockedAs && <Badge>{entry.lockedAs === 'corrected' ? 'Corrected by the owner' : 'Checked by the owner'}</Badge>}
         {entry.canEdit && (
           <>
             <Button variant="secondary" className="h-8 px-3" onClick={() => setEditing(true)}>Correct</Button>{' '}

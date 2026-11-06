@@ -41,6 +41,8 @@ export type DtrEntry = {
   correctedAt: string | null;
   correctionReason: string | null;
   canEdit: boolean;
+  /** The Super Admin has settled this entry, so the desk can't change it. */
+  lockedAs?: 'corrected' | 'checked' | null;
   /** A Relief Shift: front-desk time paid at the Minimum Wage Rate. */
   isRelief?: boolean;
 };

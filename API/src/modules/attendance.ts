@@ -1,9 +1,9 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { businessDayOf, can, isBirthday, payWeekOf, type Capability } from '@spa/domain';
-import { dtr, holidays, sales, staff } from '@spa/db';
+import { dtr, holidays, payrolls, sales, staff } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { frontDeskState } from '../lib/front-desk';
@@ -67,6 +67,26 @@ export async function dtrToReviewCount(db: AuthedEnv['Variables']['db']): Promis
 /** Who may correct whose DTR: the Receptionist corrects Therapists; the Super Admin everyone, Outside Relievers included. */
 function correctionCapability(kind: 'therapist' | 'receptionist' | 'reliever'): Capability {
   return kind === 'therapist' ? 'dtr.correct.therapist' : 'dtr.correct.receptionist';
+}
+
+/** The Super Admin's word on a time record is final: what they enter counts as Reviewed. */
+const isOwner = (c: Context<AuthedEnv>) => can(c.var.user.role, 'dtr.correct.receptionist');
+const reviewStamp = (c: Context<AuthedEnv>, now: string) => (isOwner(c) ? { reviewedAt: now, reviewedBy: c.var.user.id } : { reviewedAt: null, reviewedBy: null });
+
+/** A reviewed entry is the Super Admin's to change. Returns the error response, or null to go ahead. */
+function lockedForDesk(c: Context<AuthedEnv>, entry: { reviewedAt: string | null }): Response | null {
+  return entry.reviewedAt && !isOwner(c) ? fail(c, 409, 'dtr_locked', 'The owner has already checked this entry. Ask them to change it.') : null;
+}
+
+/** Time in a Pay Week whose Payroll is approved or released can't change, or the record and the Payslip disagree. */
+async function payrollLocked(c: Context<AuthedEnv>, staffId: string, days: string[]): Promise<Response | null> {
+  const weeks = [...new Set(days.map((d) => payWeekOf(d).start))];
+  const fixed = await c.var.db
+    .select({ weekStart: payrolls.weekStart })
+    .from(payrolls)
+    .where(and(eq(payrolls.staffId, staffId), inArray(payrolls.weekStart, weeks), ne(payrolls.status, 'draft')))
+    .get();
+  return fixed ? fail(c, 409, 'payroll_locked', `The Payroll for the week of ${fixed.weekStart} is already approved. Send it back to draft first.`) : null;
 }
 
 /** An Outside Reliever's time is always a Relief Shift; a Therapist's when marked so; the Receptionist's never. */
@@ -234,14 +254,27 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         clockOut: dtr.clockOut,
         source: dtr.source,
         correctedAt: dtr.correctedAt,
+        correctedBy: dtr.correctedBy,
         correctionReason: dtr.correctionReason,
         isRelief: dtr.isRelief,
+        reviewedAt: dtr.reviewedAt,
+        reviewedBy: dtr.reviewedBy,
       })
       .from(dtr)
       .innerJoin(staff, eq(staff.id, dtr.staffId))
       .where(eq(dtr.businessDay, day))
       .orderBy(asc(dtr.clockIn));
-    return c.json({ day, entries: rows.map((r) => ({ ...r, canEdit: can(c.var.user.role, correctionCapability(r.kind)) })) });
+    return c.json({
+      day,
+      entries: rows.map(({ correctedBy, reviewedBy, ...r }) => {
+        const locked = !!r.reviewedAt && !isOwner(c);
+        return {
+          ...r,
+          canEdit: can(c.var.user.role, correctionCapability(r.kind)) && !locked,
+          lockedAs: !locked ? null : correctedBy === reviewedBy ? 'corrected' : 'checked',
+        };
+      }),
+    });
   })
   .post('/dtr', zValidator('json', entryBody, invalidInput), async (c) => {
     const input = c.req.valid('json');
@@ -253,6 +286,8 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     }
     const problem = await entryProblem(c, input.staffId, input.clockIn, input.clockOut);
     if (problem) return fail(c, 400, 'invalid_entry', problem);
+    const blocked = await payrollLocked(c, input.staffId, [businessDayOf(new Date(input.clockIn))]);
+    if (blocked) return blocked;
     const id = crypto.randomUUID();
     const now = nowIso();
     const entry = {
@@ -267,6 +302,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
       correctedAt: now,
       correctionReason: input.reason,
       isRelief: reliefFor(person.kind, input.isRelief),
+      ...reviewStamp(c, now),
     };
     await db.batch([
       db.insert(dtr).values(entry),
@@ -297,6 +333,8 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     if (problems.length) {
       return c.json({ error: 'invalid_rows', message: `${problems.length === 1 ? 'A row needs' : `${problems.length} rows need`} fixing; nothing was saved.`, problems }, 400);
     }
+    const blocked = await payrollLocked(c, input.staffId, input.rows.map((r) => businessDayOf(new Date(r.clockIn))));
+    if (blocked) return blocked;
     const now = nowIso();
     const entries = input.rows.map((row) => ({
       id: crypto.randomUUID(),
@@ -310,6 +348,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
       correctedAt: now,
       correctionReason: row.reason || input.reason,
       isRelief: reliefFor(person.kind, input.isRelief),
+      ...reviewStamp(c, now),
     }));
     await db.batch([
       auditInsert(db, { actorUserId: c.var.user.id, action: 'dtr.add_batch', entity: 'staff', entityId: input.staffId, after: entries, reason: input.reason }),
@@ -333,6 +372,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         source: dtr.source,
         correctedAt: dtr.correctedAt,
         correctionReason: dtr.correctionReason,
+        isRelief: dtr.isRelief,
         reviewedAt: dtr.reviewedAt,
       })
       .from(dtr)
@@ -366,20 +406,25 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     if (!can(c.var.user.role, correctionCapability(row.kind))) {
       return fail(c, 403, 'forbidden', 'You cannot change this person’s time record.');
     }
+    const locked = lockedForDesk(c, row.entry);
+    if (locked) return locked;
     const input = c.req.valid('json');
     const problem = await entryProblem(c, row.entry.staffId, input.clockIn, input.clockOut, id);
     if (problem) return fail(c, 400, 'invalid_entry', problem);
+    const businessDay = businessDayOf(new Date(input.clockIn));
+    const blocked = await payrollLocked(c, row.entry.staffId, [row.entry.businessDay, businessDay]);
+    if (blocked) return blocked;
+    const now = nowIso();
     const changes = {
       clockIn: input.clockIn,
       clockOut: input.clockOut,
-      businessDay: businessDayOf(new Date(input.clockIn)),
+      businessDay,
       correctedBy: c.var.user.id,
-      correctedAt: nowIso(),
+      correctedAt: now,
       correctionReason: input.reason,
       ...(input.isRelief !== undefined ? { isRelief: reliefFor(row.kind, input.isRelief) } : {}),
-      // Changed again: back on the DTR Review list.
-      reviewedAt: null,
-      reviewedBy: null,
+      // The Super Admin's own correction is Reviewed; anyone else's goes on the DTR Review list.
+      ...reviewStamp(c, now),
     };
     await db.batch([
       db.update(dtr).set(changes).where(eq(dtr.id, id)),
@@ -408,6 +453,10 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     if (!can(c.var.user.role, correctionCapability(row.kind))) {
       return fail(c, 403, 'forbidden', 'You cannot change this person’s time record.');
     }
+    const locked = lockedForDesk(c, row.entry);
+    if (locked) return locked;
+    const blocked = await payrollLocked(c, row.entry.staffId, [row.entry.businessDay]);
+    if (blocked) return blocked;
     const { reason: why } = c.req.valid('json');
     await db.batch([
       db.delete(dtr).where(eq(dtr.id, id)),

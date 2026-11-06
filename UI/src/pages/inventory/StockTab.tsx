@@ -359,7 +359,8 @@ export function StockTab() {
   const [sending, setSending] = useState<Item | 'any' | null>(null);
   const [buying, setBuying] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
-  const [kind, setKind] = useState<ItemKind | ''>('');
+  // The front desk mostly handles Consumables; the Super Admin sees everything.
+  const [kind, setKind] = useState<ItemKind | ''>(isAdmin ? '' : 'consumable');
   const [lowOnly, setLowOnly] = useState(false);
   const items = data?.items ?? [];
   const all = items.filter((i) => i.active || i.shop > 0 || i.storage > 0);

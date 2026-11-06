@@ -55,7 +55,7 @@ export function parseCardNumbers(text: string): number[] | string {
 
 export type VoucherForRedemption = {
   serviceId: string;
-  status: 'in_shop' | 'unused' | 'redeemed' | 'voided';
+  status: 'in_shop' | 'unused' | 'redeemed' | 'used_before_golive' | 'voided';
 };
 
 /** Why this Voucher can't pay for `serviceId`, or null if it can. */
@@ -63,6 +63,7 @@ export function redemptionProblem(voucher: VoucherForRedemption | null | undefin
   if (!voucher) return 'No voucher has that serial number.';
   if (voucher.status === 'in_shop') return 'This voucher card was never sold.';
   if (voucher.status === 'redeemed') return 'This voucher has already been used.';
+  if (voucher.status === 'used_before_golive') return 'This voucher was already used before the system started.';
   if (voucher.status === 'voided') return 'This voucher was cancelled.';
   if (voucher.serviceId !== serviceId) return 'This voucher is for a different service. Vouchers cannot be upgraded.';
   return null;

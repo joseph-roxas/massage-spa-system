@@ -1,5 +1,6 @@
 export * from './app-meta';
 export * from './audit-log';
+export * from './backfill';
 export * from './bookings';
 export * from './catalogue';
 export * from './days';

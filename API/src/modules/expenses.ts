@@ -19,6 +19,7 @@ import { cashOuts, expenseCategories, expenses, items, recurringExpenses, royalt
 import { contributionRates, contributionsOf } from '../lib/contributions';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
+import { summaryTotals } from '../lib/daily-summaries';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { basisPoints, centavos, isoDate, name } from '../lib/validation';
@@ -94,8 +95,9 @@ async function royaltyFigures(db: Db, m: Month) {
       .where(and(eq(voucherSales.status, 'paid'), gte(voucherSales.businessDay, start), lte(voucherSales.businessDay, end)))
       .get(),
   ]);
-  const serviceSales = Number(svc?.total ?? 0);
-  const voucher = Number(vouchers?.total ?? 0);
+  const past = await summaryTotals(db, start, end);
+  const serviceSales = Number(svc?.total ?? 0) + past.services;
+  const voucher = Number(vouchers?.total ?? 0) + past.voucher;
   return { start, end, serviceSales, voucherSales: voucher, grossSales: royaltyGross([serviceSales], [voucher]) };
 }
 
@@ -111,7 +113,7 @@ async function currentRoyaltyBp(db: Db) {
  */
 export async function draftRoyalty(db: Db, m: Month, actor: string | null, bp?: number) {
   const existing = await db.select().from(royaltyStatements).where(eq(royaltyStatements.month, m)).get();
-  if (existing?.status === 'confirmed') return null;
+  if (existing?.status === 'confirmed' || existing?.fixed) return null;
   const f = await royaltyFigures(db, m);
   const rate = bp ?? existing?.bp ?? (await currentRoyaltyBp(db));
   const statement = {
@@ -388,7 +390,7 @@ export const expenseRoutes = new Hono<AuthedEnv>()
     const m = c.req.valid('param').month;
     if (businessDayOf(new Date()) <= monthRange(m).end) return fail(c, 409, 'month_not_over', 'That month is not over yet.');
     const statement = await draftRoyalty(c.var.db, m, c.var.user.id, c.req.valid('json').bp);
-    if (!statement) return fail(c, 409, 'confirmed', 'This statement is already confirmed.');
+    if (!statement) return fail(c, 409, 'confirmed', 'This statement is confirmed or came from your records, so it can’t be recomputed.');
     return c.json({ statement });
   })
 

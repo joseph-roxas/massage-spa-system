@@ -158,6 +158,7 @@ export const usePayroll = (id: string) =>
 export type MyPay = {
   staff: { displayName: string; kind: 'therapist' | 'receptionist'; dailyRate: number | null; caRepayment: number } | null;
   payslips: { id: string; weekStart: string; net: number; releasedAt: string | null }[];
+  pastPayslips: { id: string; weekStart: string; weekEnd: string; paidOn: string | null; net: number }[];
   ca: {
     entries: { id: string; entry: 'opening' | 'advance' | 'repayment'; amount: number; date: string; weekStart: string | null }[];
     totalTaken: number;

@@ -270,7 +270,7 @@ describe('My Pay', () => {
     const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
 
     // Not linked yet: nothing to show.
-    expect(await json(await desk.get('/me/pay'))).toEqual({ staff: null, payslips: [], ca: null });
+    expect(await json(await desk.get('/me/pay'))).toEqual({ staff: null, payslips: [], pastPayslips: [], ca: null });
     // A login belongs to one staff member, and only a Receptionist login can be linked.
     expect((await admin.send('PATCH', `/settings/staff/${r}`, { userId: admin.id })).status).toBe(400);
     expect((await admin.send('PATCH', `/settings/staff/${r}`, { userId: desk.id })).status).toBe(200);

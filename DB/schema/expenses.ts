@@ -39,6 +39,8 @@ export const royaltyStatements = sqliteTable('royalty_statements', {
   grossSales: integer('gross_sales').notNull(),
   bp: integer('bp').notNull(),
   amount: integer('amount').notNull(),
+  /** Entered from the owner's records before Go-live: never recomputed. */
+  fixed: integer('fixed', { mode: 'boolean' }).notNull().default(false),
   status: text('status', { enum: ROYALTY_STATUSES }).notNull().default('draft'),
   computedAt: text('computed_at').notNull(),
   confirmedAt: text('confirmed_at'),
@@ -65,6 +67,8 @@ export const expenses = sqliteTable(
     royaltyMonth: text('royalty_month').references(() => royaltyStatements.month),
     /** YYYY-MM of an Employer Contributions draft, so each month gets one. */
     contributionsMonth: text('contributions_month'),
+    /** YYYY-MM it came from the backfill for, so re-uploading a month replaces it. */
+    backfillMonth: text('backfill_month'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by').references(() => users.id),
     confirmedAt: text('confirmed_at'),

@@ -43,6 +43,7 @@ import {
   staff,
 } from '@spa/db';
 import type { AuthedEnv } from '../env';
+import { pastPayslipsOf } from './backfill';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
 import { fail, invalidInput } from '../lib/http';
@@ -245,8 +246,8 @@ export const payrollRoutes = new Hono<AuthedEnv>()
   .get('/me/pay', async (c) => {
     const db = c.var.db;
     const person = await db.select().from(staff).where(eq(staff.userId, c.var.user.id)).get();
-    if (!person) return c.json({ staff: null, payslips: [], ca: null });
-    const [released, ledger, advances, balance] = await Promise.all([
+    if (!person) return c.json({ staff: null, payslips: [], pastPayslips: [], ca: null });
+    const [released, ledger, advances, balance, past] = await Promise.all([
       db
         .select({ id: payrolls.id, weekStart: payrolls.weekStart, net: payrolls.net, releasedAt: payrolls.releasedAt })
         .from(payrolls)
@@ -255,6 +256,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
       db.select().from(caLedger).where(eq(caLedger.staffId, person.id)).orderBy(asc(caLedger.createdAt)),
       db.select().from(cashAdvances).where(eq(cashAdvances.staffId, person.id)),
       caBalance(db, person.id),
+      pastPayslipsOf(db, person.id),
     ]);
     const weekOf = new Map(released.map((p) => [p.id, p.weekStart]));
     // Oldest first, as she would read a passbook.
@@ -269,6 +271,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     return c.json({
       staff: { displayName: person.displayName, kind: person.kind, dailyRate: person.dailyRate, caRepayment: person.caRepayment },
       payslips: released,
+      pastPayslips: past,
       ca: { entries, totalTaken: owed, totalRepaid: owed - balance, balance },
     });
   })

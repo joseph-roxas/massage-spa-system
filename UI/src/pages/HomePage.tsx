@@ -8,7 +8,7 @@ import { guestLabel, useBoard, useDeskAction, useReliefOwed, type Board, type Bo
 import { useDayAction } from '../lib/sales';
 import { AddServiceDialog } from './front-desk/AddServiceDialog';
 import { CheckoutDialog } from './front-desk/CheckoutDialog';
-import { CashReminder, HandoverDialog, NeedsAttention, TopUpDialog } from './front-desk/CashDialogs';
+import { CashReminder, HandoverDialog, TopUpDialog } from './front-desk/CashDialogs';
 import { CashOutDialog, DayCloseDialog, EarlyCloseDialog } from './front-desk/DayDialogs';
 import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 import { NewBookingDialog } from './front-desk/NewBookingDialog';
@@ -291,7 +291,6 @@ function FrontDeskBoard() {
   const { data: me } = useCurrentUser();
   // The Receptionist (or the owner) pays an Outside Reliever on her return; the Reliever does not pay themself.
   const canPayRelief = canCash && me?.role !== 'reliever';
-  const isOwner = useCan('settings.manage');
   // Arriving from a blocked logout opens Day Close straight away.
   const [params, setParams] = useSearchParams();
   const wantsClose = params.has('close');
@@ -342,7 +341,6 @@ function FrontDeskBoard() {
         </div>
       )}
       <DayBar board={board} open={setDayDialog} />
-      <NeedsAttention enabled={isOwner} />
       {done.error && <Alert>{done.error.message}</Alert>}
 
       <div className="grid grid-cols-[1fr_18rem] gap-6">

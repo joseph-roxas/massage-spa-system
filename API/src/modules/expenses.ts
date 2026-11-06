@@ -81,7 +81,7 @@ export async function draftRecurring(db: Db, m: Month, actor: string | null) {
   return missing.length;
 }
 
-async function royaltyFigures(db: Db, m: Month) {
+export async function royaltyFigures(db: Db, m: Month) {
   const { start, end } = monthRange(m);
   const [svc, vouchers] = await Promise.all([
     db
@@ -102,7 +102,7 @@ async function royaltyFigures(db: Db, m: Month) {
 }
 
 /** The last rate used, or 3%. */
-async function currentRoyaltyBp(db: Db) {
+export async function currentRoyaltyBp(db: Db) {
   const last = await db.select({ bp: royaltyStatements.bp }).from(royaltyStatements).orderBy(desc(royaltyStatements.month)).get();
   return last?.bp ?? DEFAULT_ROYALTY_BP;
 }

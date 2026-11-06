@@ -27,6 +27,7 @@ import { reliefRoutes } from './modules/relief';
 import { rejectRoutes } from './modules/rejects';
 import { brandingRoutes } from './modules/branding';
 import { backfillRoutes } from './modules/backfill';
+import { dashboardRoutes } from './modules/dashboard';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
 
@@ -67,6 +68,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/', cashRoutes)
     .route('/', financeRoutes)
     .route('/', attentionRoutes)
+    .route('/', dashboardRoutes)
     .route('/', guestRoutes)
     .route('/', deviceStatusRoutes)
     .route('/', deviceRoutes)

@@ -70,6 +70,10 @@ _Avoid_: Customer profile, client file
 **Visit**:
 A Business Day on which a Guest had at least one Booking checked out. Several Services that day are still one Visit; buying a Voucher, a no-show or a cancellation is not a Visit.
 
+**Reject**:
+A person the shop did not serve: no Therapist free in time, arrived too late, or refused a Service for safety, e.g. pregnancy or a medical condition. Not a Guest, since no Service happened.
+_Avoid_: Turned-away guest, lost customer
+
 **Regular**:
 A Guest with at least a set number of Visits in a recent window (by default 3 visits in 90 days), whether Walk-in or Scheduled.
 _Avoid_: Suki, loyal customer, VIP
@@ -131,12 +135,19 @@ The PC at the reception table, marked once by the Super Admin, whose login page 
 _Avoid_: Kiosk, terminal
 
 **DTR Review**:
-The Super Admin's check of every DTR entry added by hand, corrected, or still missing its clock-out, regardless of date, each marked Reviewed once checked.
+The Super Admin's check of every DTR entry added by hand, corrected, or still missing its clock-out, regardless of date. An entry is Reviewed once they tick it or correct it themselves; after that the Receptionist can no longer change it.
 _Avoid_: DTR audit, approval
+
+**Go-live**:
+The first real Business Day run on the system, Sunday 2026-11-08. Everything before it exists only as Daily Summaries and opening balances.
 
 **Business Day**:
 The span from opening (2:00pm) until that day's Day Close, even past midnight; all sales and DTR belong to it. Activity before 6:00am counts toward the previous day.
 _Avoid_: Calendar day
+
+**Daily Summary**:
+One day's totals from before Go-live, kept as a record of its own rather than as Sales. It has no Guests, Bookings or Service detail, and a day with real Sales cannot have one.
+_Avoid_: Historical sale, imported sale, legacy data
 
 **Early Close**:
 Closing the shop before 11:00pm, recorded with a reason; time lost to an Early Close is not Undertime.
@@ -178,6 +189,10 @@ _Avoid_: Voucher turnover, issuance
 **Redemption**:
 Using a Voucher for its exact Service, which marks its serial used; no upgrades or paying a difference.
 
+**Used Before Go-live**:
+A Voucher sold and used before Go-live, marked so by the Super Admin. It has no sale, no Commission and no FOC behind it, and it can no longer be redeemed.
+_Avoid_: Old redemption
+
 **Voucher Bundle**:
 Vouchers bought together for the same Service, where every five paid earn one free (5+1). The free ones are whichever of the Bundle's Vouchers are redeemed last, not a particular serial.
 
@@ -212,13 +227,20 @@ A Therapist's share of the Regular Price of each Service they perform (including
 A date the Super Admin flags as raising Therapist Commission rates (and triggering Receptionist holiday premium).
 
 **Pay Week**:
-Sunday through Saturday. Its Payroll is released the following week.
+Monday through Sunday for Therapists, Sunday through Saturday for the Receptionist. Its Payroll is released the following week.
+
+**Commission before Go-live**:
+A Therapist's Commission for the days of their first Pay Week before Go-live, entered by hand so that week's Payroll is complete.
 
 **Payroll**:
 The weekly computation of each staff member's pay for one Pay Week, net of Government Deductions and Cash Advance repayment.
 
 **Payslip**:
-One staff member's Payroll as they see it: coverage (Sunday–Saturday), what was earned and what was deducted, line by line. The Receptionist sees hers once released, with her Cash Advance history.
+One staff member's Payroll as they see it: coverage (their Pay Week), what was earned and what was deducted, line by line. The Receptionist sees hers once released, with her Cash Advance history.
+
+**Past Payslip**:
+A Receptionist's Payslip from before Go-live, kept exactly as it was paid and never recomputed. It is a record to read, not a Payroll.
+_Avoid_: Old payslip, imported payroll
 
 **Pay Breakdown**:
 The Super Admin's table of everyone's Payroll for one Pay Week, every earning and deduction in its own column, with the same lines as the Payslips.
@@ -235,7 +257,18 @@ A blank printed form for writing a Therapist's or the Receptionist's Payslip by 
 The current daily minimum wage in Cebu, set by the Super Admin; what a Reliever earns for a Relief Shift. Separate from the Receptionist's own daily rate, which is usually higher.
 
 **Government Deductions**:
-The employee share of SSS, PhilHealth (PHIC) and Pag-IBIG withheld each Pay Week, as a fixed amount per person.
+The employee share of SSS, PhilHealth (PHIC) and Pag-IBIG withheld each Pay Week. The shop remits the full amount every month whether or not it was withheld.
+
+**Not Enrolled**:
+A Therapist marked as having no government contributions: no Government Deductions, no Employer Contributions, and no missing-ID alert. The mark stays visible on their Staff record.
+_Avoid_: Exempt
+
+**Deferred Deductions**:
+Government Deductions a Therapist still owes because taking them would have left less than the Take-home Floor. Collected automatically from later Payrolls; whatever is left comes off the Year-end Bonus.
+_Avoid_: Carry-over, double deduction, missing deductions
+
+**Take-home Floor**:
+The least a Therapist should take home from a Payroll; Government Deductions stop there and the rest becomes Deferred Deductions. Set by the Super Admin, who alone can override it on a single Payroll.
 
 **Cash Advance (CA)**:
 Money given to a staff member ahead of Payroll and deducted from a later Payroll. A Therapist's CAs are capped at their unreleased net pay; the Receptionist repays her CA Repayment each Payroll against a running balance.
@@ -255,7 +288,7 @@ Receptionist time missing from the 2:00–11:00pm shift (late arrival or early l
 The Receptionist's weekly day off (Sunday); working it earns a Rest Day premium.
 
 **Year-end Bonus**:
-A Therapist's discretionary December payment: their total Commission for the year times a percentage chosen by the Super Admin.
+A Therapist's discretionary December payment: their total Commission since last year's cut-off times a percentage chosen by the Super Admin, less any Deferred Deductions. The Receptionist gets 13th Month Pay instead.
 _Avoid_: Therapist 13th month
 
 **13th Month Pay**:

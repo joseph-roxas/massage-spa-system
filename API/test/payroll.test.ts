@@ -12,6 +12,8 @@ type Week = { ended: boolean; unclosedDays: string[]; kinds: string[]; payrolls:
 
 const last = () => lastCompletedPayWeek(businessDayOf(new Date()));
 const lastDays = () => daysOf(last());
+const tw = () => lastCompletedPayWeek(businessDayOf(new Date()), 'therapist');
+const tDays = () => daysOf(tw());
 
 let n = 0;
 async function newStaff(admin: Client, fields: Record<string, unknown>): Promise<string> {
@@ -63,6 +65,11 @@ beforeEach(async () => {
   const w = last();
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM ca_ledger`),
+    env.DB.prepare(`DELETE FROM deduction_ledger`),
+    env.DB.prepare(`DELETE FROM past_therapist_weeks`),
+    // These tests are about the sums, not the floor or the go-live week.
+    env.DB.prepare(`UPDATE pay_rules SET value_json = '0' WHERE key = 'take_home_floor'`),
+    env.DB.prepare(`UPDATE pay_rules SET value_json = '"2020-01-05"' WHERE key = 'go_live_date'`),
     env.DB.prepare(`DELETE FROM cash_transfers`),
     env.DB.prepare(`DELETE FROM cash_advances`),
     env.DB.prepare(`DELETE FROM cash_outs`),
@@ -75,7 +82,7 @@ beforeEach(async () => {
     env.DB.prepare(`DELETE FROM dtr`),
     env.DB.prepare(`DELETE FROM business_days`),
     // Tests run on the real calendar; keep holidays out of the sample week.
-    env.DB.prepare(`DELETE FROM holidays WHERE date BETWEEN ? AND ?`).bind(w.start, w.end),
+    env.DB.prepare(`DELETE FROM holidays WHERE date BETWEEN ? AND ?`).bind(w.start, tw().end),
   ]);
 });
 
@@ -84,7 +91,7 @@ describe('therapist payroll', () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');
     const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
-    const [, mon, , wed] = lastDays();
+    const [, mon, , wed] = tDays();
     await pastSales(mon!, t, [15000, 15000]);
     await pastSales(wed!, t, [21000]);
     await punched(t, mon!, '14:00', '23:00');
@@ -92,7 +99,7 @@ describe('therapist payroll', () => {
 
     // Net so far: 510.00 − 202.50 government shares = 307.50.
     const { balances } = await json<{ balances: { staffId: string; cap: { cap: number; week: { start: string } } }[] }>(await desk.get('/cash-advances/balances'));
-    expect(balances.find((b) => b.staffId === t)!.cap).toMatchObject({ cap: 30750, week: { start: last().start } });
+    expect(balances.find((b) => b.staffId === t)!.cap).toMatchObject({ cap: 30750, week: { start: tw().start } });
     expect((await desk.post('/cash-advances', { staffId: t, amount: 20000 })).status).toBe(201);
     const over = await desk.post('/cash-advances', { staffId: t, amount: 20000 });
     expect(over.status).toBe(409);
@@ -104,9 +111,9 @@ describe('therapist payroll', () => {
     const { cashOuts } = await json<{ cashOuts: { category: string; amount: number; staffId: string }[] }>(await desk.get(`/cash-outs?day=${businessDayOf(new Date())}`));
     expect(cashOuts).toEqual([expect.objectContaining({ category: 'cash_advance', amount: 20000, staffId: t })]);
 
-    expect((await desk.post(`/payroll/weeks/${payWeekOf(businessDayOf(new Date())).start}/generate`, { kind: 'therapist' })).status).toBe(409);
-    expect((await desk.post(`/payroll/weeks/${last().start}/generate`, { kind: 'therapist' })).status).toBe(200);
-    const p = mine(await weekOf(desk), t);
+    expect((await desk.post(`/payroll/weeks/${payWeekOf(businessDayOf(new Date()), 'therapist').start}/generate`, { kind: 'therapist' })).status).toBe(409);
+    expect((await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' })).status).toBe(200);
+    const p = mine(await weekOf(desk, tw().start), t);
     expect(p).toMatchObject({ status: 'draft', gross: 51000, govSss: 10000, govPhic: 6250, govPagibig: 4000, caDeduction: 20000, net: 10750 });
 
     expect((await desk.post(`/payrolls/${p.id}/release`)).status).toBe(409);
@@ -121,41 +128,41 @@ describe('therapist payroll', () => {
     const after = await json<{ balances: { staffId: string; balance: number; cap: { week: { start: string } } }[] }>(await desk.get('/cash-advances/balances'));
     const mineNow = after.balances.find((b) => b.staffId === t)!;
     expect(mineNow.balance).toBe(0);
-    expect(mineNow.cap.week.start).toBe(payWeekOf(businessDayOf(new Date())).start);
+    expect(mineNow.cap.week.start).toBe(payWeekOf(businessDayOf(new Date()), 'therapist').start);
   });
 
   it('waits for every day of the week to be closed, and regenerates drafts with new CAs', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');
     const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'lmt', qualification: 'doh' });
-    const [, mon] = lastDays();
+    const [, mon] = tDays();
     await pastSales(mon!, t, [30000]);
     await env.DB.prepare(`UPDATE business_days SET closed_at = NULL WHERE date = ?`).bind(mon).run();
 
-    const open = await desk.post(`/payroll/weeks/${last().start}/generate`, { kind: 'therapist' });
+    const open = await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' });
     expect(open.status).toBe(409);
     expect((await json<{ message: string }>(open)).message).toMatch(/not closed/);
     await env.DB.prepare(`UPDATE business_days SET closed_at = ? WHERE date = ?`).bind(new Date().toISOString(), mon).run();
-    expect((await desk.post(`/payroll/weeks/${last().start}/generate`, { kind: 'therapist' })).status).toBe(200);
+    expect((await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' })).status).toBe(200);
 
     // A CA taken now goes into the existing draft at once, and removing it puts it back.
     const { id } = await json<{ id: string }>(await desk.post('/cash-advances', { staffId: t, amount: 5000 }));
-    expect(mine(await weekOf(desk), t)).toMatchObject({ caDeduction: 5000, net: 30000 - 20250 - 5000 });
+    expect(mine(await weekOf(desk, tw().start), t)).toMatchObject({ caDeduction: 5000, net: 30000 - 20250 - 5000 });
     const { cashOuts } = await json<{ cashOuts: { id: string }[] }>(await desk.get(`/cash-outs?day=${businessDayOf(new Date())}`));
     expect((await desk.send('DELETE', `/cash-outs/${cashOuts[0]!.id}`)).status).toBe(409);
     expect((await desk.send('DELETE', `/cash-advances/${id}`)).status).toBe(200);
-    expect(mine(await weekOf(desk), t)).toMatchObject({ caDeduction: 0, net: 9750 });
+    expect(mine(await weekOf(desk, tw().start), t)).toMatchObject({ caDeduction: 0, net: 9750 });
   });
 
   it('splits out Holiday Commission, and keeps Adjustment reasons from the Receptionist', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');
     const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
-    const [, mon] = lastDays();
+    const [, mon] = tDays();
     await pastSales(mon!, t, [25000]); // ₱500 Swedish at the 50% Holiday rate
     await env.DB.prepare(`UPDATE sales SET is_holiday = 1, commission_bp = 5000 WHERE therapist_id = ?`).bind(t).run();
-    await desk.post(`/payroll/weeks/${last().start}/generate`, { kind: 'therapist' });
-    const id = mine(await weekOf(desk), t).id;
+    await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' });
+    const id = mine(await weekOf(desk, tw().start), t).id;
 
     expect((await desk.post(`/payrolls/${id}/adjustments`, { label: 'Bonus', amount: 5000, reason: 'Covered the desk' })).status).toBe(403);
     expect((await admin.post(`/payrolls/${id}/adjustments`, { label: 'Bonus', amount: 5000, reason: 'Covered the desk' })).status).toBe(201);
@@ -313,7 +320,7 @@ describe('Year-end Bonus', () => {
   it('is the year’s Commission times the chosen percentage, kept once paid', async () => {
     const admin = await loggedIn('super_admin');
     const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
-    const [, mon] = lastDays();
+    const [, mon] = tDays();
     await pastSales(mon!, t, [30000, 21000]);
     const year = Number(mon!.slice(0, 4));
 

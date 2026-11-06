@@ -9,6 +9,7 @@ async function json<T>(res: Response): Promise<T> {
 
 const last = () => lastCompletedPayWeek(businessDayOf(new Date()));
 const lastDays = () => daysOf(last());
+const tw = () => lastCompletedPayWeek(businessDayOf(new Date()), 'therapist');
 
 let n = 0;
 async function newStaff(admin: Client, fields: Record<string, unknown>, pin = '1234'): Promise<string> {
@@ -23,6 +24,7 @@ async function newStaff(admin: Client, fields: Record<string, unknown>, pin = '1
 /** A closed day's DTR entry; `relief` marks a Relief Shift. */
 async function punched(staffId: string, day: string, inAt: string, outAt: string, relief = false) {
   const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE pay_rules SET value_json = '"2020-01-05"' WHERE key = 'go_live_date'`).run();
   await env.DB.batch([
     env.DB.prepare(`INSERT OR IGNORE INTO business_days (date, opened_at, closed_at) VALUES (?, ?, ?)`).bind(day, now, now),
     env.DB.prepare(`INSERT INTO dtr (id, staff_id, business_day, clock_in, clock_out, source, is_relief, created_at) VALUES (?, ?, ?, ?, ?, 'manual', ?, ?)`).bind(
@@ -48,7 +50,7 @@ beforeEach(async () => {
     env.DB.prepare(`DELETE FROM payroll_adjustments`),
     env.DB.prepare(`DELETE FROM payrolls`),
     env.DB.prepare(`DELETE FROM cash_outs`),
-    env.DB.prepare(`DELETE FROM holidays WHERE date BETWEEN ? AND ?`).bind(w.start, w.end),
+    env.DB.prepare(`DELETE FROM holidays WHERE date BETWEEN ? AND ?`).bind(w.start, tw().end),
   ]);
 });
 
@@ -68,12 +70,13 @@ describe('Relief Shifts', () => {
     await owner.post('/clock/punch', { staffId: other, pin: '1234', action: 'out' });
 
     // Last Sunday covered in full (ordinary rate, no Rest Day premium), Monday 14:00–17:00 only.
-    const [sun, mon] = lastDays();
+    const therapistDays = daysOf(tw());
+    const [mon, sun] = [therapistDays[0], therapistDays[6]];
     await punched(t, sun!, '14:00', '23:00', true);
     await punched(t, mon!, '14:00', '17:00', true);
     await punched(t, mon!, '17:00', '23:00');
-    await desk.post(`/payroll/weeks/${last().start}/generate`, { kind: 'therapist' });
-    const { payrolls } = await json<{ payrolls: { staffId: string; gross: number; lines: { earnings: Record<string, number> } }[] }>(await desk.get(`/payroll/weeks/${last().start}`));
+    await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' });
+    const { payrolls } = await json<{ payrolls: { staffId: string; gross: number; lines: { earnings: Record<string, number> } }[] }>(await desk.get(`/payroll/weeks/${tw().start}`));
     const p = payrolls.find((x) => x.staffId === t)!;
     // ₱582 + ₱582 × 180/480
     expect(p.lines.earnings).toMatchObject({ reliefPay: 58200 + 21825, commission: 0 });

@@ -39,6 +39,8 @@ export const staff = sqliteTable('staff', {
    * fixed weekly amounts below are used (records from before brackets).
    */
   contributionBase: integer('contribution_base'),
+  /** No government contributions at all: no deductions, no employer share, no missing-ID alert. */
+  notEnrolled: integer('not_enrolled', { mode: 'boolean' }).notNull().default(false),
   /** Weekly employee share, centavos. */
   govSss: integer('gov_sss').notNull().default(0),
   govPhic: integer('gov_phic').notNull().default(0),

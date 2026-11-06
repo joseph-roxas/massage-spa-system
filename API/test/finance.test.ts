@@ -70,7 +70,7 @@ describe('employer contributions', () => {
   it('deducts the monthly employee share over the Pay Weeks ending in the month', async () => {
     const admin = await loggedIn('super_admin');
     const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular', contributionBase: 800000, sssNo: IDS.sssNo });
-    const week = lastCompletedPayWeek(today());
+    const week = lastCompletedPayWeek(today(), 'therapist');
     const day = daysOf(week)[1]!;
     await sold(day, 50000, 15000);
     const now = new Date().toISOString();

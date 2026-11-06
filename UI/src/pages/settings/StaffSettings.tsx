@@ -50,6 +50,7 @@ type Draft = {
   userId: string;
   reliefPay: 'on_return' | 'weekly';
   contributionBase: string;
+  notEnrolled: boolean;
   govSss: string;
   govPhic: string;
   govPagibig: string;
@@ -97,6 +98,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
     userId: member?.userId ?? '',
     reliefPay: member?.reliefPay ?? 'on_return',
     contributionBase: member?.contributionBase != null ? pesosText(member.contributionBase) : '',
+    notEnrolled: member?.notEnrolled ?? false,
     govSss: member ? pesosText(member.govSss) : '',
     govPhic: member ? pesosText(member.govPhic) : '',
     govPagibig: member ? pesosText(member.govPagibig) : '',
@@ -156,6 +158,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
       qualification: isReceptionist ? null : d.qualification || null,
       active: d.active,
       isOnCall: isReceptionist ? false : d.isOnCall,
+      notEnrolled: d.notEnrolled,
       therapistClass: isReceptionist ? null : d.role,
     };
     if (!member) body.kind = isReceptionist ? 'receptionist' : 'therapist';
@@ -317,12 +320,17 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
         )}
         {!(d.isOnCall && !isReceptionist) && (
           <div className="col-span-2">
+            <Checkbox label="Not Enrolled: no SSS, PhilHealth or Pag-IBIG at all" checked={d.notEnrolled} onChange={(e) => set('notEnrolled', e.target.checked)} />
+          </div>
+        )}
+        {!(d.isOnCall && !isReceptionist) && !d.notEnrolled && (
+          <div className="col-span-2">
             <Field label="Monthly salary basis for SSS, PhilHealth, Pag-IBIG (₱)" hint={basisHint(d, rates)}>
               <Input inputMode="decimal" value={d.contributionBase} onChange={(e) => set('contributionBase', e.target.value)} placeholder="E.g. 8000" />
             </Field>
           </div>
         )}
-        {!(d.isOnCall && !isReceptionist) && d.contributionBase.trim() === '' && (
+        {!(d.isOnCall && !isReceptionist) && !d.notEnrolled && d.contributionBase.trim() === '' && (
           <>
             <Field label="SSS / week (₱)" hint={member ? 'Fixed amount, without a salary basis' : 'Blank = default'}>
               <Input inputMode="decimal" value={d.govSss} onChange={(e) => set('govSss', e.target.value)} />
@@ -468,6 +476,7 @@ function StaffRow({ member }: { member: StaffMember }) {
           {member.qualification && <span className="block text-xs text-stone-500">{QUALIFICATION_LABEL[member.qualification]}</span>}
           <div className="mt-1 flex flex-wrap gap-1">
             {member.isOnCall && <Badge tone="amber">On-call</Badge>}
+            {member.notEnrolled && <Badge tone="amber">Not Enrolled</Badge>}
             {!member.active && <Badge tone="red">Inactive</Badge>}
             {lmtLapsed && <Badge tone="red">LMT – licence expired</Badge>}
             {member.certificates.map((c) => (

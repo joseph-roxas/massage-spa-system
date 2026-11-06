@@ -25,6 +25,16 @@ export const payrolls = sqliteTable(
     govPhic: integer('gov_phic').notNull(),
     govPagibig: integer('gov_pagibig').notNull(),
     caDeduction: integer('ca_deduction').notNull(),
+    /** Therapists: this week's Government Deductions not taken, kept as Deferred Deductions. */
+    govDeferred: integer('gov_deferred').notNull().default(0),
+    /** Therapists: Deferred Deductions from earlier weeks collected now. */
+    govCollected: integer('gov_collected').notNull().default(0),
+    /** The Deferred Deductions balance this Payroll was computed from. */
+    govBalanceBefore: integer('gov_balance_before').notNull().default(0),
+    /** The Super Admin's own figure for what to take on this Payroll, instead of the Take-home Floor. */
+    govOverride: integer('gov_override'),
+    /** Commission for the days of this Pay Week before Go-live. */
+    commissionBefore: integer('commission_before').notNull().default(0),
     net: integer('net').notNull(),
     /** Receptionist basic pay (daily rate for paid minutes at 100%), the base for 13th Month Pay. */
     basic: integer('basic').notNull().default(0),
@@ -106,6 +116,26 @@ export const caLedger = sqliteTable(
     createdBy: text('created_by').references(() => users.id),
   },
   (t) => [index('ca_ledger_staff_idx').on(t.staffId)],
+);
+
+export const DEDUCTION_ENTRIES = ['opening', 'deferred', 'collected', 'bonus'] as const;
+
+/** What each Therapist still owes in Government Deductions: balance = opening + deferred − collected − bonus. */
+export const deductionLedger = sqliteTable(
+  'deduction_ledger',
+  {
+    id: text('id').primaryKey(),
+    staffId: text('staff_id')
+      .notNull()
+      .references(() => staff.id),
+    entry: text('entry', { enum: DEDUCTION_ENTRIES }).notNull(),
+    /** Centavos, always positive; `entry` gives the direction. */
+    amount: integer('amount').notNull(),
+    payrollId: text('payroll_id').references(() => payrolls.id),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by').references(() => users.id),
+  },
+  (t) => [index('deduction_ledger_staff_idx').on(t.staffId), index('deduction_ledger_payroll_idx').on(t.payrollId)],
 );
 
 export const BONUS_KINDS = ['year_end_bonus', 'thirteenth_month'] as const;

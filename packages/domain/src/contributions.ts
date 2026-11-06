@@ -54,12 +54,12 @@ export function monthlyContributions(salary: number, r: ContributionRates, ids: 
   return { sss, phic, pagibig, ee: (sss.ee + phic.ee + pagibig.ee) as Centavos, er: (sss.er + phic.er + pagibig.er) as Centavos };
 }
 
-/** The Saturdays of a month: each ends a Pay Week that belongs to that month. */
-export function payWeekEndsIn(month: string): IsoDate[] {
+/** The days a month's Pay Weeks end on, each belonging to that month: Saturdays, or Sundays for Therapists. */
+export function payWeekEndsIn(month: string, weekday = 6): IsoDate[] {
   const [y, m] = month.split('-').map(Number) as [number, number];
   const out: IsoDate[] = [];
   for (let d = new Date(Date.UTC(y, m - 1, 1)); d.getUTCMonth() === m - 1; d.setUTCDate(d.getUTCDate() + 1)) {
-    if (d.getUTCDay() === 6) out.push(d.toISOString().slice(0, 10));
+    if (d.getUTCDay() === weekday) out.push(d.toISOString().slice(0, 10));
   }
   return out;
 }
@@ -70,7 +70,7 @@ export function payWeekEndsIn(month: string): IsoDate[] {
  * month adds up exactly to what is remitted.
  */
 export function weeklyPart(monthly: number, weekEnd: IsoDate): Centavos {
-  const ends = payWeekEndsIn(weekEnd.slice(0, 7));
+  const ends = payWeekEndsIn(weekEnd.slice(0, 7), new Date(`${weekEnd}T00:00:00Z`).getUTCDay());
   const each = Math.floor(monthly / ends.length);
   return (ends.indexOf(weekEnd) === ends.length - 1 ? monthly - each * (ends.length - 1) : each) as Centavos;
 }

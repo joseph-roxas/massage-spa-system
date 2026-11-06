@@ -391,7 +391,7 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
 
 ### 14.0 Pick up here
 
-- **Current work is §16 (Phase 14, branch `cr-3`): 14.1–14.3 built, 14.4 next.** Phases 12 and 13 are merged to `main`.
+- **Current work is §16 (Phase 14, branch `cr-3`): 14.1–14.6 built, 14.7 next.** Phases 12 and 13 are merged to `main`.
 - **Phase 12 is done and waiting to be merged.** It is on branch `cr-1` (pushed), in [PR #1](https://github.com/joseph-roxas/massage-spa-system/pull/1) to `main`.
   - The PR has 9 commits: docs `607562c`, slices 12.1–12.7 ending `c9788df`, then the Day Close fix `d0d4f7a` (§14.2, "Fix after 12.7").
   - The PR description is written; it still says 95 API tests, but there are now 96, and it doesn't mention the Day Close fix yet.
@@ -657,6 +657,8 @@ Grilled with the owner on 2026-11-06 (five rounds). Vocabulary is in `GLOSSARY.m
 2. Cash Handover reminder: due once the last finished Therapist Payroll is released and Laundry paid. The Receptionist's Payroll no longer gates it unless it was paid from the shop.
 3. **First Therapist Payroll, Nov 2–8**: a Commission before Go-live box per Therapist. The Payroll can't be approved until it is filled. Nov 2–7 are exempt from "every day closed". It counts toward the Year-end Bonus.
 
+4. **As built** (migration 0026): `payWeekOf(date, kind)` and `lastCompletedPayWeek(date, kind)` default to Sunday–Saturday; `weekFrom(start)` is used wherever a week is already known, so older Sunday-based Therapist Payrolls still display. A week's start day decides whose it is (`weekKindsOf`): `/payroll/weeks/:start` returns only Therapists for a Monday and everyone else for a Sunday, and the Payroll page switches between them. `weeklyPart` follows the weekday of the week's end. Commission before Go-live is kept in `past_therapist_weeks` for that week, read into `payrolls.commission_before`. `go_live_date` is a pay rule, so days before it never hold a Payroll back.
+
 **14.6 Deferred Deductions, Not Enrolled, exact amounts** (ADR 0008)
 
 1. On each Therapist Payroll: owed = this week's Government Deductions + Deferred Deductions balance. Take as much as leaves the Take-home Floor (`pay_rules`, ₱1,000); the rest stays on the balance. No choice for the Receptionist; the Super Admin can override on a single Payroll. A ledger like `ca_ledger`, shown on the Payslip and Pay Breakdown. Replaces the spec line that net can go negative.
@@ -665,6 +667,8 @@ Grilled with the owner on 2026-11-06 (five rounds). Vocabulary is in `GLOSSARY.m
 4. **Not Enrolled** mark on the Staff record (Vecin, Cristina): no deductions, no Employer Contributions, no missing-ID alert, visible on the record.
 5. All other Staff are set at their actual bracket (Therapists ₱8,000), so `weeklyPart` splits the monthly share exactly: ₱212.50 in a 4-week month, ₱170 in a 5-week month. Check: the forecast reproduces about ₱20,553 a month.
 6. Owner's follow-up, not code: written consent for deductions from the bonus; bookkeeper to confirm coverage for Vecin and the flat bracket.
+
+7. **As built** (migration 0026): `deferDeductions()` in the domain; the room is the smaller of earned − Take-home Floor and earned − Cash Advances. This replaces §5.7's "net pay can be negative" for Government Deductions. `payrolls` gains `gov_deferred`, `gov_collected`, `gov_balance_before`, `gov_override`; `gov_sss/phic/pagibig` stay the week's full shares, since the shop remits them regardless. `deduction_ledger` is written on approve and removed on back-to-draft, so a draft owes nothing. Approve recomputes and refuses (`stale`) if the figures moved; Adjustments and Cash Advances refresh the draft. Payslip shows one signed Deferred Deductions line. Tab: Payroll → Deferred Deductions, which suggests each opening balance from `past_therapist_weeks`.
 
 **14.7 December pay**
 

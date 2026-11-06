@@ -110,7 +110,7 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
 
   // Government IDs missing for anyone who should be contributing (not On-call Therapists or Outside Relievers).
   const missing = people
-    .filter((p) => !p.isOnCall && p.kind !== 'reliever')
+    .filter((p) => !p.isOnCall && !p.notEnrolled && p.kind !== 'reliever')
     .map((p) => ({ name: p.displayName, ids: [!p.sssNo?.trim() && 'SSS', !p.phicNo?.trim() && 'PhilHealth', !p.pagibigNo?.trim() && 'Pag-IBIG'].filter(Boolean) }))
     .filter((p) => p.ids.length);
   if (missing.length) {

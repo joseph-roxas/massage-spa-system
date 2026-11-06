@@ -71,6 +71,8 @@ export type StaffMember = {
   reliefPay: 'on_return' | 'weekly' | null;
   /** Monthly salary basis for SSS, PhilHealth and Pag-IBIG; null for the older fixed weekly amounts. */
   contributionBase: number | null;
+  /** No government contributions at all. */
+  notEnrolled: boolean;
   govSss: number;
   govPhic: number;
   govPagibig: number;

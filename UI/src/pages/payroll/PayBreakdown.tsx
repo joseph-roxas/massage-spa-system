@@ -5,7 +5,7 @@ import { DEDUCTION_LINES, EARNING_LINES, STATUS_LABELS, STATUS_TONE, usePayWeek,
 
 const KIND_TITLE: Record<PayrollKind, string> = { therapist: 'Therapists', receptionist: 'Receptionist', reliever: 'Outside Relievers' };
 
-const cell = (v: number, minus = false) => (v ? (minus ? `−${peso(v)}` : peso(v)) : '—');
+const cell = (v: number, minus = false) => (v ? (v < 0 ? `+${peso(-v)}` : minus ? `−${peso(v)}` : peso(v)) : '—');
 
 /** Every earning and deduction of one kind of Payroll, one row per person, with the same lines as the Payslips. */
 function BreakdownTable({ kind, rows }: { kind: PayrollKind; rows: Payroll[] }) {

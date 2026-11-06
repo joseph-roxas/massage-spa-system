@@ -88,11 +88,11 @@ export async function pettyCashNow(db: DrizzleD1Database): Promise<Centavos> {
  * the moment the last of that week's Payroll and Laundry was paid.
  */
 export async function handoverState(db: DrizzleD1Database, today: string) {
-  const week = payWeekOf(today);
-  const lastWeek = lastCompletedPayWeek(today);
+  const week = payWeekOf(today, 'therapist');
+  const lastWeek = lastCompletedPayWeek(today, 'therapist');
   const [now, weekPayrolls, laundry, handedThisWeek] = await Promise.all([
     salesCashNow(db),
-    db.select({ status: payrolls.status, releasedAt: payrolls.releasedAt }).from(payrolls).where(eq(payrolls.weekStart, lastWeek.start)),
+    db.select({ status: payrolls.status, releasedAt: payrolls.releasedAt }).from(payrolls).where(and(eq(payrolls.weekStart, lastWeek.start), eq(payrolls.kind, 'therapist'))),
     db
       .select({ createdAt: cashOuts.createdAt })
       .from(cashOuts)

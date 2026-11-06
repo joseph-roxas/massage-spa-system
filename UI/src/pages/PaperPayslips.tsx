@@ -11,13 +11,13 @@ const headCls = `${cellCls} bg-stone-100 text-left text-[9px] font-semibold uppe
 const blank = '______________';
 
 /** One half of an A4 page; two print per sheet with a dashed line to cut along. */
-function Half({ title, children }: { title: string; children: ReactNode }) {
+function Half({ title, weekDays = ['Sun', 'Sat'], children }: { title: string; weekDays?: [string, string]; children: ReactNode }) {
   return (
     <section className="flex h-[138mm] flex-col gap-2 overflow-hidden border-b border-dashed border-stone-400 bg-white p-4 text-[10px] text-stone-900 last:border-b-0 print:p-0 print:pb-3">
       <header className="flex items-end justify-between border-b-2 border-stone-800 pb-1">
         <h2 className="text-sm font-bold">{title}</h2>
         <span>
-          Pay Week: Sun {blank} to Sat {blank}
+          Pay Week: {weekDays[0]} {blank} to {weekDays[1]} {blank}
         </span>
       </header>
       {children}
@@ -68,7 +68,7 @@ function TherapistSlip() {
   // Only the owner can read the rates; the Receptionist's copy leaves them to fill in.
   const isOwner = useCan('settings.manage');
   return (
-    <Half title="Therapist payslip">
+    <Half title="Therapist payslip" weekDays={['Mon', 'Sun']}>
       <p>
         Name: {blank}
         {blank} Regular / LMT (circle) · Commission rate: {isOwner ? <RateText /> : RATE_BLANK}

@@ -452,6 +452,46 @@ export function yearEndBonus(commission: number, bp: number): Centavos {
   return share(commission, bp, 10_000);
 }
 
+/** How much of a Therapist's Deferred Deductions comes off their Year-end Bonus. */
+export function bonusDeduction(bonus: number, owed: number): Centavos {
+  return Math.min(Math.max(0, owed), bonus) as Centavos;
+}
+
+/**
+ * The Pay Weeks a Year-end Bonus covers: from the day after last year's cut-off,
+ * through the last Pay Week finished on `today`. The first year starts with the
+ * Pay Week holding New Year's Day.
+ */
+export function bonusPeriod(year: number, previousEnd: IsoDate | null, today: IsoDate): PayWeek {
+  const newYear = `${year + 1}-01-01`;
+  return {
+    start: previousEnd ? addDays(previousEnd, 1) : payWeekOf(`${year}-01-01`, 'therapist').start,
+    end: lastCompletedPayWeek(today < newYear ? today : newYear, 'therapist').end,
+  };
+}
+
+export type BonusScenario = { bp: number; cost: Centavos; left: Centavos };
+
+const USUAL_BONUS_BP = [500, 600, 700];
+
+/**
+ * The percentage that gives Therapists `shareBp` of the year's profit, to the
+ * nearest 0.5%, with what each choice costs and leaves. `bp` is null when there
+ * is no profit to share; the Super Admin still chooses.
+ */
+export function suggestBonus(input: { profit: number; commission: number; shareBp: number }): { bp: number | null; scenarios: BonusScenario[] } {
+  const { profit, commission, shareBp } = input;
+  const exact = profit > 0 && commission > 0 ? (profit * shareBp) / commission : 0;
+  const rounded = Math.min(Math.round(exact / 50) * 50, 10_000);
+  const bp = rounded > 0 ? rounded : null;
+  const bps = [...new Set([...USUAL_BONUS_BP, ...(bp ? [bp] : [])])].sort((a, b) => a - b);
+  const scenarios = bps.map((b) => {
+    const cost = yearEndBonus(commission, b);
+    return { bp: b, cost, left: (profit - cost) as Centavos };
+  });
+  return { bp, scenarios };
+}
+
 /** 13th Month Pay: the year's basic pay divided by 12. */
 export function thirteenthMonth(basicPay: number): Centavos {
   return share(basicPay, 1, 12);

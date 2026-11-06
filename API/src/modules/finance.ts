@@ -85,7 +85,7 @@ export async function quarterStatus(db: Db, q: string) {
 }
 
 /** Every line of an Income Statement for Business Days `from`..`to`. Pending drafts are listed apart, not counted. */
-async function statementFor(db: Db, from: string, to: string) {
+export async function statementFor(db: Db, from: string, to: string) {
   const weekFrom = new Date(`${from}T00:00:00Z`);
   weekFrom.setUTCDate(weekFrom.getUTCDate() - 6);
   const [sold, vouchers, desk, paidBonuses, spent, outs, bought, past, pastDesk] = await Promise.all([

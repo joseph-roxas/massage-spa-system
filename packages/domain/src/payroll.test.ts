@@ -16,6 +16,9 @@ import {
   openingDeferred,
   weekKindsOf,
   thirteenthMonth,
+  bonusDeduction,
+  bonusPeriod,
+  suggestBonus,
   yearEndBonus,
   type ReceptionistRules,
 } from './payroll';
@@ -385,5 +388,46 @@ describe('Deferred Deductions', () => {
   it('works out what was owed at Go-live from the weekly record', () => {
     expect(openingDeferred([{ gross: 400_000, net: 379_550 }, { gross: 300_000, net: 279_550 }, { gross: 70_000, net: 70_000 }, { gross: 48_000, net: 48_000 }, { gross: 0, net: -20_450 }, { gross: 0, net: 0 }])).toBe(61_350);
     expect(openingDeferred([{ gross: 70_000, net: 70_000 }])).toBe(0);
+  });
+});
+
+describe('December pay', () => {
+  it('covers 2026 from the week of New Year through the last finished Pay Week', () => {
+    // Dec 14, 2026 is a Monday: the week of Dec 7-13 has just finished.
+    expect(bonusPeriod(2026, null, '2026-12-14')).toEqual({ start: '2025-12-29', end: '2026-12-13' });
+    // On that Sunday it has not.
+    expect(bonusPeriod(2026, null, '2026-12-13').end).toBe('2026-12-06');
+  });
+  it('starts the next year the day after the cut-off', () => {
+    expect(bonusPeriod(2027, '2026-12-13', '2027-12-13')).toEqual({ start: '2026-12-14', end: '2027-12-12' });
+  });
+  it('stops at the year end when computing a past year', () => {
+    expect(bonusPeriod(2026, null, '2027-03-01').end).toBe('2026-12-27');
+  });
+  it('takes Deferred Deductions off the bonus, never more than the bonus', () => {
+    expect(bonusDeduction(1_000_00, 409_00)).toBe(409_00);
+    expect(bonusDeduction(300_00, 409_00)).toBe(300_00);
+    expect(bonusDeduction(300_00, 0)).toBe(0);
+  });
+  it('suggests a share of the profit to the nearest 0.5%', () => {
+    // 30% of 200,000 is 60,000; against 1,000,000 Commission that is 6%.
+    const { bp, scenarios } = suggestBonus({ profit: 200_000_00, commission: 1_000_000_00, shareBp: 3000 });
+    expect(bp).toBe(600);
+    expect(scenarios).toEqual([
+      { bp: 500, cost: 50_000_00, left: 150_000_00 },
+      { bp: 600, cost: 60_000_00, left: 140_000_00 },
+      { bp: 700, cost: 70_000_00, left: 130_000_00 },
+    ]);
+    expect(suggestBonus({ profit: 210_000_00, commission: 1_000_000_00, shareBp: 3000 }).bp).toBe(650);
+  });
+  it('adds a suggestion outside the usual range to the choices', () => {
+    const { bp, scenarios } = suggestBonus({ profit: 300_000_00, commission: 1_000_000_00, shareBp: 3000 });
+    expect(bp).toBe(900);
+    expect(scenarios.map((x) => x.bp)).toEqual([500, 600, 700, 900]);
+  });
+  it('has no suggestion in a loss year but still shows the choices', () => {
+    const { bp, scenarios } = suggestBonus({ profit: -50_000_00, commission: 1_000_000_00, shareBp: 3000 });
+    expect(bp).toBeNull();
+    expect(scenarios[0]).toEqual({ bp: 500, cost: 50_000_00, left: -100_000_00 });
   });
 });

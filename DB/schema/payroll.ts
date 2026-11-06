@@ -155,9 +155,31 @@ export const bonuses = sqliteTable(
     /** Year-end Bonus percentage in basis points. */
     bp: integer('bp'),
     amount: integer('amount').notNull(),
+    /** Deferred Deductions taken off `amount` when paid; the rest stays owed. */
+    deduction: integer('deduction').notNull().default(0),
+    /** Year-end Bonus: the Business Days it covers. The next year starts the day after `periodEnd`. */
+    periodStart: text('period_start'),
+    periodEnd: text('period_end'),
     paidAt: text('paid_at'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by').references(() => users.id),
   },
   (t) => [uniqueIndex('bonuses_year_staff_kind_idx').on(t.year, t.staffId, t.kind)],
+);
+
+/** Basic pay earned in a year before the system, added to live basic pay for 13th Month Pay. */
+export const openingBasicPay = sqliteTable(
+  'opening_basic_pay',
+  {
+    id: text('id').primaryKey(),
+    year: integer('year').notNull(),
+    staffId: text('staff_id')
+      .notNull()
+      .references(() => staff.id),
+    /** Centavos. */
+    amount: integer('amount').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    updatedBy: text('updated_by').references(() => users.id),
+  },
+  (t) => [uniqueIndex('opening_basic_pay_year_staff_idx').on(t.year, t.staffId)],
 );

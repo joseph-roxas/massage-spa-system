@@ -59,7 +59,7 @@ function GiveDialog({ person, onClose }: { person: Balance; onClose: () => void 
 
 function OpeningDialog({ person, onClose }: { person: Balance; onClose: () => void }) {
   const act = usePayrollAction();
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(person.suggestedOpening ? pesosText(person.suggestedOpening) : '');
   const value = parsePesos(amount);
   return (
     <Modal title={`Opening CA balance · ${person.displayName}`} onClose={onClose}>
@@ -72,6 +72,7 @@ function OpeningDialog({ person, onClose }: { person: Balance; onClose: () => vo
       >
         {act.error && <Alert>{act.error.message}</Alert>}
         <p className="text-sm text-stone-600">What {person.displayName} already owed before using the system. Replaces any earlier opening balance.</p>
+        {person.suggestedOpening ? <p className="text-sm text-stone-600">Filled in from the last Past Payslip. Take off anything repaid since.</p> : null}
         <Field label="Amount owed">
           <Input inputMode="decimal" required value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>

@@ -97,6 +97,32 @@ export function MyPayPage() {
           </table>
         )}
       </Card>
+      {data.pastPayslips.length > 0 && (
+        <Card title="Before go-live">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-stone-200">
+                <th className={th}>Pay Week</th>
+                <th className={th}>Paid on</th>
+                <th className={`${th} text-right`}>Net pay</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {data.pastPayslips.map((p) => (
+                <tr key={p.id}>
+                  <td className={td}>
+                    <Link to={`/past-payslip/${p.id}`} className="font-medium text-teal-800 hover:underline">
+                      {longDate(p.weekStart)} – {longDate(p.weekEnd)}
+                    </Link>
+                  </td>
+                  <td className={td}>{p.paidOn ? longDate(p.paidOn) : '—'}</td>
+                  <td className={`${td} text-right font-semibold tabular-nums`}>{peso(p.net)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
       {data.ca && <CashAdvanceHistory ca={data.ca} repayment={data.staff.caRepayment} />}
     </div>
   );

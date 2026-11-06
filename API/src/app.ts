@@ -26,6 +26,7 @@ import { deviceRoutes, deviceStatusRoutes } from './modules/devices';
 import { reliefRoutes } from './modules/relief';
 import { rejectRoutes } from './modules/rejects';
 import { brandingRoutes } from './modules/branding';
+import { backfillRoutes } from './modules/backfill';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
 
@@ -72,6 +73,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/', reliefRoutes)
     .route('/', rejectRoutes)
     .route('/', brandingRoutes)
+    .route('/', backfillRoutes)
     .notFound((c) => fail(c, 404, 'not_found', 'No such endpoint.'))
     .onError((err, c) => {
       console.error(err);

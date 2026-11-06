@@ -35,6 +35,7 @@ import {
   stockOuts,
   voucherPayments,
   voucherSales,
+  dailySummaries,
   rejects,
 } from '@spa/db';
 import type { AuthedEnv } from '../env';
@@ -57,8 +58,10 @@ function into(map: Map<string, Row>, key: string, base: Row, values: Row) {
   map.set(key, row);
 }
 
+const pastDays = (db: Db, r: Range) => db.select().from(dailySummaries).where(and(gte(dailySummaries.date, r.from), lte(dailySummaries.date, r.to)));
+
 async function dailySales(db: Db, r: Range): Promise<Report> {
-  const [s, pay, vs, vpay, outs, turned] = await Promise.all([
+  const [s, pay, vs, vpay, outs, turned, past] = await Promise.all([
     db
       .select({
         day: sales.businessDay,
@@ -99,9 +102,11 @@ async function dailySales(db: Db, r: Range): Promise<Report> {
       .from(rejects)
       .where(and(gte(rejects.businessDay, r.from), lte(rejects.businessDay, r.to)))
       .groupBy(rejects.businessDay),
+    pastDays(db, r),
   ]);
   const columns = [
     col('date', 'Business Day', 'date'),
+    col('source', 'Detail'),
     col('guests', 'Guests', 'int'),
     col('rejects', 'Turned away', 'int'),
     col('regular', 'Regular Price', 'money'),
@@ -121,13 +126,31 @@ async function dailySales(db: Db, r: Range): Promise<Report> {
   for (const x of vs) into(days, x.day, base(x.day), { vouchers: x.total });
   for (const x of outs) into(days, x.day, base(x.day), { cashOuts: x.amount });
   for (const x of turned) into(days, x.day, base(x.day), { rejects: x.n });
-  const rows = [...days.values()].map((row) => Object.fromEntries(columns.map((c) => [c.key, row[c.key] ?? (c.type === 'date' ? null : 0)]))).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  for (const x of past) {
+    into(days, x.date, base(x.date), {
+      guests: x.guests,
+      rejects: x.rejects,
+      regular: x.cash + x.gcash,
+      discounts: x.foc,
+      services: x.cash + x.gcash - x.foc,
+      addons: x.oil,
+      vouchers: x.voucher,
+      cash: x.cash + x.oil + x.voucher - x.foc,
+      gcash: x.gcash,
+      cashOuts: x.laundry + x.expenses,
+      commission: x.commission,
+    });
+    days.get(x.date)!.source = 'Summary only';
+  }
+  const rows = [...days.values()]
+    .map((row) => Object.fromEntries(columns.map((c) => [c.key, row[c.key] ?? (c.type === 'date' || c.type === 'text' ? null : 0)])))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
   return {
     title: 'Daily sales',
     columns,
     rows,
     totals: totalsOf(columns, rows),
-    note: 'Services paid = Regular Price − Discounts & FOCs. Cash and GCash include Voucher sales.',
+    note: 'Services paid = Regular Price − Discounts & FOCs. Cash and GCash include Voucher sales. Days marked Summary only are from before go-live.',
   };
 }
 
@@ -192,11 +215,14 @@ async function therapistSales(db: Db, r: Range): Promise<Report> {
 }
 
 async function guests(db: Db, r: Range): Promise<Report> {
-  const rows0 = await db
-    .select({ day: bookings.businessDay, kind: bookings.kind, status: bookings.status, count: sql<number>`count(*)` })
-    .from(bookings)
-    .where(and(gte(bookings.businessDay, r.from), lte(bookings.businessDay, r.to)))
-    .groupBy(bookings.businessDay, bookings.kind, bookings.status);
+  const [rows0, past] = await Promise.all([
+    db
+      .select({ day: bookings.businessDay, kind: bookings.kind, status: bookings.status, count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(and(gte(bookings.businessDay, r.from), lte(bookings.businessDay, r.to)))
+      .groupBy(bookings.businessDay, bookings.kind, bookings.status),
+    pastDays(db, r),
+  ]);
   const columns = [
     col('date', 'Business Day', 'date'),
     col('guests', 'Guests served', 'int'),
@@ -216,6 +242,7 @@ async function guests(db: Db, r: Range): Promise<Report> {
       cancelled: x.status === 'cancelled' ? x.count : 0,
     });
   }
+  for (const x of past) into(days, x.date, { date: x.date }, { guests: x.guests });
   const rows = [...days.values()].map((row) => Object.fromEntries(columns.map((c) => [c.key, row[c.key] ?? 0]))).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   return { title: 'Guests per day', columns, rows, totals: totalsOf(columns, rows) };
 }

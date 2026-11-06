@@ -30,6 +30,8 @@ import { StaffSettings } from './pages/settings/StaffSettings';
 import { PaySettings } from './pages/settings/PaySettings';
 import { FrontDeskSettings } from './pages/settings/FrontDeskSettings';
 import { BusinessSettings } from './pages/settings/BusinessSettings';
+import { BackfillPage } from './pages/BackfillPage';
+import { PastPayslipPage } from './pages/PastPayslipPage';
 import { BrandingEffect } from './components/Brand';
 
 const queryClient = new QueryClient({
@@ -82,6 +84,15 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="cashouts.record">
             <CashPage />
+          </RequireCapability>
+        ),
+      },
+      { path: '/past-payslip/:id', element: <PastPayslipPage /> },
+      {
+        path: '/admin/backfill',
+        element: (
+          <RequireCapability capability="settings.manage">
+            <BackfillPage />
           </RequireCapability>
         ),
       },

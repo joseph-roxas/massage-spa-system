@@ -32,6 +32,7 @@ import {
   voucherSales,
 } from '@spa/db';
 import type { AuthedEnv } from '../env';
+import { pastReceptionistPay, summaryTotals } from '../lib/daily-summaries';
 import { auditInsert } from '../lib/audit';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
@@ -47,7 +48,7 @@ const CASH_OUT_LABELS: Record<string, string> = { petty_cash: 'Petty cash', laun
 
 /** Gross sales for Percentage Tax: every payment received for Services, Add-ons and Vouchers, by Business Day. */
 async function grossSales(db: Db, from: string, to: string) {
-  const [svc, vouchers] = await Promise.all([
+  const [svc, vouchers, past] = await Promise.all([
     db
       .select({ s: sql<number>`sum(${payments.amount})` })
       .from(payments)
@@ -60,8 +61,11 @@ async function grossSales(db: Db, from: string, to: string) {
       .innerJoin(voucherSales, eq(voucherSales.id, voucherPayments.voucherSaleId))
       .where(and(eq(voucherSales.status, 'paid'), gte(voucherPayments.businessDay, from), lte(voucherPayments.businessDay, to)))
       .get(),
+    summaryTotals(db, from, to),
   ]);
-  return { services: n(svc?.s) as Centavos, vouchers: n(vouchers?.s) as Centavos, total: (n(svc?.s) + n(vouchers?.s)) as Centavos };
+  const services = n(svc?.s) + past.received - past.voucher;
+  const sold = n(vouchers?.s) + past.voucher;
+  return { services: services as Centavos, vouchers: sold as Centavos, total: (services + sold) as Centavos };
 }
 
 async function holidaySet(db: Db, q: string) {
@@ -84,7 +88,7 @@ export async function quarterStatus(db: Db, q: string) {
 async function statementFor(db: Db, from: string, to: string) {
   const weekFrom = new Date(`${from}T00:00:00Z`);
   weekFrom.setUTCDate(weekFrom.getUTCDate() - 6);
-  const [sold, vouchers, desk, paidBonuses, spent, outs, bought] = await Promise.all([
+  const [sold, vouchers, desk, paidBonuses, spent, outs, bought, past, pastDesk] = await Promise.all([
     db
       .select({
         services: sql<number>`sum(${sales.serviceAmount})`,
@@ -128,6 +132,8 @@ async function statementFor(db: Db, from: string, to: string) {
       .from(stockIns)
       .where(and(eq(stockIns.kind, 'purchase'), gte(stockIns.purchaseDate, from), lte(stockIns.purchaseDate, to)))
       .get(),
+    summaryTotals(db, from, to),
+    pastReceptionistPay(db, from, to),
   ]);
 
   // Receptionist pay counts on the day worked.
@@ -141,13 +147,13 @@ async function statementFor(db: Db, from: string, to: string) {
   });
 
   const revenue: StatementLine[] = [
-    { label: 'Services (after discounts)', amount: n(sold?.services) as Centavos },
-    { label: 'Add-ons', amount: n(sold?.addons) as Centavos },
-    { label: 'Vouchers sold', amount: n(vouchers?.s) as Centavos },
+    { label: 'Services (after discounts)', amount: (n(sold?.services) + past.services) as Centavos },
+    { label: 'Add-ons', amount: (n(sold?.addons) + past.oil) as Centavos },
+    { label: 'Vouchers sold', amount: (n(vouchers?.s) + past.voucher) as Centavos },
   ];
   const costs: StatementLine[] = [
-    { label: 'Therapist commission', amount: n(sold?.commission) as Centavos },
-    { label: 'Receptionist pay', amount: deskPay as Centavos },
+    { label: 'Therapist commission', amount: (n(sold?.commission) + past.commission) as Centavos },
+    { label: 'Receptionist pay', amount: (deskPay + pastDesk) as Centavos },
     { label: 'Year-end bonus', amount: bonusPaid.filter((b) => b.kind === 'year_end_bonus').reduce((s, b) => s + b.amount, 0) as Centavos },
     { label: '13th month pay', amount: bonusPaid.filter((b) => b.kind === 'thirteenth_month').reduce((s, b) => s + b.amount, 0) as Centavos },
     ...spent.filter((e) => e.status === 'confirmed').map((e) => ({ label: e.name, amount: n(e.amount) as Centavos })),

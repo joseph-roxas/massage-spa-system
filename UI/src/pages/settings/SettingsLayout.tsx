@@ -8,6 +8,7 @@ const TABS = [
   { to: 'staff', label: 'Staff' },
   { to: 'pay', label: 'Commission & Pay' },
   { to: 'front-desk', label: 'Front-desk device' },
+  { to: 'business', label: 'Business' },
 ];
 
 export function SettingsLayout() {

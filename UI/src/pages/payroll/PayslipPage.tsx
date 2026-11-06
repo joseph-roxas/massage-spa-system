@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
+import { BrandMark } from '../../components/Brand';
 import { Alert, Badge, Button, Checkbox, Field, Input, td, th } from '../../components/ui';
 import { useCan } from '../../lib/auth';
 import { longDate, parsePesos, peso, pesosText } from '../../lib/format';
@@ -201,6 +202,9 @@ export function PayslipSheet({ payroll: p, week, children }: { payroll: Payroll 
     <section className="space-y-5 rounded-lg border border-stone-200 bg-white p-6 print:border-0 print:p-0">
       <header className="flex items-start justify-between">
         <div>
+          <div className="mb-3">
+            <BrandMark />
+          </div>
           <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Payslip</p>
           <h1 className="text-xl font-semibold">{p.fullName}</h1>
           <p className="text-sm text-stone-600">

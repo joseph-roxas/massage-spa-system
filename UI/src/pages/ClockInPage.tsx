@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router';
+import { BrandMark } from '../components/Brand';
 import { ApiError } from '../lib/api';
 import { manilaTime, useClockStaff, usePunch, type ClockStaff, type ClockToday } from '../lib/attendance';
 import { useCurrentUser } from '../lib/auth';
@@ -162,6 +163,9 @@ export function ClockInPage() {
     <main className="min-h-screen bg-stone-100 p-8 text-stone-800">
       <header className="mb-8 flex items-start justify-between gap-6">
         <div>
+          <div className="mb-3">
+            <BrandMark />
+          </div>
           <p className="text-sm font-semibold uppercase tracking-widest text-teal-700">Clock-in Screen</p>
           <h1 className="text-3xl font-semibold">Tap your name</h1>
           <Link to={user ? '/' : '/login'} className="mt-3 inline-block rounded-md border border-stone-300 bg-white px-4 py-2 text-sm hover:bg-stone-50">

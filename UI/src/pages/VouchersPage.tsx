@@ -8,7 +8,7 @@ import { useDayAction } from '../lib/sales';
 import { useEndorsements, useVouchers, useVoucherSales, VOUCHER_STATUS_LABELS, type VoucherStatus } from '../lib/vouchers';
 import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 
-const STATUS_TONE = { in_shop: 'amber', unused: 'teal', redeemed: 'stone', voided: 'red' } as const;
+const STATUS_TONE = { in_shop: 'amber', unused: 'teal', redeemed: 'stone', used_before_golive: 'stone', voided: 'red' } as const;
 
 /** "Nov 4, 2026" for a timestamp, in Manila. */
 const dayOf = (iso: string) => longDate(toManila(new Date(iso)).date);
@@ -133,16 +133,20 @@ function EndorseForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-/** Go-live: cards at the shop not sold yet, and paper Vouchers sold before the system and still unused. */
+/** Go-live: cards at the shop not sold yet, and paper Vouchers sold before the system, unused or already used. */
+type CountState = 'in_shop' | 'unused' | 'used_before_golive';
+
 function CountForm({ onDone }: { onDone: () => void }) {
   const services = useVoucherServices();
   const save = useDayAction();
   const [serviceId, setServiceId] = useState('');
-  const [state, setState] = useState<'in_shop' | 'unused'>('in_shop');
+  const [state, setState] = useState<CountState>('in_shop');
   const [numbers, setNumbers] = useState('');
   const [isFree, setIsFree] = useState(false);
   const [buyerName, setBuyerName] = useState('');
   const [soldOn, setSoldOn] = useState('');
+  const [usedOn, setUsedOn] = useState('');
+  const [note, setNote] = useState('');
   const [done, setDone] = useState<number | null>(null);
 
   function submit(e: FormEvent) {
@@ -151,7 +155,13 @@ function CountForm({ onDone }: { onDone: () => void }) {
     save.mutate(
       {
         path: '/vouchers/import',
-        body: { serviceId, numbers, state, ...(state === 'unused' ? { isFree, buyerName: buyerName || undefined, soldOn: soldOn || undefined } : {}) },
+        body: {
+          serviceId,
+          numbers,
+          state,
+          ...(state !== 'in_shop' ? { isFree, buyerName: buyerName || undefined, soldOn: soldOn || undefined } : {}),
+          ...(state === 'used_before_golive' ? { usedOn: usedOn || undefined, note: note || undefined } : {}),
+        },
       },
       {
         onSuccess: (res) => {
@@ -165,9 +175,9 @@ function CountForm({ onDone }: { onDone: () => void }) {
   return (
     <FormPanel onSubmit={submit}>
       {save.error && <Alert>{save.error.message}</Alert>}
-      {done !== null && !save.error && <Alert tone="success">{done} card(s) added.</Alert>}
+      {done !== null && !save.error && <Alert tone="success">{done} card(s) saved.</Alert>}
       <p className="text-sm text-stone-600">
-        Go-live count, one service at a time. Enter card numbers and ranges, e.g. <span className="font-mono">93-142, 150</span>. Paper vouchers sold before the system are not counted as sales again.
+        Go-live count, one service at a time. Enter card numbers and ranges, e.g. <span className="font-mono">93-142, 150</span>. Paper vouchers sold before the system are not counted as sales again. To mark a range you already counted as used, enter it again as &ldquo;Sold on paper, already used&rdquo;.
       </p>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Service">
@@ -181,16 +191,17 @@ function CountForm({ onDone }: { onDone: () => void }) {
           </Select>
         </Field>
         <Field label="These cards are">
-          <Select value={state} onChange={(e) => setState(e.target.value as 'in_shop' | 'unused')}>
+          <Select value={state} onChange={(e) => setState(e.target.value as CountState)}>
             <option value="in_shop">At the shop, not sold yet</option>
             <option value="unused">Sold on paper, not used yet</option>
+            <option value="used_before_golive">Sold on paper, already used</option>
           </Select>
         </Field>
       </div>
       <Field label="Card numbers">
         <Input required value={numbers} onChange={(e) => setNumbers(e.target.value)} placeholder="E.g. 93-142, 150" className="w-full rounded-md border border-stone-300 px-3 py-2 font-mono text-sm" />
       </Field>
-      {state === 'unused' && (
+      {state !== 'in_shop' && (
         <div className="grid grid-cols-3 gap-3">
           <Field label="Buyer (if known)">
             <Input value={buyerName} onChange={(e) => setBuyerName(e.target.value)} />
@@ -203,9 +214,21 @@ function CountForm({ onDone }: { onDone: () => void }) {
           </div>
         </div>
       )}
+      {state === 'used_before_golive' && (
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Used on (if known)">
+            <Input type="date" value={usedOn} onChange={(e) => setUsedOn(e.target.value)} />
+          </Field>
+          <div className="col-span-2">
+            <Field label="Note (optional)">
+              <Input value={note} onChange={(e) => setNote(e.target.value)} />
+            </Field>
+          </div>
+        </div>
+      )}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onDone}>Close</Button>
-        <Button type="submit" disabled={save.isPending}>Add cards</Button>
+        <Button type="submit" disabled={save.isPending}>Save cards</Button>
       </div>
     </FormPanel>
   );
@@ -394,7 +417,30 @@ export function VouchersPage() {
                     <td className={td}>
                       <Badge tone={STATUS_TONE[v.status]}>{VOUCHER_STATUS_LABELS[v.status]}</Badge>
                       {v.redeemedAt && <span className="ml-2 text-xs text-stone-500">{dayOf(v.redeemedAt)}</span>}
+                      {v.usedBeforeOn && <span className="ml-2 text-xs text-stone-500">{longDate(v.usedBeforeOn)}</span>}
+                      {v.usedBeforeNote && <span className="ml-2 text-xs text-stone-500">{v.usedBeforeNote}</span>}
                       {v.voidReason && <span className="ml-2 text-xs text-stone-500">{v.voidReason}</span>}
+                      {canImport && v.imported && v.status === 'unused' && (
+                        <button
+                          type="button"
+                          className="ml-2 text-xs text-stone-500 underline"
+                          onClick={() => confirm(`Mark ${v.serial} as used before go-live? It can no longer be redeemed.`) && cancelCard.mutate({ path: `/vouchers/${v.id}/mark-used` })}
+                        >
+                          Mark used
+                        </button>
+                      )}
+                      {canImport && v.status === 'used_before_golive' && (
+                        <button
+                          type="button"
+                          className="ml-2 text-xs text-stone-500 underline"
+                          onClick={() => {
+                            const reason = prompt(`Put ${v.serial} back as unused? Say why (e.g. the guest still has it).`);
+                            if (reason && reason.trim().length >= 3) cancelCard.mutate({ path: `/vouchers/${v.id}/unmark-used`, body: { reason } });
+                          }}
+                        >
+                          Undo
+                        </button>
+                      )}
                       {canEndorse && v.status === 'in_shop' && (
                         <button
                           type="button"

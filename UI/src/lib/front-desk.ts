@@ -51,11 +51,25 @@ export type Board = {
   rotation: RotationRow[];
   rooms: BoardRoom[];
   bookings: Booking[];
+  /** So far today: money received, Guests served, people turned away. */
+  today: { sales: number; guests: number; turnedAway: number };
   /** Staff whose birthday it is today. */
   birthdays: string[];
   /** Who is running the front desk on a Relief Shift now. */
   relieving: string[];
 };
+
+export type RejectReason = 'no_therapist' | 'too_late' | 'refused_safety';
+
+export const REJECT_REASON_LABELS: Record<RejectReason, string> = {
+  no_therapist: 'No therapist free in time',
+  too_late: 'Came in too late',
+  refused_safety: 'Refused for safety (pregnant, medical condition)',
+};
+
+export type Reject = { id: string; reason: RejectReason; createdAt: string };
+
+export const useRejects = () => useQuery({ queryKey: ['front-desk', 'rejects'], queryFn: () => api<{ rejects: Reject[] }>('/rejects') });
 
 export type ReliefOwed = { staffId: string; displayName: string; amount: number; days: string[] };
 

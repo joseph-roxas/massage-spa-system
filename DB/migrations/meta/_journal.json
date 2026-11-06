@@ -169,6 +169,13 @@
       "when": 1793869960111,
       "tag": "0023_relievers",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1793959794319,
+      "tag": "0024_front_desk_vouchers_branding",
+      "breakpoints": true
     }
   ]
 }

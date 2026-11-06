@@ -7,44 +7,62 @@ import { useAttention } from '../../lib/attention';
 import { Link } from 'react-router';
 import { longDate, parsePesos, peso, pesosText } from '../../lib/format';
 
+/** "3 hours" or "2 days" since an instant. */
+function dueFor(since: string, now: number): string {
+  const hours = Math.max(0, Math.floor((now - new Date(since).getTime()) / 3_600_000));
+  if (hours < 1) return 'just now';
+  const days = Math.floor(hours / 24);
+  return days ? `${days} day${days === 1 ? '' : 's'}` : `${hours} hour${hours === 1 ? '' : 's'}`;
+}
+
 /** Sales Cash in the shop, and what to do with it: hold for Payroll and Laundry, hand over, or top up petty cash. */
 export function CashReminder({ onHandover, onTopUp }: { onHandover: () => void; onTopUp: () => void }) {
   const summary = useCashSummary();
+  const [now] = useState(() => Date.now());
   const s = summary.data;
   if (!s) return null;
   const since = s.lastHandover ? ` since the handover on ${longDate(s.lastHandover.businessDay)}` : '';
-  const tone = s.reminder === 'hand_over' ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-stone-200 bg-white text-stone-700';
-  return (
-    <div className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 text-sm ${tone}`}>
-      <span className="flex-1">
-        {s.relief ? (
-          <>
-            <span className="font-semibold">End of your Relief Shift: after Day Close, hand over all Sales Cash ({peso(s.salesCash)})</span> to the owner. Keep
-            petty cash at ₱800.
-          </>
-        ) : s.reminder === 'hand_over' ? (
-          <>
-            <span className="font-semibold">All payroll and laundry are paid: hand over {peso(s.salesCash)}</span> to the owner. Keep petty cash at ₱800.
-          </>
-        ) : (
-          <>
-            Sales cash in the shop: <span className="font-semibold">{peso(s.salesCash)}</span>
-            {since}.{' '}
-            {s.salesCash > 0 && 'Pay payroll and laundry from it, then hand the rest to the owner. Keep petty cash at ₱800.'}
-          </>
-        )}
-        <span className="block text-xs opacity-80">
-          Petty cash {peso(s.pettyCash)}
-          {s.waiting.length > 0 && ` · ${s.waiting.length} handover${s.waiting.length === 1 ? '' : 's'} waiting for the owner to confirm`}
+  const footnote = (
+    <span className="block text-xs opacity-80">
+      Petty cash {peso(s.pettyCash)}
+      {s.waiting.length > 0 && ` · ${s.waiting.length} handover${s.waiting.length === 1 ? '' : 's'} waiting for the owner to confirm`}
+    </span>
+  );
+  const topUp = s.topUpDue > 0 && (
+    <Button variant="secondary" className="h-8 px-3" onClick={onTopUp}>
+      Top up petty cash {peso(s.topUpDue)}
+    </Button>
+  );
+
+  if (s.reminder === 'hand_over') {
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-4 rounded-lg bg-red-700 px-5 py-4 text-white shadow-md">
+        <span className="min-w-64 flex-1">
+          <span className="block text-xl font-bold">Hand over {peso(s.salesCash)} to the owner now</span>
+          <span className="block text-sm">
+            {s.relief ? 'End of your Relief Shift: after Day Close, hand over all Sales Cash.' : 'All payroll and laundry are paid.'} Keep petty cash at ₱800.
+            {s.dueSince && dueFor(s.dueSince, now) !== 'just now' && <span className="font-semibold"> Due for {dueFor(s.dueSince, now)}.</span>}
+          </span>
+          {footnote}
         </span>
+        {topUp}
+        <button type="button" className="h-12 rounded-md bg-white px-6 text-base font-bold text-red-700 hover:bg-red-50" onClick={onHandover}>
+          Hand over cash
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
+      <span className="flex-1">
+        Sales cash in the shop: <span className="font-semibold">{peso(s.salesCash)}</span>
+        {since}. {s.salesCash > 0 && 'Pay payroll and laundry from it, then hand the rest to the owner. Keep petty cash at ₱800.'}
+        {footnote}
       </span>
-      {s.topUpDue > 0 && (
-        <Button variant="secondary" className="h-8 px-3" onClick={onTopUp}>
-          Top up petty cash {peso(s.topUpDue)}
-        </Button>
-      )}
+      {topUp}
       {s.salesCash > 0 && (
-        <Button variant={s.reminder === 'hand_over' ? 'primary' : 'secondary'} className="h-8 px-3" onClick={onHandover}>
+        <Button variant="secondary" className="h-8 px-3" onClick={onHandover}>
           Hand over cash
         </Button>
       )}

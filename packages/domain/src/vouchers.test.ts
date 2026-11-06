@@ -68,6 +68,7 @@ describe('redemption', () => {
     expect(redemptionProblem(unused, 'swedish-60')).toBeNull();
     expect(redemptionProblem(unused, 'aroma-90')).toMatch(/different service/);
     expect(redemptionProblem({ ...unused, status: 'redeemed' }, 'swedish-60')).toMatch(/already been used/);
+    expect(redemptionProblem({ ...unused, status: 'used_before_golive' }, 'swedish-60')).toMatch(/before the system started/);
     expect(redemptionProblem(null, 'swedish-60')).toMatch(/No voucher/);
     expect(redemptionProblem({ ...unused, status: 'in_shop' }, 'swedish-60')).toMatch(/never sold/);
   });

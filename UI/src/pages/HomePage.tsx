@@ -13,6 +13,7 @@ import { CashOutDialog, DayCloseDialog, EarlyCloseDialog } from './front-desk/Da
 import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 import { NewBookingDialog } from './front-desk/NewBookingDialog';
 import { StartDialog } from './front-desk/StartDialog';
+import { TurnedAwayDialog } from './front-desk/TurnedAwayDialog';
 
 /** Re-renders every 30s so countdowns stay current between board refreshes. */
 function useNow(): number {
@@ -256,6 +257,26 @@ function ReliefPayPrompt() {
   );
 }
 
+/** Today's numbers, big enough to read from across the desk. */
+function TodayStrip({ today, onTurnedAway }: { today: Board['today']; onTurnedAway: () => void }) {
+  return (
+    <section aria-label="Today so far" className="grid grid-cols-[1fr_1fr_auto] gap-3">
+      <div className="rounded-lg bg-teal-700 px-5 py-3 text-white">
+        <p className="text-sm font-medium opacity-90">Today&rsquo;s Sales</p>
+        <p className="text-3xl font-bold tabular-nums">{peso(today.sales)}</p>
+      </div>
+      <div className="rounded-lg bg-teal-700 px-5 py-3 text-white">
+        <p className="text-sm font-medium opacity-90">Today&rsquo;s Guests</p>
+        <p className="text-3xl font-bold tabular-nums">{today.guests}</p>
+      </div>
+      <button type="button" className="rounded-lg border border-stone-300 bg-white px-5 py-3 text-left hover:bg-stone-50" onClick={onTurnedAway}>
+        <span className="block text-sm font-medium text-stone-500">Turned away</span>
+        <span className="block text-3xl font-semibold tabular-nums text-stone-700">{today.turnedAway}</span>
+      </button>
+    </section>
+  );
+}
+
 function FrontDeskBoard() {
   const { data: board, error } = useBoard();
   const now = useNow();
@@ -265,6 +286,7 @@ function FrontDeskBoard() {
   const [paying, setPaying] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
   const [dayDialog, setDayDialog] = useState<DayDialog>(null);
+  const [turningAway, setTurningAway] = useState(false);
   const canCash = useCan('cashouts.record');
   const { data: me } = useCurrentUser();
   // The Receptionist (or the owner) pays an Outside Reliever on her return; the Reliever does not pay themself.
@@ -306,6 +328,8 @@ function FrontDeskBoard() {
           <Button onClick={() => setCreating('walk_in')}>New walk-in</Button>
         </div>
       </div>
+      {canCash && <CashReminder onHandover={() => setDayDialog('handover')} onTopUp={() => setDayDialog('top-up')} />}
+      <TodayStrip today={board.today} onTurnedAway={() => setTurningAway(true)} />
       {board.relieving.length > 0 && (
         <div className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-2 text-sm text-teal-900">
           Front desk today: <span className="font-semibold">{board.relieving.join(' and ')}</span> on a Relief Shift.
@@ -319,7 +343,6 @@ function FrontDeskBoard() {
       )}
       <DayBar board={board} open={setDayDialog} />
       <NeedsAttention enabled={isOwner} />
-      {canCash && <CashReminder onHandover={() => setDayDialog('handover')} onTopUp={() => setDayDialog('top-up')} />}
       {done.error && <Alert>{done.error.message}</Alert>}
 
       <div className="grid grid-cols-[1fr_18rem] gap-6">
@@ -390,6 +413,7 @@ function FrontDeskBoard() {
       {startingBooking && <StartDialog booking={startingBooking} board={board} onClose={() => setStarting(null)} />}
       {payingBooking && <CheckoutDialog booking={payingBooking} onClose={() => setPaying(null)} />}
       {addingBooking && <AddServiceDialog booking={addingBooking} onClose={() => setAdding(null)} />}
+      {turningAway && <TurnedAwayDialog onClose={() => setTurningAway(false)} />}
       {dayDialog === 'cash-outs' && <CashOutDialog day={board.day} onClose={() => setDayDialog(null)} />}
       {dayDialog === 'early-close' && <EarlyCloseDialog onClose={() => setDayDialog(null)} />}
       {dayDialog === 'handover' && <HandoverDialog onClose={() => setDayDialog(null)} />}

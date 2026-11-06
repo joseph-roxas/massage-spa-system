@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, FormEvent, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+import { BrandMark } from './Brand';
 
 const BUTTON_VARIANTS = {
   primary: 'bg-teal-700 text-white hover:bg-teal-800 disabled:bg-teal-700/50',
@@ -102,7 +103,9 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
   return (
     <main className="flex min-h-screen items-center justify-center bg-stone-100 px-4">
       <div className="w-full max-w-sm">
-        <p className="mb-6 text-center text-sm font-semibold uppercase tracking-widest text-teal-700">Spa System</p>
+        <div className="mb-6">
+          <BrandMark center />
+        </div>
         <div className="rounded-xl border border-stone-200 bg-white p-8 shadow-sm">
           <h1 className="text-xl font-semibold text-stone-900">{title}</h1>
           {subtitle && <p className="mt-1 text-sm text-stone-500">{subtitle}</p>}

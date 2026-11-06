@@ -28,6 +28,21 @@ export const businessDays = sqliteTable('business_days', {
   reopenedBy: text('reopened_by').references(() => users.id),
 });
 
+export const REJECT_REASONS = ['no_therapist', 'too_late', 'refused_safety'] as const;
+
+/** Someone the shop did not serve: not a Guest, since no Service happened. */
+export const rejects = sqliteTable(
+  'rejects',
+  {
+    id: text('id').primaryKey(),
+    businessDay: text('business_day').notNull(),
+    reason: text('reason', { enum: REJECT_REASONS }).notNull(),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by').references(() => users.id),
+  },
+  (t) => [index('rejects_day_idx').on(t.businessDay)],
+);
+
 /** `supplies`, `food`, `transport`, `other` are history only; the form offers Petty cash and Laundry. */
 export const CASH_OUT_CATEGORIES = ['on_call_commission', 'cash_advance', 'relief_pay', 'petty_cash', 'laundry', 'supplies', 'food', 'transport', 'other'] as const;
 /** Which cash a Cash-out came from: Sales Cash or the Petty Cash Fund. */

@@ -52,16 +52,21 @@ const endorseBody = z
   .refine((e) => e.toNo >= e.fromNo, { message: 'The last card number must not be before the first.', path: ['toNo'] })
   .refine((e) => e.toNo - e.fromNo < MAX_CARD_RANGE, { message: `At most ${MAX_CARD_RANGE} cards at a time.`, path: ['toNo'] });
 
-/** Go-live count: cards at the shop not sold yet, or paper Vouchers sold before the system and still unused. */
+/** Go-live count: cards at the shop not sold yet, or paper Vouchers sold before the system, still unused or already used. */
 const importBody = z.object({
   serviceId: z.string().min(1),
   /** Card numbers and ranges, e.g. "271-320, 330". */
   numbers: z.string().trim().min(1).max(2000),
-  state: z.enum(['in_shop', 'unused']),
+  state: z.enum(['in_shop', 'unused', 'used_before_golive']),
   isFree: z.boolean().default(false),
   buyerName: z.string().trim().max(120).optional(),
   soldOn: isoDate.optional(),
+  /** Used Before Go-live only, if known. */
+  usedOn: isoDate.optional(),
+  note: z.string().trim().max(300).optional(),
 });
+
+const markUsedBody = z.object({ usedOn: isoDate.optional(), note: z.string().trim().max(300).optional() });
 
 const reasonBody = z.object({ reason: z.string().trim().min(3, 'Give a short reason.').max(300) });
 
@@ -89,6 +94,8 @@ async function cardsTaken(db: AuthedEnv['Variables']['db'], serviceId: string, n
   for (const p of pending) for (let n = p.fromNo; n <= p.toNo; n++) if (wanted.has(n)) taken.add(n);
   return [...taken].sort((a, b) => a - b);
 }
+
+const inRange = (numbers: number[]) => between(vouchers.cardNo, Math.min(...numbers), Math.max(...numbers));
 
 const listCards = (prefix: string, ns: number[]) =>
   ns.length > 6 ? `${ns.slice(0, 6).map((n) => cardSerial(prefix, n)).join(', ')} and ${ns.length - 6} more` : ns.map((n) => cardSerial(prefix, n)).join(', ');
@@ -335,13 +342,25 @@ export const voucherRoutes = new Hono<AuthedEnv>()
     if (!service.voucherPrefix) return fail(c, 409, 'no_voucher_prefix', 'Set this service’s voucher code (e.g. NTL-SM) under Settings first.');
     const numbers = parseCardNumbers(input.numbers);
     if (typeof numbers === 'string') return fail(c, 400, 'bad_numbers', numbers);
-    const taken = await cardsTaken(db, service.id, numbers);
+    const used = input.state === 'used_before_golive';
+    const sold = input.state !== 'in_shop';
+    // Paper Vouchers already counted as unused can be marked used by the same range.
+    const flippable = used
+      ? await db
+          .select({ id: vouchers.id, n: vouchers.cardNo })
+          .from(vouchers)
+          .where(and(eq(vouchers.serviceId, service.id), eq(vouchers.imported, true), eq(vouchers.status, 'unused'), inRange(numbers)))
+      : [];
+    const flip = flippable.filter((v) => numbers.includes(v.n!));
+    const counted = new Set(flip.map((v) => v.n!));
+    const taken = (await cardsTaken(db, service.id, numbers)).filter((n) => !counted.has(n));
     if (taken.length) return fail(c, 409, 'duplicate_serial', `Already in the system: ${listCards(service.voucherPrefix, taken)}`);
-    const sold = input.state === 'unused';
     const now = nowIso();
+    const usedFields = used ? { usedBeforeOn: input.usedOn ?? null, usedBeforeNote: input.note || null } : {};
     await db.batch([
       auditInsert(db, { actorUserId: c.var.user.id, action: 'voucher.import', entity: 'service', entityId: service.id, after: input }),
-      ...numbers.map((n) =>
+      ...flip.map((v) => db.update(vouchers).set({ status: 'used_before_golive', ...usedFields }).where(eq(vouchers.id, v.id))),
+      ...numbers.filter((n) => !counted.has(n)).map((n) =>
         db.insert(vouchers).values({
           id: crypto.randomUUID(),
           serial: cardSerial(service.voucherPrefix!, n),
@@ -352,12 +371,41 @@ export const voucherRoutes = new Hono<AuthedEnv>()
           imported: sold,
           importedBuyer: sold ? input.buyerName || null : null,
           importedSoldOn: sold ? (input.soldOn ?? null) : null,
+          ...usedFields,
           createdAt: now,
           createdBy: c.var.user.id,
         }),
       ),
     ]);
     return c.json({ imported: numbers.length }, 201);
+  })
+
+  /** One paper Voucher found to have been used before Go-live. */
+  .post('/vouchers/:id/mark-used', requireCapability('vouchers.import'), zValidator('json', markUsedBody, invalidInput), async (c) => {
+    const db = c.var.db;
+    const row = await db.select().from(vouchers).where(eq(vouchers.id, c.req.param('id'))).get();
+    if (!row) return fail(c, 404, 'not_found', 'Voucher not found.');
+    if (!row.imported || row.status !== 'unused') return fail(c, 409, 'not_paper_unused', 'Only a paper voucher still unused can be marked used.');
+    const input = c.req.valid('json');
+    await db.batch([
+      db.update(vouchers).set({ status: 'used_before_golive', usedBeforeOn: input.usedOn ?? null, usedBeforeNote: input.note || null }).where(eq(vouchers.id, row.id)),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'voucher.mark_used', entity: 'voucher', entityId: row.id, before: row, after: input }),
+    ]);
+    return c.json({ ok: true });
+  })
+
+  /** A card marked used by mistake, e.g. a Guest turns up holding it. */
+  .post('/vouchers/:id/unmark-used', requireCapability('vouchers.import'), zValidator('json', reasonBody, invalidInput), async (c) => {
+    const db = c.var.db;
+    const row = await db.select().from(vouchers).where(eq(vouchers.id, c.req.param('id'))).get();
+    if (!row) return fail(c, 404, 'not_found', 'Voucher not found.');
+    if (row.status !== 'used_before_golive') return fail(c, 409, 'not_used_before', 'This voucher is not marked as used before go-live.');
+    const { reason } = c.req.valid('json');
+    await db.batch([
+      db.update(vouchers).set({ status: 'unused', usedBeforeOn: null, usedBeforeNote: null }).where(eq(vouchers.id, row.id)),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'voucher.unmark_used', entity: 'voucher', entityId: row.id, before: row, reason }),
+    ]);
+    return c.json({ ok: true });
   })
 
   /** Endorsements, unreceived first: the shop's For Receiving list. */

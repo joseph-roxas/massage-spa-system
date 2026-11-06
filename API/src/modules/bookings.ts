@@ -1,9 +1,9 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { addMinutes, businessDayOf, isBirthday, overlaps, roomFits, stayOf, suggestRoom, suggestTherapist } from '@spa/domain';
-import { bookings, businessDays, FLEX_MODES, rooms, sales, services, staff } from '@spa/db';
+import { bookings, businessDays, FLEX_MODES, payments, rejects, rooms, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays } from '../lib/business-days';
@@ -94,7 +94,7 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const now = nowIso();
     const day = businessDayOf(new Date(now));
     const state = await frontDeskState(c.var.db, day, now);
-    const [svc, people, daySales, dayRow, unclosed] = await Promise.all([
+    const [svc, people, daySales, dayRow, unclosed, takings, voucherTakings, turnedAway] = await Promise.all([
       c.var.db.select({ id: services.id, code: services.code, name: services.name }).from(services),
       c.var.db.select({ id: staff.id, displayName: staff.displayName, birthdate: staff.birthdate, active: staff.active }).from(staff),
       c.var.db
@@ -103,6 +103,19 @@ export const bookingRoutes = new Hono<AuthedEnv>()
         .where(and(eq(sales.businessDay, day), eq(sales.status, 'paid'))),
       c.var.db.select().from(businessDays).where(eq(businessDays.date, day)).get(),
       openDays(c.var.db),
+      c.var.db
+        .select({ s: sql<number>`sum(${payments.amount})` })
+        .from(payments)
+        .innerJoin(sales, eq(sales.id, payments.saleId))
+        .where(and(eq(payments.businessDay, day), eq(sales.status, 'paid')))
+        .get(),
+      c.var.db
+        .select({ s: sql<number>`sum(${voucherPayments.amount})` })
+        .from(voucherPayments)
+        .innerJoin(voucherSales, eq(voucherSales.id, voucherPayments.voucherSaleId))
+        .where(and(eq(voucherPayments.businessDay, day), eq(voucherSales.status, 'paid')))
+        .get(),
+      c.var.db.select({ n: sql<number>`count(*)` }).from(rejects).where(eq(rejects.businessDay, day)).get(),
     ]);
     const svcById = new Map(svc.map((s) => [s.id, s]));
     const guestIds = [...new Set(state.dayBookings.map((b) => b.guestId).filter((g): g is string => !!g))];
@@ -127,6 +140,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       now,
       businessDay: dayRow ?? null,
       unclosed: unclosed.filter((d) => d.date < day).map((d) => d.date),
+      // Money received so far today, Cash and GCash, including Add-ons and Vouchers sold.
+      today: { sales: Number(takings?.s ?? 0) + Number(voucherTakings?.s ?? 0), guests: daySales.length, turnedAway: Number(turnedAway?.n ?? 0) },
       next: state.next?.staffId ?? null,
       // Staff celebrating today, for the Front Desk banner.
       birthdays: people.filter((p) => p.active && isBirthday(p.birthdate, day)).map((p) => p.displayName),

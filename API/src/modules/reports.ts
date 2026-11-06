@@ -35,6 +35,7 @@ import {
   stockOuts,
   voucherPayments,
   voucherSales,
+  rejects,
 } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { fail, invalidInput } from '../lib/http';
@@ -57,7 +58,7 @@ function into(map: Map<string, Row>, key: string, base: Row, values: Row) {
 }
 
 async function dailySales(db: Db, r: Range): Promise<Report> {
-  const [s, pay, vs, vpay, outs] = await Promise.all([
+  const [s, pay, vs, vpay, outs, turned] = await Promise.all([
     db
       .select({
         day: sales.businessDay,
@@ -93,10 +94,16 @@ async function dailySales(db: Db, r: Range): Promise<Report> {
       .from(cashOuts)
       .where(and(gte(cashOuts.businessDay, r.from), lte(cashOuts.businessDay, r.to)))
       .groupBy(cashOuts.businessDay),
+    db
+      .select({ day: rejects.businessDay, n: sql<number>`count(*)` })
+      .from(rejects)
+      .where(and(gte(rejects.businessDay, r.from), lte(rejects.businessDay, r.to)))
+      .groupBy(rejects.businessDay),
   ]);
   const columns = [
     col('date', 'Business Day', 'date'),
     col('guests', 'Guests', 'int'),
+    col('rejects', 'Turned away', 'int'),
     col('regular', 'Regular Price', 'money'),
     col('discounts', 'Discounts & FOCs', 'money'),
     col('services', 'Services paid', 'money'),
@@ -113,6 +120,7 @@ async function dailySales(db: Db, r: Range): Promise<Report> {
   for (const x of [...pay, ...vpay]) into(days, x.day, base(x.day), { [x.method]: x.amount });
   for (const x of vs) into(days, x.day, base(x.day), { vouchers: x.total });
   for (const x of outs) into(days, x.day, base(x.day), { cashOuts: x.amount });
+  for (const x of turned) into(days, x.day, base(x.day), { rejects: x.n });
   const rows = [...days.values()].map((row) => Object.fromEntries(columns.map((c) => [c.key, row[c.key] ?? (c.type === 'date' ? null : 0)]))).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   return {
     title: 'Daily sales',

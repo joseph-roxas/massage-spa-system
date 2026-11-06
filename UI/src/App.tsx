@@ -29,6 +29,8 @@ import { RoomsSettings } from './pages/settings/RoomsSettings';
 import { StaffSettings } from './pages/settings/StaffSettings';
 import { PaySettings } from './pages/settings/PaySettings';
 import { FrontDeskSettings } from './pages/settings/FrontDeskSettings';
+import { BusinessSettings } from './pages/settings/BusinessSettings';
+import { BrandingEffect } from './components/Brand';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -195,6 +197,7 @@ const router = createBrowserRouter([
           { path: 'staff', element: <StaffSettings /> },
           { path: 'pay', element: <PaySettings /> },
           { path: 'front-desk', element: <FrontDeskSettings /> },
+          { path: 'business', element: <BusinessSettings /> },
         ],
       },
       {
@@ -212,6 +215,7 @@ const router = createBrowserRouter([
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <BrandingEffect />
       <RouterProvider router={router} />
     </QueryClientProvider>
   );

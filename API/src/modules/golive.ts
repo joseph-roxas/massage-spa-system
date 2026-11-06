@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import { businessDayOf, nextPayWeekStart } from '@spa/domain';
 import { caLedger, holidays, servicePrices, services, staff, stockIns, users, vouchers } from '@spa/db';
 import type { AuthedEnv } from '../env';
@@ -14,13 +14,14 @@ export const goLiveRoutes = new Hono<AuthedEnv>().get('/go-live/status', require
   const db = c.var.db;
   const today = businessDayOf(new Date());
   const year = today.slice(0, 4);
-  const [people, desks, svc, priced, hols, imported, cards, openings, counted, stored] = await Promise.all([
+  const [people, desks, svc, priced, hols, imported, usedBefore, cards, openings, counted, stored] = await Promise.all([
     db.select({ kind: staff.kind, isOnCall: staff.isOnCall, hasPin: sql<number>`${staff.pinHash} is not null`, dailyRate: staff.dailyRate }).from(staff).where(eq(staff.active, true)),
     db.select({ n: count }).from(users).where(and(eq(users.role, 'receptionist'), eq(users.status, 'active'))).get(),
     db.select({ n: count }).from(services).where(eq(services.active, true)).get(),
     db.select({ n: sql<number>`count(distinct ${servicePrices.serviceId})` }).from(servicePrices).get(),
     db.select({ n: count }).from(holidays).where(gte(holidays.date, `${year}-01-01`)).get(),
-    db.select({ n: count }).from(vouchers).where(and(eq(vouchers.imported, true), isNull(vouchers.redeemedSaleId))).get(),
+    db.select({ n: count }).from(vouchers).where(and(eq(vouchers.imported, true), eq(vouchers.status, 'unused'))).get(),
+    db.select({ n: count }).from(vouchers).where(eq(vouchers.status, 'used_before_golive')).get(),
     db.select({ n: count }).from(vouchers).where(eq(vouchers.status, 'in_shop')).get(),
     db.select({ n: count }).from(caLedger).where(eq(caLedger.entry, 'opening')).get(),
     db.select({ n: count }).from(stockIns).where(and(eq(stockIns.kind, 'opening'), eq(stockIns.location, 'shop'))).get(),
@@ -78,9 +79,9 @@ export const goLiveRoutes = new Hono<AuthedEnv>().get('/go-live/status', require
     },
     {
       key: 'vouchers',
-      label: 'Count voucher cards: unsold ones at the shop, and sold ones not yet used',
+      label: 'Count voucher cards: unsold at the shop, sold and still out, and sold and already used',
       status: n(cards) > 0 ? 'done' : 'todo',
-      detail: `${n(cards)} unsold card(s) at the shop, ${n(imported)} sold paper voucher(s) still unused`,
+      detail: `${n(cards)} unsold at the shop · paper vouchers: ${n(imported) + n(usedBefore)} sold, ${n(usedBefore)} used, ${n(imported)} still out`,
       link: '/vouchers',
     },
     {

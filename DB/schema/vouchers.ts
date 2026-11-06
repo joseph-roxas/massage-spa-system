@@ -4,8 +4,11 @@ import { guests } from './guests';
 import { PAYMENT_METHODS, sales } from './sales';
 import { users } from './users';
 
-/** `in_shop`: a printed card at the shop, not sold yet. `unused`: sold, not yet redeemed. */
-export const VOUCHER_STATUSES = ['in_shop', 'unused', 'redeemed', 'voided'] as const;
+/**
+ * `in_shop`: a printed card at the shop, not sold yet. `unused`: sold, not yet redeemed.
+ * `used_before_golive`: sold and used on paper; no Sale, Commission or FOC behind it.
+ */
+export const VOUCHER_STATUSES = ['in_shop', 'unused', 'redeemed', 'used_before_golive', 'voided'] as const;
 export const VOUCHER_SALE_STATUSES = ['paid', 'voided'] as const;
 
 /** One purchase of Vouchers for one Service; every five bought earn a free sixth. */
@@ -80,6 +83,9 @@ export const vouchers = sqliteTable(
     /** Imported only: who bought it and when, if known. */
     importedBuyer: text('imported_buyer'),
     importedSoldOn: text('imported_sold_on'),
+    /** Used Before Go-live only: when it was used and any note, if known. */
+    usedBeforeOn: text('used_before_on'),
+    usedBeforeNote: text('used_before_note'),
     voidReason: text('void_reason'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by').references(() => users.id),

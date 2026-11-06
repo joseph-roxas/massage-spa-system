@@ -19,3 +19,4 @@ export * from './reports';
 export * from './export';
 export * from './guests';
 export * from './backfill';
+export * from './dashboard';

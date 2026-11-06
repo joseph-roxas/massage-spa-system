@@ -391,7 +391,7 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
 
 ### 14.0 Pick up here
 
-- **Current work is §16 (Phase 14, branch `cr-3`): 14.1–14.7 built, 14.8 next.** Phases 12 and 13 are merged to `main`.
+- **Current work is §16 (Phase 14, branch `cr-3`): 14.1–14.8 built; next is the owner's review, merge and deploy.** Phases 12 and 13 are merged to `main`.
 - **Phase 12 is done and waiting to be merged.** It is on branch `cr-1` (pushed), in [PR #1](https://github.com/joseph-roxas/massage-spa-system/pull/1) to `main`.
   - The PR has 9 commits: docs `607562c`, slices 12.1–12.7 ending `c9788df`, then the Day Close fix `d0d4f7a` (§14.2, "Fix after 12.7").
   - The PR description is written; it still says 95 API tests, but there are now 96, and it doesn't mention the Day Close fix yet.
@@ -687,3 +687,4 @@ Grilled with the owner on 2026-11-06 (five rounds). Vocabulary is in `GLOSSARY.m
 3. Definitions: forecasts are so far + daily average for the rest of the period. Cashflow is money in vs money actually paid out, no bank balance. Weekday chart uses averages. Top Therapists rank by Regular Price sales, top Services by sales, both from go-live. Consumables is cost per Guest against the 3-month average, flagged above +20%, "building baseline" until a full month exists.
 4. Also: unused Voucher liability, month-end profit forecast, average sale per Guest, Day Close cash variance.
 5. Insights only; detail stays in Reports. Reuse the hand-rolled SVG in `UI/src/pages/reports/Charts.tsx`; no chart library.
+6. **As built**: `GET /dashboard?month=` in `API/src/modules/dashboard.ts`, built on the Reports queries and `statementFor`; forecasts and the Consumables rule are in `packages/domain/src/dashboard.ts`. No migration. `/` shows the Dashboard to whoever holds `reports.all`; everyone else, and any `/?…` link, goes to `/front-desk`. Cash out is the Income Statement's costs with live pay replaced by Payrolls actually released, plus On-call Commission and Cash Advances. Government remittance is both shares for active enrolled staff. Consumables are priced at each Item's average purchase price, and a baseline needs a whole calendar month after Go-live. The charts are in `UI/src/pages/dashboard/Charts.tsx`.

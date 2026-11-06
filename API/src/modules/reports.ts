@@ -60,7 +60,7 @@ function into(map: Map<string, Row>, key: string, base: Row, values: Row) {
 
 const pastDays = (db: Db, r: Range) => db.select().from(dailySummaries).where(and(gte(dailySummaries.date, r.from), lte(dailySummaries.date, r.to)));
 
-async function dailySales(db: Db, r: Range): Promise<Report> {
+export async function dailySales(db: Db, r: Range): Promise<Report> {
   const [s, pay, vs, vpay, outs, turned, past] = await Promise.all([
     db
       .select({
@@ -154,7 +154,7 @@ async function dailySales(db: Db, r: Range): Promise<Report> {
   };
 }
 
-async function therapistSales(db: Db, r: Range): Promise<Report> {
+export async function therapistSales(db: Db, r: Range): Promise<Report> {
   const [s, requested, worked, people] = await Promise.all([
     db
       .select({
@@ -261,7 +261,7 @@ async function serviceTimesReport(db: Db, r: Range): Promise<Report> {
   return { title: 'Services by start time', columns, rows, totals: totalsOf(columns, rows), note: 'How many of each Service started in each hour. Darker cells are busier.' };
 }
 
-async function foc(db: Db, r: Range): Promise<Report> {
+export async function foc(db: Db, r: Range): Promise<Report> {
   const rows0 = await db
     .select({
       type: sales.discountType,

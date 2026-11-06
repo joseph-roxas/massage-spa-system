@@ -1,5 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createBrowserRouter, Navigate, RouterProvider } from 'react-router';
+import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router';
+import { can } from '@spa/domain';
+import { useCurrentUser } from './lib/auth';
+import { DashboardPage } from './pages/DashboardPage';
 import { Layout, RequireAuth, RequireCapability } from './components/Layout';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { HomePage } from './pages/HomePage';
@@ -38,6 +41,14 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
 });
 
+/** The Super Admin lands on the Dashboard, everyone else on the Front Desk. Older links like /?close=1 keep working. */
+function Landing() {
+  const { data: user } = useCurrentUser();
+  const { search } = useLocation();
+  if (can(user?.role, 'reports.all') && !search) return <DashboardPage />;
+  return <Navigate to={`/front-desk${search}`} replace />;
+}
+
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/signup', element: <SignupPage /> },
@@ -61,7 +72,8 @@ const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { path: '/', element: <HomePage /> },
+      { path: '/', element: <Landing /> },
+      { path: '/front-desk', element: <HomePage /> },
       { path: '/price-list', element: <PriceListPage /> },
       {
         path: '/vouchers',

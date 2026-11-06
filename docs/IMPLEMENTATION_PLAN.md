@@ -391,7 +391,7 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
 
 ### 14.0 Pick up here
 
-- **Current work is §16 (Phase 14, branch `cr-3`): 14.1–14.6 built, 14.7 next.** Phases 12 and 13 are merged to `main`.
+- **Current work is §16 (Phase 14, branch `cr-3`): 14.1–14.7 built, 14.8 next.** Phases 12 and 13 are merged to `main`.
 - **Phase 12 is done and waiting to be merged.** It is on branch `cr-1` (pushed), in [PR #1](https://github.com/joseph-roxas/massage-spa-system/pull/1) to `main`.
   - The PR has 9 commits: docs `607562c`, slices 12.1–12.7 ending `c9788df`, then the Day Close fix `d0d4f7a` (§14.2, "Fix after 12.7").
   - The PR description is written; it still says 95 API tests, but there are now 96, and it doesn't mention the Day Close fix yet.
@@ -677,6 +677,8 @@ Grilled with the owner on 2026-11-06 (five rounds). Vocabulary is in `GLOSSARY.m
 3. **Percentage suggestion**: the Super Admin sets the share of the year's profit to give (default 30%). Suggested % = that share × (profit after the Receptionist's 13th Month Pay) ÷ total Commission, to the nearest 0.5%, shown against the usual 5–7%, with the peso cost and profit left at a few percentages. The owner still chooses. A loss year says there is no room and leaves the choice open. Not applied to the Receptionist.
 4. **13th Month Pay**: an opening basic-pay figure, editable, added to live basic pay. From the file's numbers: Jan 4–Oct 31 basic ₱192,463.00 less late/undertime ₱1,393.96, plus Jan 1–3 at ₱605 (₱1,815.00), is ₱192,884.04. Add Nov 1–7 when known. The file's rates stand: ₱605 to Feb 28, ₱650 from Mar 1, ₱692 from mid-October.
 5. **Receptionist's opening CA balance** at go-live: ₱5,000 after the Oct 25–31 week, less any Nov 1–7 repayment, editable. Her standing CA Repayment is ₱500.
+
+6. **As built** (migration 0027): `bonusPeriod`, `bonusDeduction` and `suggestBonus` in the domain. `bonuses` gains `deduction`, `period_start`, `period_end`; `amount` stays the whole bonus, so the Income Statement cost is unchanged, and take-home is `amount − deduction`. The cut-off is fixed once any of the year's bonuses is paid. Deferred Deductions move to the ledger (`bonus`) on Mark paid, not on compute; Mark paid refuses (`stale`) if the balance has moved. The suggestion's profit is the Income Statement over the bonus period, with bonuses paid added back, less 13th Month Pay as computed or as the basic pay so far gives. `opening_basic_pay` holds the 13th Month opening figure per year, suggested from Past Payslips (basic less late and undertime). The Receptionist's opening CA uses the existing opening balance, filled in from the last Past Payslip.
 
 **14.8 Dashboard**
 

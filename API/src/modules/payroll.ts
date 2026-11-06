@@ -1,9 +1,11 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, ne, sql } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import {
+  bonusDeduction,
+  bonusPeriod,
   businessDayOf,
   can,
   caRepaymentFor,
@@ -16,6 +18,7 @@ import {
   payWeekOf,
   receptionistDay,
   receptionistPayroll,
+  suggestBonus,
   therapistPayroll,
   thirteenthMonth,
   weekdayOf,
@@ -40,13 +43,16 @@ import {
   deductionLedger,
   dtr,
   holidays,
+  openingBasicPay,
   payrollAdjustments,
   payrolls,
   PAYROLL_KINDS,
+  pastPayslips,
   pastTherapistWeeks,
   sales,
   staff,
 } from '@spa/db';
+import { statementFor } from './finance';
 import type { AuthedEnv } from '../env';
 import { pastPayslipsOf } from './backfill';
 import { auditInsert } from '../lib/audit';
@@ -112,6 +118,9 @@ async function adjustmentsFor(db: Db, weekStart: string, staffIds?: string[]) {
   for (const r of rows) byStaff.set(r.staffId, [...(byStaff.get(r.staffId) ?? []), r]);
   return byStaff;
 }
+
+/** Default share of the year's profit for the Year-end Bonus suggestion: 30%. */
+const DEFAULT_PROFIT_SHARE_BP = 3000;
 
 const sumOf = (rows: readonly { amount: number }[] | undefined) => (rows ?? []).reduce((s, r) => s + r.amount, 0);
 
@@ -632,6 +641,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     const db = c.var.db;
     const people = (await db.select().from(staff).where(eq(staff.isOnCall, false)).orderBy(asc(staff.displayName))).filter((p) => p.kind !== 'reliever' && kinds.includes(kindOf(p)));
     const balances = await caBalances(db);
+    const recorded = await db.select().from(pastPayslips).where(isNotNull(pastPayslips.caBalance)).orderBy(desc(pastPayslips.weekStart));
     const out = [];
     for (const p of people) {
       const balance = balances.get(p.id) ?? 0;
@@ -641,7 +651,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
         displayName: p.displayName,
         kind: kindOf(p),
         balance,
-        ...(kindOf(p) === 'therapist' ? { cap: await therapistCap(db, p) } : { caRepayment: p.caRepayment }),
+        ...(kindOf(p) === 'therapist' ? { cap: await therapistCap(db, p) } : { caRepayment: p.caRepayment, suggestedOpening: recorded.find((r) => r.staffId === p.id)?.caBalance ?? null }),
       });
     }
     return c.json({ balances: out });
@@ -807,37 +817,104 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     return c.json({ bonuses: rows.map((r) => ({ ...r.bonus, displayName: r.displayName })) });
   })
 
-  /** Year-end Bonus for every Therapist: the year's Commission × the chosen percentage. */
+  /** The percentage that shares the chosen part of the profit, what each choice costs, and who it goes to. */
+  .get(
+    '/bonuses/year-end/suggestion',
+    zValidator('query', z.object({ year: z.coerce.number().pipe(year), share: z.coerce.number().int().min(0).max(10_000).default(DEFAULT_PROFIT_SHARE_BP) }), invalidInput),
+    async (c) => {
+      if (!can(c.var.user.role, 'payroll.therapist.approve')) return fail(c, 403, 'forbidden', 'Only the Super Admin sets bonuses.');
+      const { year: y, share } = c.req.valid('query');
+      const db = c.var.db;
+      const period = await bonusWindow(db, y);
+      const [totals, balances, statement, thirteenth] = await Promise.all([
+        commissionByTherapist(db, period),
+        deductionBalances(db),
+        statementFor(db, period.start, period.end),
+        thirteenthFor(db, y),
+      ]);
+      const names = new Map((await db.select({ id: staff.id, displayName: staff.displayName }).from(staff)).map((p) => [p.id, p.displayName]));
+      const commission = [...totals.values()].reduce((s, t) => s + t, 0);
+      // Bonuses already paid are what is being decided, so they don't count against the profit.
+      const paidOut = statement.costs.filter((l) => l.label === 'Year-end bonus' || l.label === '13th month pay').reduce((s, l) => s + l.amount, 0);
+      const before = statement.net + paidOut;
+      const profit = before - thirteenth;
+      return c.json({
+        period,
+        shareBp: share,
+        commission,
+        profitBefore: before,
+        thirteenthMonth: thirteenth,
+        profit,
+        ...suggestBonus({ profit, commission, shareBp: share }),
+        lines: [...totals]
+          .map(([staffId, total]) => ({ staffId, displayName: names.get(staffId) ?? '', commission: total, deferred: Math.max(0, balances.get(staffId) ?? 0) }))
+          .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      });
+    },
+  )
+
+  /** Year-end Bonus for every Therapist: Commission since the last cut-off × the chosen percentage, less Deferred Deductions. */
   .post('/bonuses/year-end', zValidator('json', z.object({ year, bp: z.number().int().min(1).max(10_000) }), invalidInput), async (c) => {
     if (!can(c.var.user.role, 'payroll.therapist.approve')) return fail(c, 403, 'forbidden', 'Only the Super Admin sets bonuses.');
     const { year: y, bp } = c.req.valid('json');
     const db = c.var.db;
-    const totals = await db
-      .select({ staffId: sales.therapistId, total: sql<number>`sum(${sales.commissionAmount})` })
-      .from(sales)
-      .innerJoin(staff, eq(staff.id, sales.therapistId))
-      .where(and(eq(sales.status, 'paid'), eq(staff.isOnCall, false), gte(sales.businessDay, `${y}-01-01`), lte(sales.businessDay, `${y}-12-31`)))
-      .groupBy(sales.therapistId);
-    return saveBonuses(c, y, 'year_end_bonus', totals.map((t) => ({ staffId: t.staffId, basis: Number(t.total), bp, amount: yearEndBonus(Number(t.total), bp) })));
+    const period = await bonusWindow(db, y);
+    if (period.end < period.start) return fail(c, 409, 'no_finished_weeks', 'No Pay Week has finished since the last cut-off.');
+    const [totals, balances] = await Promise.all([commissionByTherapist(db, period), deductionBalances(db)]);
+    return saveBonuses(c, y, 'year_end_bonus', [...totals].map(([staffId, basis]) => {
+      const amount = yearEndBonus(basis, bp);
+      return { staffId, basis, bp, amount, deduction: bonusDeduction(amount, balances.get(staffId) ?? 0), periodStart: period.start, periodEnd: period.end };
+    }));
   })
 
-  /** 13th Month Pay for the Receptionist: the year's basic pay ÷ 12, from approved Payrolls. */
+  /** 13th Month Pay for the Receptionist: the year's basic pay ÷ 12, opening figure included. */
   .post('/bonuses/thirteenth-month', zValidator('json', z.object({ year }), invalidInput), async (c) => {
     if (!can(c.var.user.role, 'payroll.receptionist.manage')) return fail(c, 403, 'forbidden', 'Only the Super Admin sets bonuses.');
     const { year: y } = c.req.valid('json');
-    const db = c.var.db;
-    // A Pay Week can straddle New Year, so count each day in its own year.
-    const rows = await db
-      .select({ staffId: payrolls.staffId, breakdownJson: payrolls.breakdownJson })
-      .from(payrolls)
-      .where(and(eq(payrolls.kind, 'receptionist'), ne(payrolls.status, 'draft'), gte(payrolls.weekStart, `${y - 1}-12-25`), lte(payrolls.weekStart, `${y}-12-31`)));
-    const basis = new Map<string, number>();
-    for (const r of rows) {
-      const days = JSON.parse(r.breakdownJson) as ReceptionistDay[];
-      const inYear = days.filter((d) => d.date.startsWith(`${y}-`)).reduce((s, d) => s + d.basic, 0);
-      basis.set(r.staffId, (basis.get(r.staffId) ?? 0) + inYear);
-    }
+    const basis = await basicPayFor(c.var.db, y);
     return saveBonuses(c, y, 'thirteenth_month', [...basis].map(([staffId, b]) => ({ staffId, basis: b, bp: null, amount: thirteenthMonth(b) })));
+  })
+
+  /** Basic pay earned before Go-live, with what the Past Payslips add up to. */
+  .get('/bonuses/opening-basic', zValidator('query', z.object({ year: z.coerce.number().pipe(year) }), invalidInput), async (c) => {
+    if (!can(c.var.user.role, 'payroll.receptionist.manage')) return fail(c, 403, 'forbidden', 'You do not have access to this.');
+    const y = c.req.valid('query').year;
+    const db = c.var.db;
+    const [people, openings, past] = await Promise.all([
+      db.select().from(staff).where(eq(staff.kind, 'receptionist')).orderBy(asc(staff.displayName)),
+      db.select().from(openingBasicPay).where(eq(openingBasicPay.year, y)),
+      db
+        .select({ staffId: pastPayslips.staffId, total: sql<number>`sum(${pastPayslips.basic} - ${pastPayslips.lateUndertime})` })
+        .from(pastPayslips)
+        .where(and(gte(pastPayslips.weekStart, `${y}-01-01`), lte(pastPayslips.weekStart, `${y}-12-31`)))
+        .groupBy(pastPayslips.staffId),
+    ]);
+    return c.json({
+      people: people
+        .filter((p) => p.active || openings.some((o) => o.staffId === p.id) || past.some((r) => r.staffId === p.id))
+        .map((p) => ({
+          staffId: p.id,
+          displayName: p.displayName,
+          amount: openings.find((o) => o.staffId === p.id)?.amount ?? null,
+          suggested: Number(past.find((r) => r.staffId === p.id)?.total ?? 0),
+        })),
+    });
+  })
+
+  .put('/bonuses/opening-basic', zValidator('json', z.object({ year, staffId: z.string().min(1), amount: centavos }), invalidInput), async (c) => {
+    if (!can(c.var.user.role, 'payroll.receptionist.manage')) return fail(c, 403, 'forbidden', 'Only the Super Admin sets opening figures.');
+    const { year: y, staffId, amount } = c.req.valid('json');
+    const db = c.var.db;
+    const person = await db.select().from(staff).where(eq(staff.id, staffId)).get();
+    if (!person || person.kind !== 'receptionist') return fail(c, 404, 'not_found', 'Receptionist not found.');
+    const scope = and(eq(openingBasicPay.year, y), eq(openingBasicPay.staffId, staffId));
+    const before = await db.select().from(openingBasicPay).where(scope).get();
+    await db.batch([
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'bonus.opening_basic', entity: 'staff', entityId: staffId, before: before?.amount ?? 0, after: { year: y, amount } }),
+      db.delete(openingBasicPay).where(scope),
+      db.insert(openingBasicPay).values({ id: crypto.randomUUID(), year: y, staffId, amount, updatedAt: nowIso(), updatedBy: c.var.user.id }),
+    ]);
+    return c.json({ ok: true });
   })
 
   .post('/bonuses/:id/paid', async (c) => {
@@ -846,19 +923,83 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     if (!row) return fail(c, 404, 'not_found', 'Bonus not found.');
     if (!can(c.var.user.role, APPROVE[row.kind === 'year_end_bonus' ? 'therapist' : 'receptionist'])) return fail(c, 403, 'forbidden', 'You do not have access to this.');
     if (row.paidAt) return fail(c, 409, 'already_paid', 'Already marked paid.');
+    if (row.kind === 'year_end_bonus') {
+      const owed = (await deductionBalances(db, [row.staffId])).get(row.staffId) ?? 0;
+      if (bonusDeduction(row.amount, owed) !== row.deduction) return fail(c, 409, 'stale', 'Deferred Deductions changed since this was computed. Compute again first.');
+    }
+    const now = nowIso();
     await db.batch([
-      db.update(bonuses).set({ paidAt: nowIso() }).where(eq(bonuses.id, row.id)),
-      auditInsert(db, { actorUserId: c.var.user.id, action: 'bonus.paid', entity: 'bonus', entityId: row.id, after: { amount: row.amount } }),
+      db.update(bonuses).set({ paidAt: now }).where(eq(bonuses.id, row.id)),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'bonus.paid', entity: 'bonus', entityId: row.id, after: { amount: row.amount, deduction: row.deduction } }),
+      ...(row.deduction > 0
+        ? [db.insert(deductionLedger).values({ id: crypto.randomUUID(), staffId: row.staffId, entry: 'bonus', amount: row.deduction, createdAt: now, createdBy: c.var.user.id })]
+        : []),
     ]);
     return c.json({ ok: true });
   });
+
+/** The cut-off: fixed once any of the year's bonuses is paid, otherwise the last finished Pay Week. */
+async function bonusWindow(db: Db, y: number): Promise<PayWeek> {
+  const ofYear = (year: number) => and(eq(bonuses.year, year), eq(bonuses.kind, 'year_end_bonus'));
+  const kept = await db.select({ start: bonuses.periodStart, end: bonuses.periodEnd }).from(bonuses).where(and(ofYear(y), isNotNull(bonuses.paidAt))).limit(1).get();
+  if (kept?.start && kept.end) return { start: kept.start, end: kept.end };
+  const last = await db.select({ end: sql<string | null>`max(${bonuses.periodEnd})` }).from(bonuses).where(ofYear(y - 1)).get();
+  return bonusPeriod(y, last?.end ?? null, businessDayOf(new Date()));
+}
+
+/** Commission per Therapist: weekly sheet data plus live Sales. On-call Therapists get no bonus. */
+async function commissionByTherapist(db: Db, period: PayWeek) {
+  const [live, past] = await Promise.all([
+    db
+      .select({ staffId: sales.therapistId, total: sql<number>`sum(${sales.commissionAmount})` })
+      .from(sales)
+      .innerJoin(staff, eq(staff.id, sales.therapistId))
+      .where(and(eq(sales.status, 'paid'), eq(staff.isOnCall, false), gte(sales.businessDay, period.start), lte(sales.businessDay, period.end)))
+      .groupBy(sales.therapistId),
+    db
+      .select({ staffId: pastTherapistWeeks.staffId, total: sql<number>`sum(${pastTherapistWeeks.gross})` })
+      .from(pastTherapistWeeks)
+      .innerJoin(staff, eq(staff.id, pastTherapistWeeks.staffId))
+      .where(and(eq(staff.isOnCall, false), gte(pastTherapistWeeks.weekStart, period.start), lte(pastTherapistWeeks.weekStart, period.end)))
+      .groupBy(pastTherapistWeeks.staffId),
+  ]);
+  const totals = new Map<string, number>();
+  for (const r of [...live, ...past]) if (r.staffId) totals.set(r.staffId, (totals.get(r.staffId) ?? 0) + Number(r.total));
+  return totals;
+}
+
+/** A year's basic pay per Receptionist: the opening figure plus approved Payrolls. */
+async function basicPayFor(db: Db, y: number) {
+  // A Pay Week can straddle New Year, so count each day in its own year.
+  const [rows, openings] = await Promise.all([
+    db
+      .select({ staffId: payrolls.staffId, breakdownJson: payrolls.breakdownJson })
+      .from(payrolls)
+      .where(and(eq(payrolls.kind, 'receptionist'), ne(payrolls.status, 'draft'), gte(payrolls.weekStart, `${y - 1}-12-25`), lte(payrolls.weekStart, `${y}-12-31`))),
+    db.select().from(openingBasicPay).where(eq(openingBasicPay.year, y)),
+  ]);
+  const basis = new Map(openings.map((o) => [o.staffId, o.amount]));
+  for (const r of rows) {
+    const days = JSON.parse(r.breakdownJson) as ReceptionistDay[];
+    const inYear = days.filter((d) => d.date.startsWith(`${y}-`)).reduce((s, d) => s + d.basic, 0);
+    basis.set(r.staffId, (basis.get(r.staffId) ?? 0) + inYear);
+  }
+  return basis;
+}
+
+/** The year's 13th Month Pay: as computed, otherwise what the basic pay so far gives. */
+async function thirteenthFor(db: Db, y: number) {
+  const saved = await db.select({ amount: bonuses.amount }).from(bonuses).where(and(eq(bonuses.year, y), eq(bonuses.kind, 'thirteenth_month')));
+  if (saved.length) return saved.reduce((s, b) => s + b.amount, 0);
+  return [...(await basicPayFor(db, y)).values()].reduce((s, b) => s + thirteenthMonth(b), 0);
+}
 
 /** Replaces the year's unpaid bonuses of that kind; paid ones stay as they were. */
 async function saveBonuses(
   c: Context<AuthedEnv>,
   y: number,
   kind: (typeof bonuses.$inferSelect)['kind'],
-  lines: { staffId: string; basis: number; bp: number | null; amount: number }[],
+  lines: { staffId: string; basis: number; bp: number | null; amount: number; deduction?: number; periodStart?: string; periodEnd?: string }[],
 ) {
   const db = c.var.db;
   const paid = new Set(

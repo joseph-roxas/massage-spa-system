@@ -133,6 +133,8 @@ export type Balance = {
   cap?: { week: PayWeek; net: number; taken: number; cap: number };
   /** Receptionist: the standing CA Repayment per Payroll. */
   caRepayment?: number;
+  /** Receptionist: the balance her Past Payslips last recorded. */
+  suggestedOpening?: number | null;
 };
 
 export type Bonus = {
@@ -144,8 +146,27 @@ export type Bonus = {
   basis: number;
   bp: number | null;
   amount: number;
+  /** Deferred Deductions taken off when paid. */
+  deduction: number;
+  periodStart: string | null;
+  periodEnd: string | null;
   paidAt: string | null;
 };
+
+export type BonusSuggestion = {
+  period: PayWeek;
+  shareBp: number;
+  commission: number;
+  profitBefore: number;
+  thirteenthMonth: number;
+  profit: number;
+  bp: number | null;
+  scenarios: { bp: number; cost: number; left: number }[];
+  lines: { staffId: string; displayName: string; commission: number; deferred: number }[];
+};
+
+/** Basic pay earned before Go-live, for 13th Month Pay. */
+export type OpeningBasic = { staffId: string; displayName: string; amount: number | null; suggested: number };
 
 /** A Therapist's Commission for the days of the first Pay Week before Go-live. */
 export type BeforeGoLive = { staffId: string; displayName: string; amount: number | null };
@@ -189,6 +210,12 @@ export const useBalances = () =>
 
 export const useBonuses = (year: number) =>
   useQuery({ queryKey: ['bonuses', year], queryFn: () => api<{ bonuses: Bonus[] }>(`/bonuses?year=${year}`) });
+
+export const useBonusSuggestion = (year: number, shareBp: number) =>
+  useQuery({ queryKey: ['bonuses', year, 'suggestion', shareBp], queryFn: () => api<BonusSuggestion>(`/bonuses/year-end/suggestion?year=${year}&share=${shareBp}`) });
+
+export const useOpeningBasic = (year: number) =>
+  useQuery({ queryKey: ['bonuses', year, 'opening-basic'], queryFn: () => api<{ people: OpeningBasic[] }>(`/bonuses/opening-basic?year=${year}`) });
 
 export function usePayrollAction() {
   const qc = useQueryClient();

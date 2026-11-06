@@ -318,6 +318,40 @@ function ContributionRatesCard({ value }: { value: Rates }) {
 }
 
 /** What a Reliever earns for a Relief Shift; the Receptionist's own rate is on her Staff record. */
+function TakeHomeFloorCard({ value }: { value: number }) {
+  const [text, setText] = useState(pesosText(value));
+  const [saved, setSaved] = useState(false);
+  const save = usePayRule<number>('take_home_floor');
+  const amount = parsePesos(text);
+  return (
+    <Card title="Take-home Floor">
+      <form
+        className="flex items-end gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (amount !== null) save.mutate(amount, { onSuccess: () => setSaved(true) });
+        }}
+      >
+        <Field label="Least a therapist takes home in a week" hint="Government Deductions stop here. The rest is held over and collected from later weeks.">
+          <Input
+            inputMode="decimal"
+            required
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setSaved(false);
+            }}
+            className="w-36"
+          />
+        </Field>
+        <Button type="submit" disabled={amount === null || save.isPending}>Save</Button>
+        {save.error && <span className="text-sm text-red-700">{save.error.message}</span>}
+        {saved && !save.error && <span className="text-sm text-teal-700">Saved.</span>}
+      </form>
+    </Card>
+  );
+}
+
 function MinimumWageCard({ value }: { value: number }) {
   const [text, setText] = useState(pesosText(value));
   const [saved, setSaved] = useState(false);
@@ -362,6 +396,7 @@ export function PaySettings() {
         <>
           <ReceptionistRules rules={data.payRules} />
           <MinimumWageCard value={(data.payRules.minimum_wage_daily as number | undefined) ?? 58_200} />
+          <TakeHomeFloorCard value={(data.payRules.take_home_floor as number | undefined) ?? 100_000} />
           <ContributionRatesCard value={(data.payRules.contribution_rates as Rates | undefined) ?? DEFAULT_CONTRIBUTION_RATES} />
           <GovDefaultsCard value={data.payRules.gov_deduction_defaults as GovDefaults} />
         </>

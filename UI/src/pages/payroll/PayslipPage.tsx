@@ -47,12 +47,48 @@ export function PayslipLines({ payroll: p }: { payroll: Payroll }) {
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Deducted</p>
         {deductions.length === 0 && <p className="text-sm text-stone-500">Nothing</p>}
-        {deductions.map(([key, label]) => (
-          <Line key={key} label={label} value={p.lines.deductions[key]} minus />
-        ))}
+        {deductions.map(([key, label]) =>
+          key === 'deferred' && p.lines.deductions[key] < 0 ? (
+            <Line key={key} label="Held over to a later week" value={-p.lines.deductions[key]} />
+          ) : (
+            <Line key={key} label={key === 'deferred' ? 'Deferred Deductions from earlier weeks' : label} value={p.lines.deductions[key]} minus />
+          ),
+        )}
         <Line label="Total deducted" value={p.lines.totalDeductions} strong minus />
       </div>
     </div>
+  );
+}
+
+/** How much Government Deductions this Payroll takes; the Super Admin can set their own figure for one week. */
+function DeductionOverride({ payroll: p, balance }: { payroll: Payroll; balance: number }) {
+  const act = usePayrollAction();
+  const week = p.govSss + p.govPhic + p.govPagibig;
+  const taken = week - p.govDeferred + p.govCollected;
+  const [text, setText] = useState(pesosText(taken));
+  const amount = parsePesos(text);
+  return (
+    <section className="space-y-3 rounded-lg border border-stone-200 bg-white p-4 print:hidden">
+      <h2 className="font-semibold">Government Deductions this week</h2>
+      {act.error && <Alert>{act.error.message}</Alert>}
+      <p className="text-sm text-stone-600">
+        This week {peso(week)} · owed from earlier weeks {peso(balance)} · taking {peso(taken)}
+        {p.govOverride !== null && ' (your own figure)'}.
+      </p>
+      <div className="flex items-end gap-2">
+        <Field label="Take this much (₱)">
+          <Input inputMode="decimal" className="w-32" value={text} onChange={(e) => setText(e.target.value)} />
+        </Field>
+        <Button disabled={amount === null || act.isPending} onClick={() => amount !== null && act.mutate({ path: `/payrolls/${p.id}/deductions`, method: 'PUT', body: { amount } })}>
+          Use this
+        </Button>
+        {p.govOverride !== null && (
+          <Button variant="secondary" disabled={act.isPending} onClick={() => act.mutate({ path: `/payrolls/${p.id}/deductions`, method: 'PUT', body: { amount: null } })}>
+            Back to the Take-home Floor
+          </Button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -247,7 +283,7 @@ export function PayslipPage() {
 
   if (error) return <Alert>{error.message}</Alert>;
   if (!data) return null;
-  const { payroll: p, week, advances, caBalance } = data;
+  const { payroll: p, week, advances, caBalance, deductionBalance } = data;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -305,6 +341,7 @@ export function PayslipPage() {
       </PayslipSheet>
 
       {p.status === 'draft' && canApprove && <Adjustments payroll={p} />}
+      {p.kind === 'therapist' && p.status === 'draft' && canApprove && <DeductionOverride key={`${p.net}-${p.govOverride}`} payroll={p} balance={deductionBalance} />}
       {p.kind === 'receptionist' && p.status === 'draft' && canApprove && <RepaymentEditor key={p.caDeduction} payroll={p} balance={caBalance} />}
     </div>
   );

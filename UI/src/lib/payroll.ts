@@ -20,6 +20,10 @@ export type Payroll = {
   govPhic: number;
   govPagibig: number;
   caDeduction: number;
+  govDeferred: number;
+  govCollected: number;
+  govOverride: number | null;
+  commissionBefore: number;
   net: number;
   basic: number;
   displayName: string;
@@ -35,8 +39,8 @@ export type Payroll = {
 /** The reason is sent to the Super Admin only. */
 export type Adjustment = { id: string; label: string; amount: number; reason?: string };
 
-export type EarningKey = 'commission' | 'holidayExtra' | 'reliefPay' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
-export type DeductionKey = 'late' | 'undertime' | 'sss' | 'phic' | 'pagibig' | 'ca';
+export type EarningKey = 'commission' | 'commissionBefore' | 'holidayExtra' | 'reliefPay' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
+export type DeductionKey = 'late' | 'undertime' | 'sss' | 'phic' | 'pagibig' | 'deferred' | 'ca';
 export type PayLines = {
   earnings: Record<EarningKey, number>;
   deductions: Record<DeductionKey, number>;
@@ -49,6 +53,7 @@ export type PayLines = {
 export const EARNING_LINES: Record<PayrollKind, [EarningKey, string][]> = {
   therapist: [
     ['commission', 'Commission'],
+    ['commissionBefore', 'Commission before go-live'],
     ['holidayExtra', 'Holiday Commission (extra)'],
     ['reliefPay', 'Relief pay (front desk)'],
     ['adjustments', 'Adjustments'],
@@ -73,6 +78,7 @@ export const DEDUCTION_LINES: Record<PayrollKind, [DeductionKey, string][]> = {
     ['sss', 'SSS'],
     ['phic', 'PhilHealth'],
     ['pagibig', 'Pag-IBIG'],
+    ['deferred', 'Deferred Deductions'],
     ['ca', 'Cash Advance'],
   ],
   receptionist: [
@@ -141,10 +147,13 @@ export type Bonus = {
   paidAt: string | null;
 };
 
+/** A Therapist's Commission for the days of the first Pay Week before Go-live. */
+export type BeforeGoLive = { staffId: string; displayName: string; amount: number | null };
+
 export const usePayWeek = (start: string) =>
   useQuery({
     queryKey: ['payroll', 'week', start],
-    queryFn: () => api<{ week: PayWeek; ended: boolean; unclosedDays: string[]; kinds: PayrollKind[]; payrolls: Payroll[] }>(`/payroll/weeks/${start}`),
+    queryFn: () => api<{ week: PayWeek; ended: boolean; unclosedDays: string[]; kinds: PayrollKind[]; beforeGoLive: BeforeGoLive[] | null; payrolls: Payroll[] }>(`/payroll/weeks/${start}`),
     placeholderData: (prev) => prev,
   });
 
@@ -152,7 +161,7 @@ export const usePayroll = (id: string) =>
   useQuery({
     queryKey: ['payroll', 'one', id],
     queryFn: () =>
-      api<{ payroll: Payroll & { days: (TherapistDay | ReceptionistDay)[] }; advances: CashAdvance[]; caBalance: number; week: PayWeek }>(`/payrolls/${id}`),
+      api<{ payroll: Payroll & { days: (TherapistDay | ReceptionistDay)[] }; advances: CashAdvance[]; caBalance: number; deductionBalance: number; week: PayWeek }>(`/payrolls/${id}`),
   });
 
 export type MyPay = {

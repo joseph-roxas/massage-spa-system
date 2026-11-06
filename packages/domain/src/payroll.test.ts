@@ -12,6 +12,9 @@ import {
   receptionistPayroll,
   reliefDay,
   therapistPayroll,
+  deferDeductions,
+  openingDeferred,
+  weekKindsOf,
   thirteenthMonth,
   yearEndBonus,
   type ReceptionistRules,
@@ -320,5 +323,67 @@ describe('Relief pay (₱582 Minimum Wage Rate)', () => {
     expect(p.gross).toBe(73_200);
     const lines = payLines({ kind: 'therapist', ...p, adjustments: 0 });
     expect(lines.earnings).toMatchObject({ commission: 15_000, reliefPay: 58_200 });
+  });
+});
+
+describe('Pay Weeks', () => {
+  it('runs Monday to Sunday for Therapists and Sunday to Saturday for everyone else', () => {
+    expect(payWeekOf('2026-11-08', 'therapist')).toEqual({ start: '2026-11-02', end: '2026-11-08' });
+    expect(payWeekOf('2026-11-08')).toEqual({ start: '2026-11-08', end: '2026-11-14' });
+    expect(payWeekOf('2026-11-09', 'therapist').start).toBe('2026-11-09');
+    expect(lastCompletedPayWeek('2026-11-09', 'therapist').start).toBe('2026-11-02');
+    expect(lastCompletedPayWeek('2026-11-09').start).toBe('2026-11-01');
+    expect(weekKindsOf('2026-11-02')).toEqual(['therapist']);
+    expect(weekKindsOf('2026-11-08')).toEqual(['receptionist', 'reliever']);
+  });
+});
+
+describe('Deferred Deductions', () => {
+  const plan = (earned: number, balance = 0, extra = {}) => deferDeductions({ earned, week: 20_450, balance, floor: 100_000, cashAdvances: 0, ...extra });
+
+  it('takes the week in full when there is room', () => {
+    expect(plan(150_000)).toMatchObject({ govDeferred: 0, govCollected: 0 });
+  });
+
+  it('stops at the Take-home Floor and holds the rest over', () => {
+    expect(plan(110_000)).toMatchObject({ govDeferred: 10_450, govCollected: 0 });
+    expect(plan(90_000)).toMatchObject({ govDeferred: 20_450, govCollected: 0 });
+  });
+
+  it('collects the balance from a good week, as far as the floor allows', () => {
+    expect(plan(150_000, 10_000)).toMatchObject({ govDeferred: 0, govCollected: 10_000 });
+    expect(plan(130_000, 40_000)).toMatchObject({ govDeferred: 0, govCollected: 9_550 });
+  });
+
+  it('never takes more than what is left after Cash Advances', () => {
+    expect(plan(150_000, 0, { cashAdvances: 140_000 })).toMatchObject({ govDeferred: 10_450 });
+  });
+
+  it('the Super Admin’s own figure replaces the floor, up to what is owed', () => {
+    expect(plan(90_000, 0, { override: 20_450 })).toMatchObject({ govDeferred: 0, govOverride: 20_450 });
+    expect(plan(90_000, 5_000, { override: 0 })).toMatchObject({ govDeferred: 20_450 });
+    expect(plan(150_000, 5_000, { override: 99_000 })).toMatchObject({ govCollected: 5_000 });
+  });
+
+  it('a Payroll adds up with the amounts held over and the Commission before Go-live', () => {
+    const p = therapistPayroll({
+      week: { start: '2026-11-02', end: '2026-11-08' },
+      commissions: [{ businessDay: '2026-11-08', amount: 30_000 }],
+      daysWorked: ['2026-11-08'],
+      gov: { sss: 10_000, phic: 6_250, pagibig: 4_200 },
+      cashAdvances: 0,
+      commissionBefore: 80_000,
+      deferral: { balance: 0, floor: 100_000 },
+    });
+    expect(p).toMatchObject({ gross: 110_000, commissionBefore: 80_000, govDeferred: 10_450, net: 100_000 });
+    const lines = payLines({ kind: 'therapist', ...p, adjustments: 0 });
+    expect(lines.earnings).toMatchObject({ commission: 30_000, commissionBefore: 80_000 });
+    expect(lines.deductions.deferred).toBe(-10_450);
+    expect(lines.totalEarned - lines.totalDeductions).toBe(p.net);
+  });
+
+  it('works out what was owed at Go-live from the weekly record', () => {
+    expect(openingDeferred([{ gross: 400_000, net: 379_550 }, { gross: 300_000, net: 279_550 }, { gross: 70_000, net: 70_000 }, { gross: 48_000, net: 48_000 }, { gross: 0, net: -20_450 }, { gross: 0, net: 0 }])).toBe(61_350);
+    expect(openingDeferred([{ gross: 70_000, net: 70_000 }])).toBe(0);
   });
 });

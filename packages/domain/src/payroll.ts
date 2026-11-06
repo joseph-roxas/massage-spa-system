@@ -2,8 +2,9 @@ import { manilaInstant } from './business-day';
 import type { IsoDate } from './calendar';
 import type { Centavos } from './money';
 
-/** A Pay Week runs Sunday to Saturday. */
+/** Monday to Sunday for Therapists, Sunday to Saturday for everyone else (ADR 0007). */
 export type PayWeek = { start: IsoDate; end: IsoDate };
+export type PayWeekKind = 'therapist' | 'receptionist' | 'reliever';
 
 function addDays(date: IsoDate, days: number): IsoDate {
   const d = new Date(`${date}T00:00:00Z`);
@@ -15,14 +16,22 @@ export function weekdayOf(date: IsoDate): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
-export function payWeekOf(date: IsoDate): PayWeek {
-  const start = addDays(date, -weekdayOf(date));
+export function payWeekOf(date: IsoDate, kind: PayWeekKind = 'receptionist'): PayWeek {
+  const daysIn = kind === 'therapist' ? (weekdayOf(date) + 6) % 7 : weekdayOf(date);
+  return weekFrom(addDays(date, -daysIn));
+}
+
+/** The seven days from a Pay Week's first day. */
+export function weekFrom(start: IsoDate): PayWeek {
   return { start, end: addDays(start, 6) };
 }
 
+/** A Therapist's Pay Week starts on a Monday, everyone else's on a Sunday. */
+export const weekKindsOf = (start: IsoDate): PayWeekKind[] => (weekdayOf(start) === 1 ? ['therapist'] : ['receptionist', 'reliever']);
+
 /** The Pay Week before the one `date` falls in: the latest that has ended. */
-export function lastCompletedPayWeek(date: IsoDate): PayWeek {
-  return payWeekOf(addDays(payWeekOf(date).start, -1));
+export function lastCompletedPayWeek(date: IsoDate, kind: PayWeekKind = 'receptionist'): PayWeek {
+  return payWeekOf(addDays(payWeekOf(date, kind).start, -1), kind);
 }
 
 /** The first Pay Week that starts on or after `date`: a good day to go live. */
@@ -95,7 +104,11 @@ export function therapistPayroll(input: {
   adjustments?: number;
   /** Relief pay per Business Day, for Relief Shifts this week. */
   relief?: readonly { date: IsoDate; pay: number }[];
-}): PayrollTotals & { days: TherapistDay[] } {
+  /** Commission for this week's days before Go-live, entered by hand. */
+  commissionBefore?: number;
+  /** Stops deductions at the Take-home Floor and keeps the rest as Deferred Deductions. Without it they are taken in full. */
+  deferral?: { balance: number; floor: number; override?: number | null };
+}): PayrollTotals & TherapistDeductions & { days: TherapistDay[]; commissionBefore: Centavos } {
   const days = daysOf(input.week).map((date) => {
     const mine = input.commissions.filter((c) => c.businessDay === date);
     const reliefPay = sum((input.relief ?? []).filter((r) => r.date === date).map((r) => r.pay));
@@ -107,9 +120,44 @@ export function therapistPayroll(input: {
       ...(reliefPay ? { reliefPay: reliefPay as Centavos } : {}),
     };
   });
-  const worked = input.daysWorked.length > 0 || input.commissions.length > 0;
-  const earned = sum(days.map((d) => d.commission + (d.reliefPay ?? 0)));
-  return { ...totals(earned, input.adjustments ?? 0, worked, input.gov, input.cashAdvances), days };
+  const commissionBefore = (input.commissionBefore ?? 0) as Centavos;
+  const worked = input.daysWorked.length > 0 || input.commissions.length > 0 || commissionBefore > 0;
+  const earned = sum(days.map((d) => d.commission + (d.reliefPay ?? 0))) + commissionBefore;
+  const base = totals(earned, input.adjustments ?? 0, worked, input.gov, input.cashAdvances);
+  const none: TherapistDeductions = { govDeferred: 0 as Centavos, govCollected: 0 as Centavos, govBalanceBefore: 0 as Centavos, govOverride: null };
+  if (!input.deferral) return { ...base, ...none, days, commissionBefore };
+  const plan = deferDeductions({ earned: base.gross, week: base.govSss + base.govPhic + base.govPagibig, cashAdvances: input.cashAdvances, ...input.deferral });
+  return { ...base, net: (base.net + plan.govDeferred - plan.govCollected) as Centavos, ...plan, days, commissionBefore };
+}
+
+export type TherapistDeductions = { govDeferred: Centavos; govCollected: Centavos; govBalanceBefore: Centavos; govOverride: number | null };
+
+/**
+ * What a Therapist's Payroll takes in Government Deductions (ADR 0008): this
+ * week's plus any balance, as far as the Take-home Floor allows, and never more
+ * than is left after Cash Advances. Whatever isn't taken stays on the balance.
+ */
+export function deferDeductions(input: { earned: number; week: number; balance: number; floor: number; cashAdvances: number; override?: number | null }): TherapistDeductions {
+  const owed = input.week + input.balance;
+  const room = Math.max(0, Math.min(input.earned - input.floor, input.earned - input.cashAdvances));
+  const take = Math.min(owed, input.override ?? room);
+  return {
+    govDeferred: Math.max(0, input.week - take) as Centavos,
+    govCollected: Math.max(0, take - input.week) as Centavos,
+    govBalanceBefore: input.balance as Centavos,
+    govOverride: input.override ?? null,
+  };
+}
+
+/**
+ * Government Deductions a Therapist already owed at Go-live, from the weekly
+ * record: each week worked with nothing taken, at their usual deduction, and
+ * each deduction shown against a week with no earnings.
+ */
+export function openingDeferred(weeks: readonly { gross: number; net: number }[]): Centavos {
+  const taken = weeks.filter((w) => w.gross > w.net && w.gross > 0).map((w) => w.gross - w.net);
+  const usual = taken.sort((a, b) => taken.filter((x) => x === b).length - taken.filter((x) => x === a).length)[0] ?? 0;
+  return sum(weeks.map((w) => (w.gross === 0 ? Math.max(0, -w.net) : w.gross === w.net ? usual : 0))) as Centavos;
 }
 
 /** How much more a Therapist may take as a Cash Advance against a week: what is left of its net pay. */
@@ -328,8 +376,8 @@ export function caRepaymentFor(standing: number, balance: number): Centavos {
 
 // ------------------------------------------------------------- Payslip lines
 
-export type EarningKey = 'commission' | 'holidayExtra' | 'reliefPay' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
-export type DeductionKey = 'late' | 'undertime' | 'sss' | 'phic' | 'pagibig' | 'ca';
+export type EarningKey = 'commission' | 'commissionBefore' | 'holidayExtra' | 'reliefPay' | 'basic' | 'restDayPremium' | 'holidayPremium' | 'holidayUnworked' | 'overtime' | 'adjustments';
+export type DeductionKey = 'late' | 'undertime' | 'sss' | 'phic' | 'pagibig' | 'deferred' | 'ca';
 export type PayLines = {
   earnings: Record<EarningKey, Centavos>;
   deductions: Record<DeductionKey, Centavos>;
@@ -346,7 +394,7 @@ export type PayLines = {
  * days present × daily rate. totalEarned − totalDeductions = net.
  */
 export function payLines(
-  input: PayrollTotals & { adjustments: number } & (
+  input: PayrollTotals & { adjustments: number; govDeferred?: number; govCollected?: number; commissionBefore?: number } & (
       | { kind: 'therapist'; days: readonly Partial<TherapistDay>[] }
       | { kind: 'receptionist' | 'reliever'; days: readonly Partial<ReceptionistDay>[] }
     ),
@@ -354,6 +402,7 @@ export function payLines(
   const z = 0 as Centavos;
   const earnings: Record<EarningKey, Centavos> = {
     commission: z,
+    commissionBefore: (input.commissionBefore ?? 0) as Centavos,
     holidayExtra: z,
     reliefPay: z,
     basic: z,
@@ -363,7 +412,7 @@ export function payLines(
     overtime: z,
     adjustments: input.adjustments as Centavos,
   };
-  const deductions: Record<DeductionKey, Centavos> = { late: z, undertime: z, sss: input.govSss, phic: input.govPhic, pagibig: input.govPagibig, ca: input.caDeduction };
+  const deductions: Record<DeductionKey, Centavos> = { late: z, undertime: z, sss: input.govSss, phic: input.govPhic, pagibig: input.govPagibig, deferred: ((input.govCollected ?? 0) - (input.govDeferred ?? 0)) as Centavos, ca: input.caDeduction };
   const add = <K extends string>(rec: Record<K, Centavos>, key: K, v: number | undefined) => {
     rec[key] = (rec[key] + (v ?? 0)) as Centavos;
   };

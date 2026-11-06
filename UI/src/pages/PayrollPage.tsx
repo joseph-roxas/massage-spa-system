@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { businessDayOf, lastCompletedPayWeek } from '@spa/domain';
-import { Alert, Badge, Button, Card, Checkbox, td, th } from '../components/ui';
+import { businessDayOf, lastCompletedPayWeek, weekdayOf } from '@spa/domain';
+import { Alert, Badge, Button, Card, Checkbox, Input, td, th } from '../components/ui';
 import { useCan } from '../lib/auth';
-import { longDate, peso } from '../lib/format';
-import { nextWeek, prevWeek, STATUS_LABELS, STATUS_TONE, usePayrollAction, usePayWeek, type Payroll, type PayrollKind } from '../lib/payroll';
+import { longDate, parsePesos, peso, pesosText } from '../lib/format';
+import { nextWeek, prevWeek, STATUS_LABELS, STATUS_TONE, usePayrollAction, usePayWeek, type BeforeGoLive, type Payroll, type PayrollKind } from '../lib/payroll';
 import { CashAdvances } from './payroll/CashAdvances';
 import { PayBreakdown } from './payroll/PayBreakdown';
 import { DecemberPay } from './payroll/DecemberPay';
+import { DeferredDeductions } from './payroll/DeferredDeductions';
 
 const KIND_TITLE: Record<PayrollKind, string> = { therapist: 'Therapists', receptionist: 'Receptionist', reliever: 'Outside Relievers (long cover)' };
 
@@ -18,7 +19,7 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
   const approved = rows.filter((r) => r.status === 'approved');
   const allFixed = rows.length > 0 && drafts.length === 0;
   const total = (k: 'gross' | 'net' | 'caDeduction') => rows.reduce((s, r) => s + r[k], 0);
-  const gov = (r: Payroll) => r.govSss + r.govPhic + r.govPagibig;
+  const gov = (r: Payroll) => r.govSss + r.govPhic + r.govPagibig - r.govDeferred + r.govCollected;
 
   const [fromShopCash, setFromShopCash] = useState(true);
 
@@ -107,12 +108,52 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
   );
 }
 
+function BeforeGoLiveRow({ person, start }: { person: BeforeGoLive; start: string }) {
+  const [text, setText] = useState(person.amount === null ? '' : pesosText(person.amount));
+  const act = usePayrollAction();
+  const amount = parsePesos(text);
+  return (
+    <li className="flex items-center gap-3 py-1.5 text-sm">
+      <span className="flex-1">{person.displayName}</span>
+      <Input aria-label={`Commission before go-live for ${person.displayName}`} inputMode="decimal" className="w-28 rounded-md border border-stone-300 px-2 py-1 text-right text-sm tabular-nums" value={text} onChange={(e) => setText(e.target.value)} />
+      <Button
+        variant="secondary"
+        className="h-8 px-3"
+        disabled={amount === null || act.isPending}
+        onClick={() => amount !== null && act.mutate({ path: `/payroll/weeks/${start}/before-go-live`, method: 'PUT', body: { staffId: person.staffId, amount } })}
+      >
+        Save
+      </Button>
+      {person.amount === null ? <Badge tone="amber">Needed</Badge> : <Badge>Saved</Badge>}
+      {act.error && <span className="text-xs text-red-700">{act.error.message}</span>}
+    </li>
+  );
+}
+
+/** The first Pay Week began before go-live: its earlier days come from the written reports. */
+function BeforeGoLiveCard({ people, start }: { people: BeforeGoLive[]; start: string }) {
+  return (
+    <Card title="Commission before go-live">
+      <p className="mb-2 text-sm text-stone-600">This week began before the system did. Enter each therapist&rsquo;s Commission for the days before go-live, then press Recompute drafts. Enter 0 for anyone who didn&rsquo;t work those days. Payroll can&rsquo;t be approved until this is done.</p>
+      <ul className="divide-y divide-stone-100">
+        {people.map((p) => (
+          <BeforeGoLiveRow key={p.staffId} person={p} start={start} />
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export function PayrollPage() {
   const [params, setParams] = useSearchParams();
-  const start = params.get('week') ?? lastCompletedPayWeek(businessDayOf(new Date())).start;
+  const today = businessDayOf(new Date());
+  const start = params.get('week') ?? lastCompletedPayWeek(today, 'therapist').start;
+  // A Monday is a Therapist's Pay Week, a Sunday the Receptionist's.
+  const forDesk = weekdayOf(start) === 0;
+  const canDesk = useCan('payroll.receptionist.manage');
   const { data, error } = usePayWeek(start);
   const canDecember = useCan('payroll.therapist.approve');
-  const [tab, setTab] = useState<'payroll' | 'breakdown' | 'ca' | 'december'>('payroll');
+  const [tab, setTab] = useState<'payroll' | 'breakdown' | 'ca' | 'deferred' | 'december'>('payroll');
   const go = (week: string) => setParams({ week });
 
   const ready = !!data && data.ended && data.unclosedDays.length === 0;
@@ -120,7 +161,7 @@ export function PayrollPage() {
     ['payroll', 'Weekly payroll'],
     ...(canDecember ? [['breakdown', 'Pay Breakdown']] : []),
     ['ca', 'Cash Advances'],
-    ...(canDecember ? [['december', 'December pay']] : []),
+    ...(canDecember ? [['deferred', 'Deferred Deductions'], ['december', 'December pay']] : []),
   ] as [typeof tab, string][];
 
   return (
@@ -137,7 +178,17 @@ export function PayrollPage() {
       </div>
 
       {(tab === 'payroll' || tab === 'breakdown') && (
-        <div className="flex items-center gap-3 print:hidden">
+        <div className="flex flex-wrap items-center gap-3 print:hidden">
+            {canDesk && (
+              <div className="flex rounded-md border border-stone-300 bg-white p-0.5 text-sm">
+                <button type="button" onClick={() => go(lastCompletedPayWeek(today, 'therapist').start)} className={`rounded px-3 py-1.5 ${!forDesk ? 'bg-teal-700 text-white' : 'text-stone-700 hover:bg-stone-100'}`}>
+                  Therapists (Mon–Sun)
+                </button>
+                <button type="button" onClick={() => go(lastCompletedPayWeek(today).start)} className={`rounded px-3 py-1.5 ${forDesk ? 'bg-teal-700 text-white' : 'text-stone-700 hover:bg-stone-100'}`}>
+                  Receptionist (Sun–Sat)
+                </button>
+              </div>
+            )}
             <Button variant="secondary" onClick={() => go(prevWeek(start))} aria-label="Previous week">
               ‹
             </Button>
@@ -162,12 +213,14 @@ export function PayrollPage() {
           {data && data.ended && data.unclosedDays.length > 0 && (
             <Alert>Close {data.unclosedDays.map(longDate).join(', ')} before generating this week’s payroll.</Alert>
           )}
+          {data?.beforeGoLive && <BeforeGoLiveCard key={data.week.start} people={data.beforeGoLive} start={data.week.start} />}
           {data?.kinds.map((k) => (
             <WeekTable key={k} kind={k} start={data.week.start} rows={data.payrolls.filter((p) => p.kind === k)} ready={ready} />
           ))}
         </>
       )}
       {tab === 'ca' && <CashAdvances />}
+      {tab === 'deferred' && <DeferredDeductions />}
       {tab === 'december' && <DecemberPay />}
     </div>
   );

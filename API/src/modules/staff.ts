@@ -48,6 +48,7 @@ export const PAY_RULE_SCHEMAS = {
     regularUnworkedPct: z.number().min(0).max(1000),
   }),
   minimum_wage_daily: centavos.min(1),
+  take_home_floor: centavos,
   regular_guest_rule: z.object({ visits: z.number().int().min(1).max(50), days: z.number().int().min(7).max(730) }),
   gov_deduction_defaults: z.object({ therapist: govShares, receptionist: govShares }),
   contribution_rates: z.object({
@@ -103,6 +104,8 @@ const staffFields = z.object({
   reliefPay: z.enum(RELIEF_PAY).nullable().optional(),
   /** Monthly salary basis for SSS, PhilHealth and Pag-IBIG brackets. */
   contributionBase: centavos.nullable().optional(),
+  /** No government contributions at all. */
+  notEnrolled: z.boolean().optional(),
   govSss: centavos,
   govPhic: centavos,
   govPagibig: centavos,
@@ -191,6 +194,7 @@ const staffColumns = {
   reliefPay: staff.reliefPay,
   caRepayment: staff.caRepayment,
   contributionBase: staff.contributionBase,
+  notEnrolled: staff.notEnrolled,
   govSss: staff.govSss,
   govPhic: staff.govPhic,
   govPagibig: staff.govPagibig,

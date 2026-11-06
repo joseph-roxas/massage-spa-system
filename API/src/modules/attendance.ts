@@ -79,8 +79,8 @@ function lockedForDesk(c: Context<AuthedEnv>, entry: { reviewedAt: string | null
 }
 
 /** Time in a Pay Week whose Payroll is approved or released can't change, or the record and the Payslip disagree. */
-async function payrollLocked(c: Context<AuthedEnv>, staffId: string, days: string[]): Promise<Response | null> {
-  const weeks = [...new Set(days.map((d) => payWeekOf(d).start))];
+async function payrollLocked(c: Context<AuthedEnv>, staffId: string, kind: 'therapist' | 'receptionist' | 'reliever', days: string[]): Promise<Response | null> {
+  const weeks = [...new Set(days.map((d) => payWeekOf(d, kind).start))];
   const fixed = await c.var.db
     .select({ weekStart: payrolls.weekStart })
     .from(payrolls)
@@ -229,7 +229,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     let earnings: { from: string; commission: number; services: number } | null = null;
     if (person.kind === 'therapist') {
       const day = businessDayOf(new Date(now));
-      const from = person.isOnCall ? day : payWeekOf(day).start;
+      const from = person.isOnCall ? day : payWeekOf(day, 'therapist').start;
       const row = await db
         .select({ commission: sql<number>`coalesce(sum(${sales.commissionAmount}), 0)`, services: sql<number>`count(*)` })
         .from(sales)
@@ -286,7 +286,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     }
     const problem = await entryProblem(c, input.staffId, input.clockIn, input.clockOut);
     if (problem) return fail(c, 400, 'invalid_entry', problem);
-    const blocked = await payrollLocked(c, input.staffId, [businessDayOf(new Date(input.clockIn))]);
+    const blocked = await payrollLocked(c, input.staffId, person.kind, [businessDayOf(new Date(input.clockIn))]);
     if (blocked) return blocked;
     const id = crypto.randomUUID();
     const now = nowIso();
@@ -333,7 +333,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     if (problems.length) {
       return c.json({ error: 'invalid_rows', message: `${problems.length === 1 ? 'A row needs' : `${problems.length} rows need`} fixing; nothing was saved.`, problems }, 400);
     }
-    const blocked = await payrollLocked(c, input.staffId, input.rows.map((r) => businessDayOf(new Date(r.clockIn))));
+    const blocked = await payrollLocked(c, input.staffId, person.kind, input.rows.map((r) => businessDayOf(new Date(r.clockIn))));
     if (blocked) return blocked;
     const now = nowIso();
     const entries = input.rows.map((row) => ({
@@ -412,7 +412,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     const problem = await entryProblem(c, row.entry.staffId, input.clockIn, input.clockOut, id);
     if (problem) return fail(c, 400, 'invalid_entry', problem);
     const businessDay = businessDayOf(new Date(input.clockIn));
-    const blocked = await payrollLocked(c, row.entry.staffId, [row.entry.businessDay, businessDay]);
+    const blocked = await payrollLocked(c, row.entry.staffId, row.kind, [row.entry.businessDay, businessDay]);
     if (blocked) return blocked;
     const now = nowIso();
     const changes = {
@@ -455,7 +455,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
     }
     const locked = lockedForDesk(c, row.entry);
     if (locked) return locked;
-    const blocked = await payrollLocked(c, row.entry.staffId, [row.entry.businessDay]);
+    const blocked = await payrollLocked(c, row.entry.staffId, row.kind, [row.entry.businessDay]);
     if (blocked) return blocked;
     const { reason: why } = c.req.valid('json');
     await db.batch([

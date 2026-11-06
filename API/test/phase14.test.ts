@@ -120,7 +120,7 @@ describe('Time record override', () => {
     await env.DB.prepare(
       `INSERT INTO payrolls (id, week_start, staff_id, kind, status, gross, gov_sss, gov_phic, gov_pagibig, ca_deduction, net, breakdown_json, generated_at) VALUES (?, ?, ?, 'therapist', 'approved', 0, 0, 0, 0, 0, 0, '{}', ?)`,
     )
-      .bind(crypto.randomUUID(), payWeekOf(day).start, t, new Date().toISOString())
+      .bind(crypto.randomUUID(), payWeekOf(day, 'therapist').start, t, new Date().toISOString())
       .run();
     const fixed = await owner.send('PATCH', `/dtr/${id}`, { ...shift(day), reason: 'One more change' });
     expect(fixed.status).toBe(409);
@@ -134,11 +134,12 @@ describe('Cash Handover overdue', () => {
   it('reaches the Super Admin as urgent after 24 hours', async () => {
     const owner = await loggedIn('super_admin');
     const today = businessDayOf(new Date());
-    const week = payWeekOf(today);
+    const week = payWeekOf(today, 'therapist');
+    const lastWeek = lastCompletedPayWeek(today, 'therapist');
     await env.DB.batch([
       env.DB.prepare(`DELETE FROM cash_transfers`),
       env.DB.prepare(`DELETE FROM cash_outs WHERE category = 'laundry'`),
-      env.DB.prepare(`DELETE FROM payrolls WHERE week_start = ?`).bind(lastCompletedPayWeek(today).start),
+      env.DB.prepare(`DELETE FROM payrolls WHERE week_start = ?`).bind(lastWeek.start),
     ]);
     await owner.post('/cash/opening', { amount: 500000 });
     const then = new Date(Date.now() - 30 * 3_600_000).toISOString();
@@ -146,7 +147,7 @@ describe('Cash Handover overdue', () => {
     await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO payrolls (id, week_start, staff_id, kind, status, gross, gov_sss, gov_phic, gov_pagibig, ca_deduction, net, breakdown_json, generated_at, released_at) VALUES (?, ?, ?, 'therapist', 'released', 0, 0, 0, 0, 0, 0, '{}', ?, ?)`,
-      ).bind(crypto.randomUUID(), lastCompletedPayWeek(today).start, t, then, then),
+      ).bind(crypto.randomUUID(), lastWeek.start, t, then, then),
       env.DB.prepare(`INSERT INTO cash_outs (id, business_day, category, source, amount, purpose, created_at) VALUES (?, ?, 'laundry', 'sales', 100, 'Laundry', ?)`).bind(crypto.randomUUID(), week.start, then),
     ]);
     const summary = await json<{ reminder: string; dueSince: string | null }>(await owner.get('/cash/summary'));

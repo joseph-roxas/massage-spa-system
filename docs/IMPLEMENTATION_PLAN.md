@@ -391,6 +391,7 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
 
 ### 14.0 Pick up here
 
+- **Current work is §16 (Phase 14, branch `cr-3`): 14.1–14.3 built, 14.4 next.** Phases 12 and 13 are merged to `main`.
 - **Phase 12 is done and waiting to be merged.** It is on branch `cr-1` (pushed), in [PR #1](https://github.com/joseph-roxas/massage-spa-system/pull/1) to `main`.
   - The PR has 9 commits: docs `607562c`, slices 12.1–12.7 ending `c9788df`, then the Day Close fix `d0d4f7a` (§14.2, "Fix after 12.7").
   - The PR description is written; it still says 95 API tests, but there are now 96, and it doesn't mention the Day Close fix yet.
@@ -599,3 +600,82 @@ Every decision here was confirmed with the owner on 2026-11-05 (four grilling ro
 2. **Therapist**: name, Pay Week; 7 day rows (date, sales, commission, Holiday rate tick); CAs taken (date, amount); Adjustments; SSS / PhilHealth / Pag-IBIG; total CA; net; signatures.
 3. **Receptionist**: name, Pay Week, daily rate; 7 day rows (in, out, late, undertime, OT minutes, day type); the 13.1 earnings and deduction lines; CA balance before, repayment, balance after; net; signatures.
 4. **As built** (no migration): `UI/src/pages/PaperPayslips.tsx`, shown as tabs on the **Paper backup** page next to the front desk log, printed A4 portrait with two 138mm slips per sheet and a dashed cut line. The Therapist slip (for anyone with `payroll.therapist.generate`) adds a Relief pay column and prints today's Commission rates for the owner, blanks for the Receptionist (she can't read Settings). The Receptionist slip is the owner's only (`payroll.receptionist.manage`) and prints the premium rates from Settings. Phase 13 is complete; nothing is pushed.
+
+## 16. Phase 14: owner's third batch of change requests (branch `cr-3`)
+
+Grilled with the owner on 2026-11-06 (five rounds). Vocabulary is in `GLOSSARY.md` (new: Go-live, Daily Summary, Reject, Used Before Go-live, Deferred Deductions, Take-home Floor, Not Enrolled, Commission before Go-live). ADRs 0006–0008. Go-live is **Sunday 2026-11-08**. Nothing below blocks going live; 14.1–14.3 are the target for 2026-11-07. 14.5 and 14.6 must ship before the first Therapist Payroll. Next migration is 0024.
+
+**14.1 Front Desk and small fixes**
+
+1. **Today strip** at the top of the Front Desk: large Today's Sales (all money received today, Cash and GCash, including Add-ons and Vouchers sold, same as the sheet's NET SALES) and Today's Guests (checked-out Services, same as the sheet's # of Guest), with Turned away as a small third number.
+2. **Turned away**: a Front Desk button records a Reject with a reason (`no_therapist`, `too_late`, `refused_safety`) on today's Business Day. Add to the Daily sales report.
+3. **Hand over cash**: on the Front Desk only, the `hand_over` reminder becomes a red banner with the amount, how long it has been due and a large button. Unchanged when not due. After 24 hours it appears as an urgent Needs Attention item for the Super Admin. Day Close is not blocked. Track when the reminder first became due.
+4. **Inventory**: the Stock view opens filtered to Consumables for the Receptionist and Reliever Login; All stays selectable. Super Admin still opens on All.
+5. **Side menu** is fixed to the browser height: name, role and logout always visible, the menu itself scrolls.
+6. **Business name and logo**: Super Admin edits them in Settings. Shown with "Spa System" beneath in the side menu, on the login page, the Clock-in Screen and printed Payslips; the logo is also the tab icon and the name the tab title. The image is shrunk in the browser before upload and kept in D1 (no R2 binding exists). A public read endpoint serves them because the login page has no session.
+
+7. **As built** (migration 0024): `rejects` and `branding` tables, `API/src/modules/rejects.ts` and `branding.ts`. `GET /front-desk` returns `today`. The handover's due time is derived, not stored: `handoverState()` in `lib/sales-cash.ts` takes the later of the last release and the first Laundry of the week, and both `/cash/summary` and `/attention` use it. The logo lives in `branding.logo` as a data URL returned by the public `GET /branding`.
+
+**14.2 Vouchers Used Before Go-live**
+
+1. New Voucher status `used_before_golive` with optional date and note: no Sale, no Commission, no FOC, not in any report total.
+2. Super Admin only, from the import form (for cards not yet in the system) and the Vouchers list, by single serial or serial range; then un-mark individual cards with a reason. Audited.
+3. Redemption refuses these serials with a clear message.
+4. Go-live status counts must stop treating them as unused (today it counts `imported` with no `redeemedSaleId`); show sold / used / still out.
+
+5. **As built**: `POST /vouchers/import` with `state: 'used_before_golive'` inserts new cards and flips paper cards already counted as unused, so a range does both; anything else in the range is refused. Single cards use `POST /vouchers/:id/mark-used` and `/unmark-used`.
+
+**14.3 Time record override**
+
+1. The DTR Review tab gets Edit and Remove on each row. The Super Admin's own correction counts as Reviewed (today `PATCH /dtr/:id` clears `reviewedAt` for everyone); a reason stays required and the audit log keeps the original.
+2. Once the Super Admin has reviewed or corrected an entry, the Receptionist can't change it and sees "Corrected by the owner".
+3. Changing or removing a DTR entry in a Pay Week whose Payroll is approved or released is refused until that Payroll goes back to draft.
+
+4. **As built**: `reviewStamp()` stamps the Super Admin's entries as Reviewed on add, batch add and correct. `lockedForDesk()` returns 409 `dtr_locked`, `payrollLocked()` 409 `payroll_locked`, the latter for the Super Admin too. It uses today's single Sunday–Saturday `payWeekOf`, so 14.5 must switch it to the person's own Pay Week.
+
+**14.4 Backfill: Daily Summaries** (ADR 0006)
+
+1. **New records**: `daily_summaries` (date, cash, gcash, oil, voucher, foc, commission, guests, therapists, rejects, laundry, expenses) and weekly Therapist commission for 2026 (week, staff, gross, days worked, deducted). Money received for a day = cash + gcash + oil + voucher − foc. The file's "Gross Sales" column is cash at value before FOC, so it is never used alone as money received.
+2. **Upload** (Super Admin): this exact workbook, `2026 Monthly Sales.xlsx`, parsed in the browser by its known layout (`JAN`–`DEC` rows 6–36, `Therapists`, `Summary`), with a preview, fixes in the preview, and re-upload replacing a month. A date with real Sales is refused. Warn when commission is high or low against sales or a day has an odd sales-per-Guest.
+3. **Add/edit form** for one Daily Summary (Super Admin), for Nov 1–7 after go-live and for typos.
+4. **Known corrections**: Oct 28 Gross 5,750 (file has 570); Jan 26 commission 2,565 (file has 265); Oct Receptionist 18,916.69, VECO 9,265.77, Supplies 12,520, Maintenance 13,998. Apr 2–3 were closed. Nov 1 data is not in the file yet.
+5. **Totals**: the monthly rows are official. Daily Laundry and Expenses only draw the daily chart and are never added on top. January's Miscellaneous excludes Maintenance while Feb–Sep include it, so import Maintenance separately and take Miscellaneous as the daily Expenses total, never `Summary` row 18.
+6. **Expense mapping**: VECO → Electricity; Laundry → Laundry; Supplies → Supplies and tools; Miscellaneous → Other; Maintenance and Government remittance → new categories; the Bookkeeping row split by its `Summary` rows 49–75 into Bookkeeping, BIR and Business permit. Commission and Receptionist are pay lines, not Expenses. Supplies come in as a monthly total, not Stock-ins.
+7. **Commission in the Income Statement** is the sum of daily commission, not the weekly-grouped `Therapists` row, so it matches how live months work. The weekly data feeds Year-end Bonus and opening balances only.
+8. **Government remittance**: the Expense is remittance minus what was withheld from staff, because Commission and Receptionist pay are gross. Penalties stay in full. A month where withheld exceeds remitted records 0 and carries the difference forward, so the year total is right. Withholding comes from the weekly figures in the two workbooks (Receptionist ₱317 a week through Feb, ₱368.13 from March).
+9. **Royalty**: Jan–May imported as paid, Jun–Sep payable, all at 3% of the daily cash column (Jan 7,326.00, Feb 5,034.30, Mar 4,768.50, Apr 4,845.30, May 6,774.60; Jun 6,078.00, Jul 5,920.80, Aug 5,974.80, Sep 5,577.30). October is payable at the corrected rule, ₱6,436.20. Those statements are fixed amounts that the monthly recompute must not touch. From November the existing rule applies, with Daily Summaries contributing money received less oil. Payable total ₱29,987.10.
+10. **2551Q**: import as filed Q4-2025 15,209.40, Q1 17,285.40, Q2 18,198.30, Q3 17,135.70. Their base is NET SALES, which matches the existing rule. Daily Summaries count toward the current quarter.
+11. **Reports**: Daily sales, Income Statement, Royalty and Percentage Tax add Daily Summaries; those days are labelled "Summary only". Service, Discount-type and Guest detail say not available before go-live.
+12. **Past Payslips** (Receptionist only): a second upload, `Receptionist Time Record.xlsx`, sheets `Summary` (rows 245–288: 44 Pay Weeks, Dec 28, 2025 to Oct 31, 2026) and `Timesheet` (daily times). Stored as they are in their own record, never recomputed with the live rules: coverage, daily rate, days worked, basic, Overtime, holiday and Rest Day pay, late/undertime, SSS, HDMF, PhilHealth, CA repayment, gross, net, date paid, plus each day's times and holiday name. Older years in the file are ignored. Not real DTR or Payrolls, so DTR Review, Payroll, Day Close and the CA ledger are untouched. Skip the junk in the `Savings` column and the `#VALUE!` date paid on row 280. The owner's notes column is not imported.
+13. **Shown** read-only in My Pay and to the Super Admin, in the Payslip layout, labelled "Before go-live", after her released Payslips. Printable. The week of Nov 1–7 is added by re-uploading once it is in the file. Her monthly row in the Sales workbook stays the Income Statement figure: it equals these weekly grosses grouped by the month holding most of the week.
+
+**14.5 Therapist Pay Week** (ADR 0007)
+
+1. Therapists run Monday–Sunday; the Receptionist and weekly Outside Relievers stay Sunday–Saturday. `payWeekOf` and friends take the staff kind; check Payroll generation, CA cap and repayment, Clock-in Commission so far, `weeklyPart`/`payWeekEndsIn`, Reports, and the Cash Handover rule.
+2. Cash Handover reminder: due once the last finished Therapist Payroll is released and Laundry paid. The Receptionist's Payroll no longer gates it unless it was paid from the shop.
+3. **First Therapist Payroll, Nov 2–8**: a Commission before Go-live box per Therapist. The Payroll can't be approved until it is filled. Nov 2–7 are exempt from "every day closed". It counts toward the Year-end Bonus.
+
+**14.6 Deferred Deductions, Not Enrolled, exact amounts** (ADR 0008)
+
+1. On each Therapist Payroll: owed = this week's Government Deductions + Deferred Deductions balance. Take as much as leaves the Take-home Floor (`pay_rules`, ₱1,000); the rest stays on the balance. No choice for the Receptionist; the Super Admin can override on a single Payroll. A ledger like `ca_ledger`, shown on the Payslip and Pay Breakdown. Replaces the spec line that net can go negative.
+2. A week with no work still takes no deductions.
+3. **Opening balances** through Nov 1: 20 skipped weeks at ₱204.50 plus Gura and Navarra's ₱409 each. Cabiles ₱1,636.00, Nerosa ₱1,022.50, Navarra ₱818.00, Gura ₱613.50, Isidro Albert ₱409.00, Isidro Alma ₱409.00; Ausencillo, Ocariza and Vecin nil. Total ₱4,908.00, editable. Week 45 onward is handled by the system.
+4. **Not Enrolled** mark on the Staff record (Vecin, Cristina): no deductions, no Employer Contributions, no missing-ID alert, visible on the record.
+5. All other Staff are set at their actual bracket (Therapists ₱8,000), so `weeklyPart` splits the monthly share exactly: ₱212.50 in a 4-week month, ₱170 in a 5-week month. Check: the forecast reproduces about ₱20,553 a month.
+6. Owner's follow-up, not code: written consent for deductions from the bonus; bookkeeper to confirm coverage for Vecin and the flat bracket.
+
+**14.7 December pay**
+
+1. **Year-end Bonus** (Therapists only) covers every Pay Week since last year's cut-off through the last finished one before computing. For 2026 that is Dec 29, 2025 to Dec 13, 2026, weekly sheet data plus live Sales. The next year starts Dec 14. Today it sums Jan 1–Dec 31 Sales.
+2. Takes off any remaining Deferred Deductions as a line.
+3. **Percentage suggestion**: the Super Admin sets the share of the year's profit to give (default 30%). Suggested % = that share × (profit after the Receptionist's 13th Month Pay) ÷ total Commission, to the nearest 0.5%, shown against the usual 5–7%, with the peso cost and profit left at a few percentages. The owner still chooses. A loss year says there is no room and leaves the choice open. Not applied to the Receptionist.
+4. **13th Month Pay**: an opening basic-pay figure, editable, added to live basic pay. From the file's numbers: Jan 4–Oct 31 basic ₱192,463.00 less late/undertime ₱1,393.96, plus Jan 1–3 at ₱605 (₱1,815.00), is ₱192,884.04. Add Nov 1–7 when known. The file's rates stand: ₱605 to Feb 28, ₱650 from Mar 1, ₱692 from mid-October.
+5. **Receptionist's opening CA balance** at go-live: ₱5,000 after the Oct 25–31 week, less any Nov 1–7 repayment, editable. Her standing CA Repayment is ₱500.
+
+**14.8 Dashboard**
+
+1. Super Admin lands on a new **Dashboard** at `/`; Front Desk becomes its own menu item; the Receptionist and Reliever Login still land on Front Desk. Needs Attention and its badge move here. Keep `/?close=1`-style links working. Staff birthdays appear here.
+2. Current/previous month switch. Sections: **Top**: Needs Attention, Sales, Expenses, Profit, Cash in vs out. **Daily**: sales vs expenses by day. **Must pay**: government remittance forecast, 2551Q forecast, Royalty paid or not. **Costs**: Electricity trend, Payroll total, Discounts by type. **Guests**: average Guests by weekday, Rejects, top Therapists, top Services. **Stock**: Consumables used.
+3. Definitions: forecasts are so far + daily average for the rest of the period. Cashflow is money in vs money actually paid out, no bank balance. Weekday chart uses averages. Top Therapists rank by Regular Price sales, top Services by sales, both from go-live. Consumables is cost per Guest against the 3-month average, flagged above +20%, "building baseline" until a full month exists.
+4. Also: unused Voucher liability, month-end profit forecast, average sale per Guest, Day Close cash variance.
+5. Insights only; detail stays in Reports. Reuse the hand-rolled SVG in `UI/src/pages/reports/Charts.tsx`; no chart library.

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e22dde69-4990-4845-a58b-603f6425f893",
+  "id": "9838f37c-ae73-4324-a7a8-3263ac743a90",
   "prevId": "40f8752e-65b7-480b-b9dd-5a1308c07ab2",
   "tables": {
     "app_meta": {
@@ -52,8 +52,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "contact_number": {
-          "name": "contact_number",
+        "tin": {
+          "name": "tin",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

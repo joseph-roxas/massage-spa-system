@@ -676,6 +676,8 @@ Grilled with the owner on 2026-11-06 (five rounds). Vocabulary is in `GLOSSARY.m
 2. Print payroll list follows the owner's monthly PDF: business name, TIN, address, then No., Last, First and Middle Name, Civil Status, Gross Salary, Salary Basis, Remarks. Not Enrolled staff are left off unless ticked, as on those PDFs. TIN and address are new Business settings, kept out of the public `/branding`.
 3. The Receptionist already sees live Therapist weeks. Added: Pay Breakdown, and weeks before Go-live read only from `past_therapist_weeks`.
 
+**14.8a Guests not served on the Dashboard** (added 2026-11-07): No-shows, cancellations and Rejects for the month, who didn't show with their count to date, and the latest cancellation reasons. An Added Service that was cancelled doesn't count. No migration.
+
 **14.7 December pay**
 
 1. **Year-end Bonus** (Therapists only) covers every Pay Week since last year's cut-off through the last finished one before computing. For 2026 that is Dec 29, 2025 to Dec 13, 2026, weekly sheet data plus live Sales. The next year starts Dec 14. Today it sums Jan 1–Dec 31 Sales.

@@ -16,7 +16,7 @@ type Dash = {
   tax: { quarter: string; forecast: number };
   royalty: { status: string; amount: number; owing: { months: number; total: number } };
   electricity: { month: string; amount: number }[];
-  guests: { total: number; turnedAway: number };
+  guests: { total: number; turnedAway: number; noShows: number; cancelled: number; noShowGuests: { name: string; count: number }[]; cancelReasons: { date: string; guest: string | null; reason: string | null }[] };
   topTherapists: { name: string; amount: number }[];
   topServices: { name: string; amount: number }[];
   consumables: { status: string };
@@ -56,6 +56,7 @@ beforeEach(async () => {
   admin = await loggedIn('super_admin');
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM sales`),
+    env.DB.prepare(`DELETE FROM rejects`),
     env.DB.prepare(`DELETE FROM bookings`),
     env.DB.prepare(`DELETE FROM expenses`),
     env.DB.prepare(`DELETE FROM royalty_statements`),
@@ -111,6 +112,28 @@ describe('Dashboard', () => {
     expect(d.top.sales).toBe(600_000);
     expect(d.guests).toMatchObject({ total: 12, turnedAway: 3 });
     expect(d.top.cashIn).toBe(600_000);
+  });
+
+  it('counts No-shows, cancellations and Rejects, with who and why', async () => {
+    const day = today();
+    const now = new Date().toISOString();
+    const booking = (d: string, status: string, guest: string | null, reason: string | null = null, parent: string | null = null) =>
+      env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, service_id, duration_min, guest_name, cancel_reason, parent_booking_id, created_at) VALUES (?, ?, 'scheduled', ?, 'swedish-60', 60, ?, ?, ?, ?)`).bind(crypto.randomUUID(), d, status, guest, reason, parent, now);
+    const added = crypto.randomUUID();
+    await env.DB.batch([
+      booking('2020-01-05', 'no_show', 'Ana Reyes'),
+      booking(day, 'no_show', 'Ana Reyes'),
+      booking(day, 'no_show', 'Ben Cruz'),
+      booking(day, 'no_show', null),
+      booking(day, 'cancelled', 'Cora Lim', 'Called to cancel'),
+      env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, service_id, duration_min, created_at) VALUES (?, ?, 'walk_in', 'done', 'swedish-60', 60, ?)`).bind(added, day, now),
+      booking(day, 'cancelled', 'Dan Sy', 'Changed their mind', added),
+      env.DB.prepare(`INSERT INTO rejects (id, business_day, reason, created_at) VALUES (?, ?, 'Full', ?)`).bind(crypto.randomUUID(), day, now),
+    ]);
+    const { guests } = await dash(admin);
+    expect(guests).toMatchObject({ noShows: 3, cancelled: 1, turnedAway: 1 });
+    expect(guests.noShowGuests).toEqual([{ name: 'Ana Reyes', count: 2 }, { name: 'Ben Cruz', count: 1 }]);
+    expect(guests.cancelReasons).toEqual([{ date: day, guest: 'Cora Lim', reason: 'Called to cancel' }]);
   });
 
   it('shows the month’s Royalty as unpaid until confirmed, and adds up what is owing', async () => {

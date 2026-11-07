@@ -19,7 +19,7 @@ import {
   weekdayAverages,
   type Row,
 } from '@spa/domain';
-import { businessDays, cashOuts, expenses, items, payrolls, royaltyStatements, sales, servicePrices, services, staff, stockIns, stockOuts, vouchers } from '@spa/db';
+import { bookings, businessDays, cashOuts, expenses, items, payrolls, royaltyStatements, sales, servicePrices, services, staff, stockIns, stockOuts, vouchers } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { contributionRates, contributionsOf } from '../lib/contributions';
@@ -160,6 +160,37 @@ async function topServices(db: Db, from: string, to: string) {
   return rows.map((r) => ({ name: r.name, amount: n(r.sales), count: n(r.count) }));
 }
 
+/**
+ * Guests booked but not served: the month's No-shows and cancellations, who the
+ * No-shows were with their count to date, and the latest reasons given. An Added
+ * Service that was cancelled isn't a Guest lost.
+ */
+async function missedGuests(db: Db, from: string, to: string) {
+  const rows = await db
+    .select({ day: bookings.businessDay, status: bookings.status, guestId: bookings.guestId, guest: bookings.guestName, reason: bookings.cancelReason, createdAt: bookings.createdAt })
+    .from(bookings)
+    .where(and(inArray(bookings.status, ['no_show', 'cancelled']), isNull(bookings.parentBookingId), lte(bookings.businessDay, to)));
+  const month = rows.filter((r) => r.day >= from);
+  const noShows = month.filter((r) => r.status === 'no_show');
+  const who = (r: { guestId: string | null; guest: string | null }) => r.guestId ?? r.guest?.trim().toLowerCase() ?? null;
+  const toDate = new Map<string, number>();
+  for (const r of rows.filter((x) => x.status === 'no_show')) {
+    const key = who(r);
+    if (key) toDate.set(key, (toDate.get(key) ?? 0) + 1);
+  }
+  const names = new Map(noShows.filter((r) => who(r) && r.guest).map((r) => [who(r)!, r.guest!]));
+  return {
+    noShows: noShows.length,
+    cancelled: month.length - noShows.length,
+    noShowGuests: [...names].map(([key, name]) => ({ name, count: toDate.get(key) ?? 0 })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)).slice(0, TOP),
+    cancelReasons: month
+      .filter((r) => r.status === 'cancelled')
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, TOP)
+      .map((r) => ({ date: r.day, guest: r.guest, reason: r.reason })),
+  };
+}
+
 async function moneyOut(db: Db, from: string, to: string, costTotal: number, liveWages: number) {
   const [released, outs] = await Promise.all([
     db
@@ -215,7 +246,7 @@ export const dashboardRoutes = new Hono<AuthedEnv>().get(
     const commission = line('Therapist commission');
     const receptionist = line('Receptionist pay');
 
-    const [out, government, tax, royalty, power, stock, liability, variance, services_] = await Promise.all([
+    const [out, government, tax, royalty, power, stock, liability, variance, services_, missed] = await Promise.all([
       moneyOut(db, start, to, statement.costTotal, commission + receptionist - past.commission - pastDesk),
       governmentDue(db),
       taxForecast(db, to, today),
@@ -225,6 +256,7 @@ export const dashboardRoutes = new Hono<AuthedEnv>().get(
       voucherLiability(db, today),
       dayCloseVariance(db, start, to),
       topServices(db, start, to),
+      missedGuests(db, start, to),
     ]);
 
     const byDay = new Map(daily.rows.map((r) => [String(r.date), r]));
@@ -270,6 +302,7 @@ export const dashboardRoutes = new Hono<AuthedEnv>().get(
       guests: {
         total: guests,
         turnedAway,
+        ...missed,
         byWeekday: weekdayAverages(daily.rows.map((r) => ({ date: String(r.date), guests: money(r, 'guests') }))),
       },
       topTherapists: therapists.rows

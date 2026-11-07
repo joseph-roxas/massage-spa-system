@@ -33,6 +33,8 @@ export const payrolls = sqliteTable(
     govBalanceBefore: integer('gov_balance_before').notNull().default(0),
     /** The Super Admin's own figure for what to take on this Payroll, instead of the Take-home Floor. */
     govOverride: integer('gov_override'),
+    /** The Therapist agreed to have this week's deduction taken, below the Take-home Floor. */
+    govAgreed: integer('gov_agreed', { mode: 'boolean' }).notNull().default(false),
     /** Commission for the days of this Pay Week before Go-live. */
     commissionBefore: integer('commission_before').notNull().default(0),
     net: integer('net').notNull(),
@@ -132,6 +134,8 @@ export const deductionLedger = sqliteTable(
     /** Centavos, always positive; `entry` gives the direction. */
     amount: integer('amount').notNull(),
     payrollId: text('payroll_id').references(() => payrolls.id),
+    /** An opening balance's weeks, as `[{ weekStart, amount }]`; a later week comes from its Payroll. */
+    weeksJson: text('weeks_json'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by').references(() => users.id),
   },

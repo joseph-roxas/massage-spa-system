@@ -12,6 +12,9 @@ export const branding = sqliteTable('branding', {
   businessName: text('business_name'),
   /** A small image as a data URL, shrunk in the browser. */
   logo: text('logo'),
+  /** On the printed payroll summary; not shown publicly. */
+  tin: text('tin'),
+  address: text('address'),
   updatedAt: text('updated_at').notNull(),
   updatedBy: text('updated_by'),
 });

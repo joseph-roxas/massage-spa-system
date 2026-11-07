@@ -4,11 +4,12 @@ import { businessDayOf, lastCompletedPayWeek, weekdayOf } from '@spa/domain';
 import { Alert, Badge, Button, Card, Checkbox, Input, td, th } from '../components/ui';
 import { useCan } from '../lib/auth';
 import { longDate, parsePesos, peso, pesosText } from '../lib/format';
-import { nextWeek, prevWeek, STATUS_LABELS, STATUS_TONE, usePayrollAction, usePayWeek, type BeforeGoLive, type Payroll, type PayrollKind } from '../lib/payroll';
+import { nextWeek, prevWeek, STATUS_LABELS, STATUS_TONE, usePayrollAction, usePayWeek, type BeforeGoLive, type Payroll, type PayrollKind, type RecordWeek } from '../lib/payroll';
 import { CashAdvances } from './payroll/CashAdvances';
 import { PayBreakdown } from './payroll/PayBreakdown';
 import { DecemberPay } from './payroll/DecemberPay';
 import { DeferredDeductions } from './payroll/DeferredDeductions';
+import { PayrollTotals } from './payroll/PayrollTotals';
 
 const KIND_TITLE: Record<PayrollKind, string> = { therapist: 'Therapists', receptionist: 'Receptionist', reliever: 'Outside Relievers (long cover)' };
 
@@ -108,6 +109,46 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
   );
 }
 
+/** A week from before go-live: read only, from the owner's records. */
+function RecordWeekTable({ rows }: { rows: RecordWeek[] }) {
+  const total = (pick: (r: RecordWeek) => number) => rows.reduce((s, r) => s + pick(r), 0);
+  return (
+    <Card title="Therapists, from the records before go-live">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-stone-200">
+            <th className={th}>Name</th>
+            <th className={`${th} text-right`}>Days</th>
+            <th className={`${th} text-right`}>Commission</th>
+            <th className={`${th} text-right`}>SSS · PHIC · Pag-IBIG</th>
+            <th className={`${th} text-right`}>Net pay</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-stone-100">
+          {rows.map((r) => (
+            <tr key={r.staffId}>
+              <td className={td}>{r.displayName}</td>
+              <td className={`${td} text-right tabular-nums`}>{r.daysWorked}</td>
+              <td className={`${td} text-right tabular-nums`}>{peso(r.gross)}</td>
+              <td className={`${td} text-right tabular-nums text-stone-600`}>{r.gross - r.net ? `−${peso(r.gross - r.net)}` : '—'}</td>
+              <td className={`${td} text-right font-semibold tabular-nums`}>{peso(r.net)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-stone-200 font-semibold">
+            <td className={td}>Total</td>
+            <td className={td} />
+            <td className={`${td} text-right tabular-nums`}>{peso(total((r) => r.gross))}</td>
+            <td className={td} />
+            <td className={`${td} text-right tabular-nums`}>{peso(total((r) => r.net))}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </Card>
+  );
+}
+
 function BeforeGoLiveRow({ person, start }: { person: BeforeGoLive; start: string }) {
   const [text, setText] = useState(person.amount === null ? '' : pesosText(person.amount));
   const act = usePayrollAction();
@@ -153,20 +194,21 @@ export function PayrollPage() {
   const canDesk = useCan('payroll.receptionist.manage');
   const { data, error } = usePayWeek(start);
   const canDecember = useCan('payroll.therapist.approve');
-  const [tab, setTab] = useState<'payroll' | 'breakdown' | 'ca' | 'deferred' | 'december'>('payroll');
+  const [tab, setTab] = useState<'payroll' | 'breakdown' | 'totals' | 'ca' | 'deferred' | 'december'>('payroll');
   const go = (week: string) => setParams({ week });
 
   const ready = !!data && data.ended && data.unclosedDays.length === 0;
   const tabs = [
     ['payroll', 'Weekly payroll'],
-    ...(canDecember ? [['breakdown', 'Pay Breakdown']] : []),
+    ['breakdown', 'Pay Breakdown'],
+    ...(canDecember ? [['totals', 'Totals']] : []),
     ['ca', 'Cash Advances'],
     ...(canDecember ? [['deferred', 'Deferred Deductions'], ['december', 'December pay']] : []),
   ] as [typeof tab, string][];
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${tab === 'totals' ? 'print:hidden' : ''}`}>
         <h1 className="text-2xl font-semibold">Payroll</h1>
         <div className="flex rounded-md border border-stone-300 bg-white p-0.5 text-sm">
           {tabs.map(([key, label]) => (
@@ -214,11 +256,14 @@ export function PayrollPage() {
             <Alert>Close {data.unclosedDays.map(longDate).join(', ')} before generating this week’s payroll.</Alert>
           )}
           {data?.beforeGoLive && <BeforeGoLiveCard key={data.week.start} people={data.beforeGoLive} start={data.week.start} />}
-          {data?.kinds.map((k) => (
-            <WeekTable key={k} kind={k} start={data.week.start} rows={data.payrolls.filter((p) => p.kind === k)} ready={ready} />
-          ))}
+          {data && data.fromRecords.length > 0 ? (
+            <RecordWeekTable rows={data.fromRecords} />
+          ) : (
+            data?.kinds.map((k) => <WeekTable key={k} kind={k} start={data.week.start} rows={data.payrolls.filter((p) => p.kind === k)} ready={ready} />)
+          )}
         </>
       )}
+      {tab === 'totals' && <PayrollTotals />}
       {tab === 'ca' && <CashAdvances />}
       {tab === 'deferred' && <DeferredDeductions />}
       {tab === 'december' && <DecemberPay />}

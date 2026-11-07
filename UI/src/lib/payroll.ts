@@ -23,6 +23,9 @@ export type Payroll = {
   govDeferred: number;
   govCollected: number;
   govOverride: number | null;
+  govAgreed: boolean;
+  /** Therapists: what they still owe the shop, this Payroll included. */
+  deferredOwed: { total: number; weeks: { weekStart: string; number: number; amount: number }[] } | null;
   commissionBefore: number;
   net: number;
   basic: number;
@@ -171,10 +174,13 @@ export type OpeningBasic = { staffId: string; displayName: string; amount: numbe
 /** A Therapist's Commission for the days of the first Pay Week before Go-live. */
 export type BeforeGoLive = { staffId: string; displayName: string; amount: number | null };
 
+/** A Therapist's Pay Week from before Go-live, from the owner's records. */
+export type RecordWeek = { staffId: string; displayName: string; gross: number; daysWorked: number; net: number };
+
 export const usePayWeek = (start: string) =>
   useQuery({
     queryKey: ['payroll', 'week', start],
-    queryFn: () => api<{ week: PayWeek; ended: boolean; unclosedDays: string[]; kinds: PayrollKind[]; beforeGoLive: BeforeGoLive[] | null; payrolls: Payroll[] }>(`/payroll/weeks/${start}`),
+    queryFn: () => api<{ week: PayWeek; ended: boolean; unclosedDays: string[]; kinds: PayrollKind[]; beforeGoLive: BeforeGoLive[] | null; fromRecords: RecordWeek[]; payrolls: Payroll[] }>(`/payroll/weeks/${start}`),
     placeholderData: (prev) => prev,
   });
 

@@ -264,11 +264,11 @@ A Therapist marked as having no government contributions: no Government Deductio
 _Avoid_: Exempt
 
 **Deferred Deductions**:
-Government Deductions a Therapist still owes because taking them would have left less than the Take-home Floor. Collected automatically from later Payrolls; whatever is left comes off the Year-end Bonus.
+Government Deductions a Therapist still owes the shop, week by week: what would have left less than the Take-home Floor, and every week away with no work. They come off the last working week's pay or the Year-end Bonus, whichever comes first, or sooner if the Therapist asks. Every Payslip shows the weeks and the total.
 _Avoid_: Carry-over, double deduction, missing deductions
 
 **Take-home Floor**:
-The least a Therapist should take home from a Payroll; Government Deductions stop there and the rest becomes Deferred Deductions. Set by the Super Admin, who alone can override it on a single Payroll.
+The least a Therapist should take home from a Payroll; Government Deductions stop there and the rest becomes Deferred Deductions. Set by the Super Admin, who alone can override it on a single Payroll, for example when the Therapist agrees to have the week taken anyway.
 
 **Cash Advance (CA)**:
 Money given to a staff member ahead of Payroll and deducted from a later Payroll. A Therapist's CAs are capped at their unreleased net pay; the Receptionist repays her CA Repayment each Payroll against a running balance.

@@ -13,7 +13,10 @@ import {
   commissionRateOn,
   daysOf,
   lastCompletedPayWeek,
-  openingDeferred,
+  openingWeeks,
+  weekNumber,
+  weeksOwed,
+  type DeferredWeek,
   payLines,
   payWeekOf,
   receptionistDay,
@@ -134,6 +137,40 @@ async function deductionBalances(db: Db, staffIds?: string[]) {
   return new Map(rows.map((r) => [r.staffId, Number(r.balance)]));
 }
 
+type LedgerLine = { staffId: string; entry: string; amount: number; weeksJson: string | null; weekStart: string | null };
+
+async function ledgerLines(db: Db, staffIds: string[]): Promise<LedgerLine[]> {
+  if (!staffIds.length) return [];
+  return db
+    .select({ staffId: deductionLedger.staffId, entry: deductionLedger.entry, amount: deductionLedger.amount, weeksJson: deductionLedger.weeksJson, weekStart: payrolls.weekStart })
+    .from(deductionLedger)
+    .leftJoin(payrolls, eq(payrolls.id, deductionLedger.payrollId))
+    .where(inArray(deductionLedger.staffId, staffIds));
+}
+
+const openingWeeksOf = (line: LedgerLine | undefined): DeferredWeek[] => (line?.weeksJson ? (JSON.parse(line.weeksJson) as DeferredWeek[]) : []);
+const numbered = (weeks: readonly DeferredWeek[]) => weeks.map((w) => ({ ...w, number: weekNumber(w.weekStart) }));
+
+/** The weeks a Therapist still owes and their total. A draft counts as if approved, so its Payslip is right when handed out. */
+function deductionsOwed(lines: readonly LedgerLine[], staffId: string, draft?: { weekStart: string; govDeferred: number; govCollected: number }) {
+  const weeks: DeferredWeek[] = [];
+  let paid = draft?.govCollected ?? 0;
+  let unlisted = 0; // an opening balance typed in without picking its weeks
+  if (draft?.govDeferred) weeks.push({ weekStart: draft.weekStart, amount: draft.govDeferred });
+  for (const l of lines.filter((x) => x.staffId === staffId)) {
+    if (l.entry === 'opening') {
+      const listed = openingWeeksOf(l);
+      const sum = sumOf(listed);
+      weeks.push(...listed);
+      if (l.amount > sum) unlisted += l.amount - sum;
+      else paid += sum - l.amount;
+    } else if (l.entry === 'deferred') weeks.push({ weekStart: l.weekStart ?? '', amount: l.amount });
+    else paid += l.amount;
+  }
+  const left = weeksOwed(weeks, paid);
+  return { total: sumOf(left) + unlisted, weeks: numbered(left.filter((w) => w.weekStart)) };
+}
+
 /** Business Days holding a Pay Week's Payroll back; days before Go-live were never run here. */
 async function unclosedDaysIn(db: Db, week: PayWeek) {
   const from = await goLiveDate(db);
@@ -182,7 +219,8 @@ async function therapistWeek(db: Db, person: Staff, week: PayWeek, override?: nu
     adjustments: sumOf(adjustments.get(person.id)),
     relief: relief.map((d) => ({ date: d.date, pay: d.total })),
     commissionBefore: before?.gross ?? 0,
-    deferral: { balance: balances.get(person.id) ?? 0, floor, override },
+    // Away for the whole week still owes its Government Deductions; someone who has left or not yet started doesn't.
+    deferral: { balance: balances.get(person.id) ?? 0, floor, override, owesWhenAway: person.active && (!person.hireDate || person.hireDate <= week.end) },
   });
   return { pay, taken, advances };
 }
@@ -251,16 +289,18 @@ function canSee(c: Context<AuthedEnv>, kind: Kind) {
 const withNames = async (db: Db, rows: PayrollRow[], withReasons = false) => {
   const ids = [...new Set(rows.map((r) => r.staffId))];
   const weeks = [...new Set(rows.map((r) => r.weekStart))];
-  const [people, adjustments] = await Promise.all([
+  const [people, adjustments, ledger] = await Promise.all([
     ids.length ? db.select().from(staff).where(inArray(staff.id, ids)) : Promise.resolve([]),
     Promise.all(weeks.map(async (w) => [w, await adjustmentsFor(db, w, ids)] as const)).then((xs) => new Map(xs)),
+    ledgerLines(db, [...new Set(rows.filter((r) => r.kind === 'therapist').map((r) => r.staffId))]),
   ]);
   return rows.map(({ breakdownJson, ...r }) => {
     const p = people.find((x) => x.id === r.staffId)!;
     const days = JSON.parse(breakdownJson) as (TherapistDay | ReceptionistDay)[];
     const adj = (adjustments.get(r.weekStart)?.get(r.staffId) ?? []).map((a) => ({ id: a.id, label: a.label, amount: a.amount, ...(withReasons ? { reason: a.reason } : {}) }));
     const lines = payLines({ ...(r as unknown as PayrollTotals), govDeferred: r.govDeferred, govCollected: r.govCollected, commissionBefore: r.commissionBefore, kind: r.kind, days, adjustments: sumOf(adj) } as Parameters<typeof payLines>[0]);
-    return { ...r, displayName: p.displayName, fullName: `${p.firstName} ${p.lastName}`, therapistClass: p.therapistClass, days, adjustments: adj, lines };
+    const deferredOwed = r.kind === 'therapist' ? deductionsOwed(ledger, r.staffId, r.status === 'draft' ? r : undefined) : null;
+    return { ...r, displayName: p.displayName, fullName: `${p.firstName} ${p.lastName}`, therapistClass: p.therapistClass, days, adjustments: adj, lines, deferredOwed };
   });
 };
 
@@ -372,7 +412,17 @@ export const payrollRoutes = new Hono<AuthedEnv>()
       : null;
     const list = await withNames(db, rows, can(c.var.user.role, 'payroll.therapist.approve'));
     list.sort((a, b) => a.kind.localeCompare(b.kind) || a.displayName.localeCompare(b.displayName));
-    return c.json({ week, ended: today() > week.end, unclosedDays: unclosed.map((d) => d.date), kinds, beforeGoLive, payrolls: list.map(({ days: _, ...r }) => r) });
+    // A Pay Week from before Go-live exists only in the owner's records.
+    const fromRecords =
+      kinds.includes('therapist') && !rows.length && week.start < payWeekOf(goLive, 'therapist').start
+        ? await db
+            .select({ staffId: staff.id, displayName: staff.displayName, gross: pastTherapistWeeks.gross, daysWorked: pastTherapistWeeks.daysWorked, net: pastTherapistWeeks.net })
+            .from(pastTherapistWeeks)
+            .innerJoin(staff, eq(staff.id, pastTherapistWeeks.staffId))
+            .where(eq(pastTherapistWeeks.weekStart, week.start))
+            .orderBy(asc(staff.displayName))
+        : [];
+    return c.json({ week, ended: today() > week.end, unclosedDays: unclosed.map((d) => d.date), kinds, beforeGoLive, fromRecords, payrolls: list.map(({ days: _, ...r }) => r) });
   })
 
   /** A Therapist's Commission for the Pay Week's days before Go-live, from the owner's report. */
@@ -442,7 +492,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
         const draft = existing.find((p) => p.staffId === person.id);
         const { pay, taken } = await therapistWeek(db, person, week, draft?.govOverride);
         if (!pay.gross && !taken && pay.govSss === 0) continue; // nothing happened this week
-        rows.push({ id: crypto.randomUUID(), weekStart: week.start, staffId: person.id, kind, ...therapistColumns(pay), generatedAt: now, generatedBy: c.var.user.id });
+        rows.push({ id: crypto.randomUUID(), weekStart: week.start, staffId: person.id, kind, ...therapistColumns(pay), govAgreed: draft?.govAgreed ?? false, generatedAt: now, generatedBy: c.var.user.id });
       }
     } else {
       const rules = await receptionistRules(db);
@@ -506,8 +556,8 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     return c.json({ ok: true, net });
   })
 
-  /** The Super Admin's own figure for this Payroll's Government Deductions; null goes back to the Take-home Floor. */
-  .put('/payrolls/:id/deductions', zValidator('json', z.object({ amount: centavos.nullable() }), invalidInput), async (c) => {
+  /** The Super Admin's own figure for this Payroll's Government Deductions; null goes back to the Take-home Floor. `agreed`: the Therapist agreed to it. */
+  .put('/payrolls/:id/deductions', zValidator('json', z.object({ amount: centavos.nullable(), agreed: z.boolean().default(false) }), invalidInput), async (c) => {
     const db = c.var.db;
     const row = await db.select().from(payrolls).where(eq(payrolls.id, c.req.param('id'))).get();
     if (!row || !canSee(c, row.kind)) return fail(c, 404, 'not_found', 'Payroll not found.');
@@ -515,11 +565,12 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     if (row.kind !== 'therapist') return fail(c, 409, 'not_therapist', 'Only a Therapist’s Payroll has Deferred Deductions.');
     if (row.status !== 'draft') return fail(c, 409, 'not_draft', 'Only a draft Payroll can change.');
     const person = (await db.select().from(staff).where(eq(staff.id, row.staffId)).get())!;
-    const { amount } = c.req.valid('json');
+    const { amount, agreed } = c.req.valid('json');
+    const govAgreed = agreed && amount !== null;
     const { pay } = await therapistWeek(db, person, weekFrom(row.weekStart), amount);
     await db.batch([
-      db.update(payrolls).set(therapistColumns(pay)).where(eq(payrolls.id, row.id)),
-      auditInsert(db, { actorUserId: c.var.user.id, action: 'payroll.deductions', entity: 'payroll', entityId: row.id, before: { govOverride: row.govOverride }, after: { govOverride: amount } }),
+      db.update(payrolls).set({ ...therapistColumns(pay), govAgreed }).where(eq(payrolls.id, row.id)),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'payroll.deductions', entity: 'payroll', entityId: row.id, before: { govOverride: row.govOverride }, after: { govOverride: amount, govAgreed } }),
     ]);
     return c.json({ ok: true, net: pay.net });
   })
@@ -763,41 +814,50 @@ export const payrollRoutes = new Hono<AuthedEnv>()
   .get('/deferred-deductions', async (c) => {
     if (!can(c.var.user.role, 'payroll.therapist.approve')) return fail(c, 403, 'forbidden', 'You do not have access to this.');
     const db = c.var.db;
-    const [people, balances, openings, weeks, goLive] = await Promise.all([
+    const [people, balances, weeks, goLive] = await Promise.all([
       db.select().from(staff).where(and(eq(staff.kind, 'therapist'), eq(staff.isOnCall, false))).orderBy(asc(staff.displayName)),
       deductionBalances(db),
-      db.select().from(deductionLedger).where(eq(deductionLedger.entry, 'opening')),
       db.select().from(pastTherapistWeeks),
       goLiveDate(db),
     ]);
+    const ledger = await ledgerLines(db, people.map((p) => p.id));
     const firstWeek = payWeekOf(goLive, 'therapist').start;
     return c.json({
       takeHomeFloor: await takeHomeFloor(db),
       people: people
         .filter((p) => p.active || balances.get(p.id))
-        .map((p) => ({
-          staffId: p.id,
-          displayName: p.displayName,
-          notEnrolled: p.notEnrolled,
-          balance: balances.get(p.id) ?? 0,
-          opening: openings.find((o) => o.staffId === p.id)?.amount ?? null,
-          suggested: p.notEnrolled ? 0 : openingDeferred(weeks.filter((w) => w.staffId === p.id && w.weekStart < firstWeek)),
-        })),
+        .map((p) => {
+          const opening = ledger.find((l) => l.staffId === p.id && l.entry === 'opening');
+          // Weeks before they started were never owed.
+          const record = weeks.filter((w) => w.staffId === p.id && w.weekStart < firstWeek && (!p.hireDate || weekFrom(w.weekStart).end >= p.hireDate));
+          const suggestedWeeks = numbered(p.notEnrolled ? [] : openingWeeks(record));
+          return {
+            staffId: p.id,
+            displayName: p.displayName,
+            notEnrolled: p.notEnrolled,
+            balance: balances.get(p.id) ?? 0,
+            opening: opening?.amount ?? null,
+            openingWeeks: opening ? numbered(openingWeeksOf(opening)) : null,
+            suggested: sumOf(suggestedWeeks),
+            suggestedWeeks,
+            owedWeeks: deductionsOwed(ledger, p.id).weeks,
+          };
+        }),
     });
   })
 
   /** What a Therapist already owed at Go-live. Replaces any earlier opening balance. */
-  .put('/deferred-deductions/opening', zValidator('json', z.object({ staffId: z.string().min(1), amount: centavos }), invalidInput), async (c) => {
+  .put('/deferred-deductions/opening', zValidator('json', z.object({ staffId: z.string().min(1), amount: centavos, weeks: z.array(z.object({ weekStart: isoDate, amount: centavos })).max(60).default([]) }), invalidInput), async (c) => {
     if (!can(c.var.user.role, 'payroll.therapist.approve')) return fail(c, 403, 'forbidden', 'Only the Super Admin sets opening balances.');
     const db = c.var.db;
-    const { staffId, amount } = c.req.valid('json');
+    const { staffId, amount, weeks } = c.req.valid('json');
     const person = await db.select().from(staff).where(eq(staff.id, staffId)).get();
     if (person?.kind !== 'therapist') return fail(c, 404, 'not_found', 'Therapist not found.');
     const before = await db.select().from(deductionLedger).where(and(eq(deductionLedger.staffId, staffId), eq(deductionLedger.entry, 'opening'))).get();
     await db.batch([
       auditInsert(db, { actorUserId: c.var.user.id, action: 'deferred_deductions.opening', entity: 'staff', entityId: staffId, before: before?.amount ?? 0, after: amount }),
       db.delete(deductionLedger).where(and(eq(deductionLedger.staffId, staffId), eq(deductionLedger.entry, 'opening'))),
-      ...(amount > 0 ? [db.insert(deductionLedger).values({ id: crypto.randomUUID(), staffId, entry: 'opening', amount, createdAt: nowIso(), createdBy: c.var.user.id })] : []),
+      ...(amount > 0 ? [db.insert(deductionLedger).values({ id: crypto.randomUUID(), staffId, entry: 'opening', amount, weeksJson: weeks.length ? JSON.stringify(weeks) : null, createdAt: nowIso(), createdBy: c.var.user.id })] : []),
     ]);
     return c.json({ ok: true });
   })

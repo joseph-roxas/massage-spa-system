@@ -13,7 +13,11 @@ import {
   reliefDay,
   therapistPayroll,
   deferDeductions,
-  openingDeferred,
+  openingWeeks,
+  payPeriodRange,
+  payWeekMiddle,
+  weekNumber,
+  weeksOwed,
   weekKindsOf,
   thirteenthMonth,
   bonusDeduction,
@@ -119,6 +123,16 @@ describe('therapist payroll', () => {
   it('withholds nothing in a week not worked', () => {
     const p = therapistPayroll({ week, commissions: [], daysWorked: [], gov: tGov, cashAdvances: 0 });
     expect(p).toMatchObject({ gross: 0, govSss: 0, govPhic: 0, govPagibig: 0, net: 0 });
+  });
+
+  it('keeps a week away on the balance, taking nothing from pay', () => {
+    const p = therapistPayroll({ week, commissions: [], daysWorked: [], gov: tGov, cashAdvances: 0, deferral: { balance: 0, floor: 100_000, owesWhenAway: true } });
+    expect(p).toMatchObject({ gross: 0, govDeferred: tGov.sss + tGov.phic + tGov.pagibig, govCollected: 0, net: 0 });
+  });
+
+  it('owes nothing for a week after leaving or before starting', () => {
+    const p = therapistPayroll({ week, commissions: [], daysWorked: [], gov: tGov, cashAdvances: 0, deferral: { balance: 0, floor: 100_000, owesWhenAway: false } });
+    expect(p).toMatchObject({ govSss: 0, govDeferred: 0, net: 0 });
   });
 
   it('counts a day clocked in with no guests as worked', () => {
@@ -353,9 +367,8 @@ describe('Deferred Deductions', () => {
     expect(plan(90_000)).toMatchObject({ govDeferred: 20_450, govCollected: 0 });
   });
 
-  it('collects the balance from a good week, as far as the floor allows', () => {
-    expect(plan(150_000, 10_000)).toMatchObject({ govDeferred: 0, govCollected: 10_000 });
-    expect(plan(130_000, 40_000)).toMatchObject({ govDeferred: 0, govCollected: 9_550 });
+  it('takes only the week, however much is owed and however good the week', () => {
+    expect(plan(500_000, 40_000)).toMatchObject({ govDeferred: 0, govCollected: 0 });
   });
 
   it('never takes more than what is left after Cash Advances', () => {
@@ -366,6 +379,11 @@ describe('Deferred Deductions', () => {
     expect(plan(90_000, 0, { override: 20_450 })).toMatchObject({ govDeferred: 0, govOverride: 20_450 });
     expect(plan(90_000, 5_000, { override: 0 })).toMatchObject({ govDeferred: 20_450 });
     expect(plan(150_000, 5_000, { override: 99_000 })).toMatchObject({ govCollected: 5_000 });
+  });
+
+  it('the Super Admin’s own figure never takes more than the pay', () => {
+    expect(plan(10_000, 0, { override: 20_450 })).toMatchObject({ govDeferred: 10_450 });
+    expect(plan(150_000, 0, { override: 20_450, cashAdvances: 140_000 })).toMatchObject({ govDeferred: 10_450 });
   });
 
   it('a Payroll adds up with the amounts held over and the Commission before Go-live', () => {
@@ -385,9 +403,40 @@ describe('Deferred Deductions', () => {
     expect(lines.totalEarned - lines.totalDeductions).toBe(p.net);
   });
 
-  it('works out what was owed at Go-live from the weekly record', () => {
-    expect(openingDeferred([{ gross: 400_000, net: 379_550 }, { gross: 300_000, net: 279_550 }, { gross: 70_000, net: 70_000 }, { gross: 48_000, net: 48_000 }, { gross: 0, net: -20_450 }, { gross: 0, net: 0 }])).toBe(61_350);
-    expect(openingDeferred([{ gross: 70_000, net: 70_000 }])).toBe(0);
+  it('works out the weeks owed at Go-live from the weekly record, worked or not', () => {
+    const weeks = [
+      { weekStart: '2026-01-05', gross: 400_000, net: 379_550 },
+      { weekStart: '2026-01-12', gross: 300_000, net: 279_550 },
+      { weekStart: '2026-01-19', gross: 70_000, net: 70_000 },
+      { weekStart: '2026-01-26', gross: 0, net: -20_450 },
+      { weekStart: '2026-02-02', gross: 0, net: 0 },
+    ];
+    expect(openingWeeks(weeks).map((w) => [w.weekStart, w.amount])).toEqual([['2026-01-19', 20_450], ['2026-01-26', 20_450], ['2026-02-02', 20_450]]);
+    expect(openingWeeks([{ weekStart: '2026-01-19', gross: 70_000, net: 70_000 }])).toEqual([]);
+  });
+
+  it('gives the days of a week, month or year of Payroll totals', () => {
+    expect(payPeriodRange('week', '2026-11-04')).toEqual({ from: '2026-11-02', to: '2026-11-08' });
+    expect(payPeriodRange('month', '2026-02-10')).toEqual({ from: '2026-02-01', to: '2026-02-28' });
+    expect(payPeriodRange('year', '2026-02-10')).toEqual({ from: '2026-01-01', to: '2026-12-31' });
+  });
+
+  it('puts a week across two months in the one with most of its days', () => {
+    expect(payWeekMiddle('2026-07-27')).toBe('2026-07-30'); // Therapist, Jul 27 to Aug 2
+    expect(payWeekMiddle('2026-09-27')).toBe('2026-09-30'); // Receptionist, Sep 27 to Oct 3
+  });
+
+  it('clears the oldest weeks first', () => {
+    const weeks = [{ weekStart: '2026-03-02', amount: 20_450 }, { weekStart: '2026-02-23', amount: 20_450 }];
+    expect(weeksOwed(weeks, 30_000)).toEqual([{ weekStart: '2026-03-02', amount: 10_900 }]);
+    expect(weeksOwed(weeks, 0).map((w) => w.weekStart)).toEqual(['2026-02-23', '2026-03-02']);
+    expect(weeksOwed(weeks, 40_900)).toEqual([]);
+  });
+
+  it('numbers weeks the way the owner’s records do', () => {
+    expect(weekNumber('2025-12-29')).toBe(1);
+    expect(weekNumber('2026-02-23')).toBe(9);
+    expect(weekNumber('2026-11-02')).toBe(45);
   });
 });
 

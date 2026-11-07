@@ -16,7 +16,15 @@ export type Dashboard = {
   electricity: { month: string; amount: number }[];
   payroll: { therapists: number; receptionist: number; total: number };
   discounts: { label: string; amount: number; count: number }[];
-  guests: { total: number; turnedAway: number; byWeekday: { day: string; average: number }[] };
+  guests: {
+    total: number;
+    turnedAway: number;
+    noShows: number;
+    cancelled: number;
+    noShowGuests: { name: string; count: number }[];
+    cancelReasons: { date: string; guest: string | null; reason: string | null }[];
+    byWeekday: { day: string; average: number }[];
+  };
   topTherapists: Ranked[];
   topServices: Ranked[];
   consumables: { cost: number; perGuest: number } & ({ status: 'building' } | { status: 'normal' | 'high'; average: number; changeBp: number });

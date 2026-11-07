@@ -66,6 +66,47 @@ function ConsumablesCard({ c }: { c: Dashboard['consumables'] }) {
   );
 }
 
+function MissedGuests({ g }: { g: Dashboard['guests'] }) {
+  return (
+    <section aria-label="Guests not served">
+      <h2 className="mb-2 text-sm font-semibold text-stone-700">Guests not served</h2>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Stat label="No-shows" value={String(g.noShows)} note="Booked and never came" />
+        <Stat label="Cancelled" value={String(g.cancelled)} note="Booking called off before the Service" />
+        <Stat label="Rejects" value={String(g.turnedAway)} note="Turned away at the door" />
+      </div>
+      {(g.noShowGuests.length > 0 || g.cancelReasons.length > 0) && (
+        <div className="mt-4 grid gap-6 lg:grid-cols-2">
+          {g.noShowGuests.length > 0 && (
+            <Card title="Who didn’t show">
+              <ul className="space-y-1 text-sm">
+                {g.noShowGuests.map((x) => (
+                  <li key={x.name} className="flex justify-between gap-3">
+                    <span className="truncate text-stone-700">{x.name}</span>
+                    <span className="tabular-nums text-stone-600">{x.count} {x.count === 1 ? 'no-show' : 'no-shows'} to date</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+          {g.cancelReasons.length > 0 && (
+            <Card title="Latest cancellations">
+              <ul className="space-y-2 text-sm">
+                {g.cancelReasons.map((x, i) => (
+                  <li key={i}>
+                    <p className="text-stone-700">{x.reason || 'No reason given'}</p>
+                    <p className="text-xs text-stone-500">{longDate(x.date)}{x.guest ? ` · ${x.guest}` : ''}</p>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Body({ d }: { d: Dashboard }) {
   const { top } = d;
   const net = top.cashIn - top.cashOut;
@@ -113,7 +154,7 @@ function Body({ d }: { d: Dashboard }) {
         <Card title="Average Guests by weekday">
           <Columns label="Average Guests by weekday, bar chart" format={(v) => String(v)} rows={d.guests.byWeekday.map((w) => ({ key: w.day, label: w.day, value: w.average }))} />
           <p className="mt-2 text-sm text-stone-600">
-            {d.guests.total} Guests, {d.guests.turnedAway} turned away.
+            {d.guests.total} Guests served.
           </p>
         </Card>
         <Card title="Top Therapists">
@@ -123,6 +164,8 @@ function Body({ d }: { d: Dashboard }) {
           <Ranking rows={d.topServices} empty="Counts from Go-live." />
         </Card>
       </section>
+
+      <MissedGuests g={d.guests} />
 
       <section aria-label="Stock and cash" className="grid gap-6 lg:grid-cols-3">
         <ConsumablesCard c={d.consumables} />

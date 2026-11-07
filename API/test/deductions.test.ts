@@ -7,7 +7,7 @@ async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-type Payroll = { id: string; staffId: string; status: string; gross: number; govSss: number; govDeferred: number; govCollected: number; govOverride: number | null; commissionBefore: number; net: number; lines: { deductions: Record<string, number> } };
+type Payroll = { id: string; staffId: string; status: string; gross: number; govSss: number; govDeferred: number; govCollected: number; govOverride: number | null; govAgreed: boolean; deferredOwed: { total: number; weeks: { weekStart: string; number: number; amount: number }[] } | null; commissionBefore: number; net: number; lines: { deductions: Record<string, number> } };
 
 const thisWeek = () => lastCompletedPayWeek(businessDayOf(new Date()), 'therapist');
 const earlier = () => {
@@ -69,7 +69,7 @@ beforeEach(async () => {
 });
 
 describe('Deferred Deductions', () => {
-  it('hold a slow week over and collect it from a good one, once approved', async () => {
+  it('hold a slow week over and leave it on the balance, once approved', async () => {
     const t = await therapist(admin);
     const [, slow] = daysOf(earlier());
     const [, good] = daysOf(thisWeek());
@@ -87,8 +87,14 @@ describe('Deferred Deductions', () => {
 
     await generate(desk, thisWeek().start);
     const second = await mine(desk, thisWeek().start, t);
-    expect(second).toMatchObject({ govDeferred: 0, govCollected: 20_450, net: 300_000 - 40_900 });
-    expect((await admin.post(`/payrolls/${second.id}/approve`)).status).toBe(200);
+    expect(second).toMatchObject({ govDeferred: 0, govCollected: 0, net: 300_000 - 20_450 });
+    expect(second.deferredOwed).toMatchObject({ total: 20_450, weeks: [{ weekStart: earlier().start, amount: 20_450 }] });
+
+    // When the Therapist asks to pay sooner.
+    expect((await admin.send('PUT', `/payrolls/${second.id}/deductions`, { amount: 40_900 })).status).toBe(200);
+    const paying = await mine(desk, thisWeek().start, t);
+    expect(paying).toMatchObject({ govCollected: 20_450, net: 300_000 - 40_900, deferredOwed: { total: 0, weeks: [] } });
+    expect((await admin.post(`/payrolls/${paying.id}/approve`)).status).toBe(200);
     expect((await owed(admin, t)).balance).toBe(0);
 
     // Back to draft undoes what it did to the balance.
@@ -121,6 +127,66 @@ describe('Deferred Deductions', () => {
     await admin.post(`/payrolls/${row.id}/adjustments`, { label: 'Correction', amount: -40_000, reason: 'Last week' });
     expect(await mine(desk, thisWeek().start, t)).toMatchObject({ gross: 110_000, govDeferred: 10_450, net: 100_000 });
     expect((await admin.post(`/payrolls/${row.id}/approve`)).status).toBe(200);
+  });
+
+  it('a week away with no work goes on the balance', async () => {
+    const t = await therapist(admin);
+    await generate(desk, thisWeek().start);
+    const row = await mine(desk, thisWeek().start, t);
+    expect(row).toMatchObject({ gross: 0, govSss: 10_000, govDeferred: 20_450, net: 0 });
+    expect((await admin.post(`/payrolls/${row.id}/approve`)).status).toBe(200);
+    expect((await owed(admin, t)).balance).toBe(20_450);
+  });
+
+  it('nothing is owed for a week after leaving or before starting', async () => {
+    const gone = await therapist(admin, { active: false });
+    const future = await therapist(admin, { hireDate: '2099-01-01' });
+    await generate(desk, thisWeek().start);
+    const rows = (await week(desk, thisWeek().start)).payrolls;
+    expect(rows.find((p) => p.staffId === gone)).toBeUndefined();
+    expect(rows.find((p) => p.staffId === future)).toBeUndefined();
+  });
+
+  it('the last working week can take everything owed, past the Take-home Floor', async () => {
+    const t = await therapist(admin);
+    await env.DB.prepare(`INSERT INTO deduction_ledger (id, staff_id, entry, amount, created_at, created_by) VALUES (?, ?, 'opening', 40_900, ?, NULL)`.replace('40_900', '40900')).bind(crypto.randomUUID(), t, new Date().toISOString()).run();
+    const [, day] = daysOf(thisWeek());
+    await worked(t, day!, 120_000);
+    await generate(desk, thisWeek().start);
+    const row = await mine(desk, thisWeek().start, t);
+    expect(row).toMatchObject({ govDeferred: 450, govCollected: 0, net: 100_000 });
+    expect((await admin.send('PUT', `/payrolls/${row.id}/deductions`, { amount: 61_350 })).status).toBe(200);
+    expect(await mine(desk, thisWeek().start, t)).toMatchObject({ govCollected: 40_900, net: 58_650 });
+    expect((await admin.post(`/payrolls/${row.id}/approve`)).status).toBe(200);
+    expect((await owed(admin, t)).balance).toBe(0);
+  });
+
+  it('takes the week under the floor when the Therapist agrees, and remembers it', async () => {
+    const t = await therapist(admin);
+    const [, day] = daysOf(thisWeek());
+    await worked(t, day!, 90_000);
+    await generate(desk, thisWeek().start);
+    const row = await mine(desk, thisWeek().start, t);
+    expect((await admin.send('PUT', `/payrolls/${row.id}/deductions`, { amount: 20_450, agreed: true })).status).toBe(200);
+    expect(await mine(desk, thisWeek().start, t)).toMatchObject({ govDeferred: 0, govAgreed: true, net: 69_550 });
+    await generate(desk, thisWeek().start);
+    const again = await mine(desk, thisWeek().start, t);
+    expect(again).toMatchObject({ govAgreed: true, net: 69_550 });
+    await admin.send('PUT', `/payrolls/${again.id}/deductions`, { amount: null });
+    expect(await mine(desk, thisWeek().start, t)).toMatchObject({ govAgreed: false, govDeferred: 20_450 });
+  });
+
+  it('shows an opening balance by its weeks, oldest paid first', async () => {
+    const t = await therapist(admin);
+    const weeks = [{ weekStart: '2026-02-23', amount: 20_450 }, { weekStart: '2026-03-30', amount: 20_450 }];
+    expect((await admin.send('PUT', '/deferred-deductions/opening', { staffId: t, amount: 40_900, weeks })).status).toBe(200);
+    const [, day] = daysOf(thisWeek());
+    await worked(t, day!, 300_000);
+    await generate(desk, thisWeek().start);
+    const row = await mine(desk, thisWeek().start, t);
+    expect(row.deferredOwed).toMatchObject({ total: 40_900, weeks: [{ number: 9 }, { number: 14 }] });
+    await admin.send('PUT', `/payrolls/${row.id}/deductions`, { amount: 40_900 });
+    expect((await mine(desk, thisWeek().start, t)).deferredOwed).toMatchObject({ total: 20_450, weeks: [{ number: 14 }] });
   });
 
   it('only the Super Admin can set their own figure for a Payroll, and it survives recomputing', async () => {

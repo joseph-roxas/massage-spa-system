@@ -67,14 +67,20 @@ function DeductionOverride({ payroll: p, balance }: { payroll: Payroll; balance:
   const taken = week - p.govDeferred + p.govCollected;
   const [text, setText] = useState(pesosText(taken));
   const amount = parsePesos(text);
+  const pay = Math.max(0, p.gross - p.caDeduction);
+  // The Therapist may choose to have the week taken, under the Take-home Floor.
+  const agreed = Math.min(week, pay);
+  // Their last pay is the last chance to collect, so the Take-home Floor doesn't apply; never more than the pay itself.
+  const lastPay = Math.min(week + balance, pay);
   return (
     <section className="space-y-3 rounded-lg border border-stone-200 bg-white p-4 print:hidden">
       <h2 className="font-semibold">Government Deductions this week</h2>
       {act.error && <Alert>{act.error.message}</Alert>}
       <p className="text-sm text-stone-600">
         This week {peso(week)} · owed from earlier weeks {peso(balance)} · taking {peso(taken)}
-        {p.govOverride !== null && ' (your own figure)'}.
+        {p.govOverride !== null && (p.govAgreed ? ' (the Therapist agreed)' : ' (your own figure)')}.
       </p>
+      <p className="text-sm text-stone-600">Each week takes only that week&rsquo;s deduction. To collect from what is owed, type a higher figure when the Therapist asks, or use Last working week.</p>
       <div className="flex items-end gap-2">
         <Field label="Take this much (₱)">
           <Input inputMode="decimal" className="w-32" value={text} onChange={(e) => setText(e.target.value)} />
@@ -82,6 +88,16 @@ function DeductionOverride({ payroll: p, balance }: { payroll: Payroll; balance:
         <Button disabled={amount === null || act.isPending} onClick={() => amount !== null && act.mutate({ path: `/payrolls/${p.id}/deductions`, method: 'PUT', body: { amount } })}>
           Use this
         </Button>
+        {p.govDeferred > 0 && agreed > taken && (
+          <Button variant="secondary" disabled={act.isPending} onClick={() => act.mutate({ path: `/payrolls/${p.id}/deductions`, method: 'PUT', body: { amount: agreed, agreed: true } })}>
+            Therapist agreed: take {peso(agreed)}
+          </Button>
+        )}
+        {balance > 0 && lastPay !== taken && (
+          <Button variant="secondary" disabled={act.isPending} onClick={() => act.mutate({ path: `/payrolls/${p.id}/deductions`, method: 'PUT', body: { amount: lastPay } })}>
+            Last working week: take {peso(lastPay)}
+          </Button>
+        )}
         {p.govOverride !== null && (
           <Button variant="secondary" disabled={act.isPending} onClick={() => act.mutate({ path: `/payrolls/${p.id}/deductions`, method: 'PUT', body: { amount: null } })}>
             Back to the Take-home Floor
@@ -263,6 +279,15 @@ export function PayslipSheet({ payroll: p, week, children }: { payroll: Payroll 
       <div className="ml-auto max-w-sm">
         <Line label="Net pay" value={p.net} strong />
       </div>
+
+      {p.govAgreed && <p className="text-sm text-stone-600">The Therapist agreed to have this week&rsquo;s Government Deductions taken.</p>}
+      {p.deferredOwed && p.deferredOwed.total > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <p className="font-semibold">Deferred Deductions owed to the shop: {peso(p.deferredOwed.total)}</p>
+          {p.deferredOwed.weeks.length > 0 && <p>Week{p.deferredOwed.weeks.length === 1 ? '' : 's'} {p.deferredOwed.weeks.map((w) => w.number).join(', ')}</p>}
+          <p className="text-xs">Taken from your last working week&rsquo;s pay or your Year-end Bonus, unless you ask to pay sooner.</p>
+        </div>
+      )}
 
       {children}
 

@@ -92,7 +92,7 @@ export function PayBreakdown({ start }: { start: string }) {
   const { data, error } = usePayWeek(start);
   if (error) return <Alert>{error.message}</Alert>;
   if (!data) return null;
-  if (!data.payrolls.length) return <p className="text-sm text-stone-500">No payroll generated for this week yet.</p>;
+  if (!data.payrolls.length) return <p className="text-sm text-stone-500">{data.fromRecords.length ? 'This week is from before go-live. See Weekly payroll for its totals.' : 'No payroll generated for this week yet.'}</p>;
   return (
     <>
       {data.kinds.map((k) => {

@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { Alert, Button, Card, Field, Input } from '../../components/ui';
-import { shrinkLogo, useBranding, useSaveBranding, type Branding } from '../../lib/branding';
+import { isSvg, shrinkLogo, useBranding, useBrandingDetails, useSaveBranding, type Branding, type BrandingDetails } from '../../lib/branding';
 
-function BusinessForm({ saved }: { saved: Branding }) {
+function BusinessForm({ saved }: { saved: Branding & BrandingDetails }) {
   const save = useSaveBranding();
   const [businessName, setName] = useState(saved.businessName ?? '');
   const [logo, setLogo] = useState(saved.logo);
+  const [tin, setTin] = useState(saved.tin ?? '');
+  const [address, setAddress] = useState(saved.address ?? '');
   const [problem, setProblem] = useState<string | null>(null);
 
   async function pick(file: File | undefined) {
@@ -14,14 +16,14 @@ function BusinessForm({ saved }: { saved: Branding }) {
     save.reset();
     try {
       setLogo(await shrinkLogo(file));
-    } catch {
-      setProblem('That file could not be read as an image. Try a PNG or JPG.');
+    } catch (e) {
+      setProblem(e instanceof Error && isSvg(file) ? e.message : 'That file could not be read as an image. Try an SVG, PNG or JPG.');
     }
   }
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    save.mutate({ businessName: businessName.trim() || null, logo });
+    save.mutate({ businessName: businessName.trim() || null, logo, tin: tin.trim() || null, address: address.trim() || null });
   }
 
   return (
@@ -32,16 +34,22 @@ function BusinessForm({ saved }: { saved: Branding }) {
       <Field label="Business name">
         <Input maxLength={120} value={businessName} onChange={(e) => setName(e.target.value)} placeholder="E.g. Nuat Thai Lawaan" />
       </Field>
-      <Field label="Logo" hint="A PNG, JPG or WebP image; it is shrunk automatically">
+      <Field label="Logo" hint="An SVG, PNG, JPG or WebP image. SVG stays sharp at any size; the others are shrunk automatically">
         <div className="flex items-center gap-4">
           {logo && <img src={logo} alt="Logo preview" className="h-16 w-16 rounded border border-stone-200 object-contain" />}
-          <input type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose logo" className="text-sm" onChange={(e) => pick(e.target.files?.[0])} />
+          <input type="file" accept="image/svg+xml,.svg,image/png,image/jpeg,image/webp" aria-label="Choose logo" className="text-sm" onChange={(e) => pick(e.target.files?.[0])} />
           {logo && (
             <button type="button" className="text-xs text-stone-500 underline" onClick={() => setLogo(null)}>
               Remove
             </button>
           )}
         </div>
+      </Field>
+      <Field label="TIN" hint="Printed on the payroll summary">
+        <Input maxLength={40} value={tin} onChange={(e) => setTin(e.target.value)} />
+      </Field>
+      <Field label="Address" hint="Printed on the payroll summary">
+        <Input maxLength={200} value={address} onChange={(e) => setAddress(e.target.value)} />
       </Field>
       <Button type="submit" disabled={save.isPending}>Save</Button>
     </form>
@@ -51,10 +59,11 @@ function BusinessForm({ saved }: { saved: Branding }) {
 /** The business's own name and logo, set by the Super Admin. */
 export function BusinessSettings() {
   const { data, error } = useBranding();
+  const details = useBrandingDetails();
   return (
     <Card title="Business">
-      {error && <Alert>{error.message}</Alert>}
-      {data && <BusinessForm saved={data} />}
+      {(error ?? details.error) && <Alert>{(error ?? details.error)!.message}</Alert>}
+      {data && details.data && <BusinessForm saved={{ ...data, ...details.data }} />}
     </Card>
   );
 }

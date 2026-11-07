@@ -106,8 +106,11 @@ export function therapistPayroll(input: {
   relief?: readonly { date: IsoDate; pay: number }[];
   /** Commission for this week's days before Go-live, entered by hand. */
   commissionBefore?: number;
-  /** Stops deductions at the Take-home Floor and keeps the rest as Deferred Deductions. Without it they are taken in full. */
-  deferral?: { balance: number; floor: number; override?: number | null };
+  /**
+   * Stops deductions at the Take-home Floor and keeps the rest as Deferred Deductions. Without it they are taken in full.
+   * `owesWhenAway`: a week with no work still owes its deductions, all of it deferred; false for someone who has left or not yet started.
+   */
+  deferral?: { balance: number; floor: number; override?: number | null; owesWhenAway?: boolean };
 }): PayrollTotals & TherapistDeductions & { days: TherapistDay[]; commissionBefore: Centavos } {
   const days = daysOf(input.week).map((date) => {
     const mine = input.commissions.filter((c) => c.businessDay === date);
@@ -123,10 +126,11 @@ export function therapistPayroll(input: {
   const commissionBefore = (input.commissionBefore ?? 0) as Centavos;
   const worked = input.daysWorked.length > 0 || input.commissions.length > 0 || commissionBefore > 0;
   const earned = sum(days.map((d) => d.commission + (d.reliefPay ?? 0))) + commissionBefore;
-  const base = totals(earned, input.adjustments ?? 0, worked, input.gov, input.cashAdvances);
+  const base = totals(earned, input.adjustments ?? 0, worked || (input.deferral?.owesWhenAway ?? false), input.gov, input.cashAdvances);
   const none: TherapistDeductions = { govDeferred: 0 as Centavos, govCollected: 0 as Centavos, govBalanceBefore: 0 as Centavos, govOverride: null };
   if (!input.deferral) return { ...base, ...none, days, commissionBefore };
-  const plan = deferDeductions({ earned: base.gross, week: base.govSss + base.govPhic + base.govPagibig, cashAdvances: input.cashAdvances, ...input.deferral });
+  const { balance, floor, override } = input.deferral;
+  const plan = deferDeductions({ earned: base.gross, week: base.govSss + base.govPhic + base.govPagibig, cashAdvances: input.cashAdvances, balance, floor, override });
   return { ...base, net: (base.net + plan.govDeferred - plan.govCollected) as Centavos, ...plan, days, commissionBefore };
 }
 
@@ -134,13 +138,15 @@ export type TherapistDeductions = { govDeferred: Centavos; govCollected: Centavo
 
 /**
  * What a Therapist's Payroll takes in Government Deductions (ADR 0008): this
- * week's plus any balance, as far as the Take-home Floor allows, and never more
- * than is left after Cash Advances. Whatever isn't taken stays on the balance.
+ * week's only, as far as the Take-home Floor allows. The balance is collected
+ * only by the Super Admin's own figure, which can reach it, or from the Year-end
+ * Bonus. Never more than is left after Cash Advances. What isn't taken is deferred.
  */
 export function deferDeductions(input: { earned: number; week: number; balance: number; floor: number; cashAdvances: number; override?: number | null }): TherapistDeductions {
   const owed = input.week + input.balance;
-  const room = Math.max(0, Math.min(input.earned - input.floor, input.earned - input.cashAdvances));
-  const take = Math.min(owed, input.override ?? room);
+  const pay = Math.max(0, input.earned - input.cashAdvances);
+  const room = Math.max(0, Math.min(input.earned - input.floor, pay));
+  const take = Math.min(owed, pay, input.override ?? Math.min(input.week, room));
   return {
     govDeferred: Math.max(0, input.week - take) as Centavos,
     govCollected: Math.max(0, take - input.week) as Centavos,
@@ -149,15 +155,67 @@ export function deferDeductions(input: { earned: number; week: number; balance: 
   };
 }
 
+export type DeferredWeek = { weekStart: IsoDate; amount: number };
+
 /**
- * Government Deductions a Therapist already owed at Go-live, from the weekly
- * record: each week worked with nothing taken, at their usual deduction, and
- * each deduction shown against a week with no earnings.
+ * The weeks a Therapist already owed Government Deductions for at Go-live, from
+ * the weekly record: each week with nothing taken, worked or not, at their usual
+ * deduction. The Super Admin leaves out any week the shop did not remit.
  */
-export function openingDeferred(weeks: readonly { gross: number; net: number }[]): Centavos {
+export function openingWeeks(weeks: readonly { weekStart: IsoDate; gross: number; net: number }[]): DeferredWeek[] {
   const taken = weeks.filter((w) => w.gross > w.net && w.gross > 0).map((w) => w.gross - w.net);
   const usual = taken.sort((a, b) => taken.filter((x) => x === b).length - taken.filter((x) => x === a).length)[0] ?? 0;
-  return sum(weeks.map((w) => (w.gross === 0 ? Math.max(0, -w.net) : w.gross === w.net ? usual : 0))) as Centavos;
+  return weeks
+    .map((w) => ({ weekStart: w.weekStart, amount: w.gross === 0 ? Math.max(usual, -w.net) : w.gross === w.net ? usual : 0 }))
+    .filter((w) => w.amount > 0)
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+}
+
+/** The weeks still owed after `paid`, which clears the oldest first. */
+export function weeksOwed(weeks: readonly DeferredWeek[], paid: number): DeferredWeek[] {
+  let left = paid;
+  const owed: DeferredWeek[] = [];
+  for (const w of [...weeks].sort((a, b) => a.weekStart.localeCompare(b.weekStart))) {
+    const cleared = Math.min(left, w.amount);
+    left -= cleared;
+    if (w.amount > cleared) owed.push({ weekStart: w.weekStart, amount: w.amount - cleared });
+  }
+  return owed;
+}
+
+/** The week number the owner's records use: ISO weeks, so the week of Dec 29, 2025 is week 1 of 2026. */
+export function weekNumber(start: IsoDate): number {
+  const day = new Date(`${start}T00:00:00Z`);
+  const thursday = new Date(day);
+  thursday.setUTCDate(day.getUTCDate() + 4 - (day.getUTCDay() || 7));
+  const newYear = Date.UTC(thursday.getUTCFullYear(), 0, 1);
+  return Math.ceil(((thursday.getTime() - newYear) / 86_400_000 + 1) / 7);
+}
+
+export const PAY_PERIODS = ['week', 'month', 'year'] as const;
+export type PayPeriod = (typeof PAY_PERIODS)[number];
+
+/**
+ * The middle day of a Pay Week. A Payroll counts in the period holding this day,
+ * so a week across two months goes to the one with most of its days, as the
+ * owner's monthly list does, and every week counts once.
+ */
+export function payWeekMiddle(start: IsoDate): IsoDate {
+  return addDays(start, 3);
+}
+
+/**
+ * The days a Payroll total covers. A 'week' runs Monday to Sunday: a Therapist's
+ * Pay Week and the Receptionist's whose middle day falls inside it.
+ */
+export function payPeriodRange(period: PayPeriod, date: IsoDate): { from: IsoDate; to: IsoDate } {
+  if (period === 'week') {
+    const week = payWeekOf(date, 'therapist');
+    return { from: week.start, to: week.end };
+  }
+  if (period === 'year') return { from: `${date.slice(0, 4)}-01-01`, to: `${date.slice(0, 4)}-12-31` };
+  const [y, m] = date.split('-').map(Number) as [number, number];
+  return { from: `${date.slice(0, 7)}-01`, to: new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) };
 }
 
 /** How much more a Therapist may take as a Cash Advance against a week: what is left of its net pay. */

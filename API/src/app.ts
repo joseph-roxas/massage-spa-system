@@ -14,6 +14,7 @@ import { salesRoutes } from './modules/sales';
 import { dayRoutes } from './modules/days';
 import { voucherRoutes } from './modules/vouchers';
 import { payrollRoutes } from './modules/payroll';
+import { payrollTotalsRoutes } from './modules/payrollTotals';
 import { inventoryRoutes } from './modules/inventory';
 import { expenseRoutes } from './modules/expenses';
 import { reportRoutes } from './modules/reports';
@@ -61,6 +62,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/', dayRoutes)
     .route('/', voucherRoutes)
     .route('/', payrollRoutes)
+    .route('/', payrollTotalsRoutes)
     .route('/', inventoryRoutes)
     .route('/', expenseRoutes)
     .route('/', reportRoutes)

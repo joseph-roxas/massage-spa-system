@@ -661,14 +661,20 @@ Grilled with the owner on 2026-11-06 (five rounds). Vocabulary is in `GLOSSARY.m
 
 **14.6 Deferred Deductions, Not Enrolled, exact amounts** (ADR 0008)
 
-1. On each Therapist Payroll: owed = this week's Government Deductions + Deferred Deductions balance. Take as much as leaves the Take-home Floor (`pay_rules`, ₱1,000); the rest stays on the balance. No choice for the Receptionist; the Super Admin can override on a single Payroll. A ledger like `ca_ledger`, shown on the Payslip and Pay Breakdown. Replaces the spec line that net can go negative.
-2. A week with no work still takes no deductions.
-3. **Opening balances** through Nov 1: 20 skipped weeks at ₱204.50 plus Gura and Navarra's ₱409 each. Cabiles ₱1,636.00, Nerosa ₱1,022.50, Navarra ₱818.00, Gura ₱613.50, Isidro Albert ₱409.00, Isidro Alma ₱409.00; Ausencillo, Ocariza and Vecin nil. Total ₱4,908.00, editable. Week 45 onward is handled by the system.
+1. On each Therapist Payroll: take this week's Government Deductions only, as far as the Take-home Floor (`pay_rules`, ₱1,000) allows; the rest goes on the balance. The balance is not collected automatically (owner's decision, 2026-11-07): it comes off the last working week, the Year-end Bonus, or sooner if the Therapist asks. No choice for the Receptionist; the Super Admin can override on a single Payroll, and can record that the Therapist agreed to a deduction under the floor. A ledger like `ca_ledger`, shown on the Payslip and Pay Breakdown. Replaces the spec line that net can go negative.
+2. A week with no work takes nothing from pay, but its deductions still go on the balance, since the shop remits them anyway (owner's decision, 2026-11-07). Not for someone who has left or not yet started. The Payslip's Last working week button takes everything owed, ignoring the Take-home Floor, up to the pay after Cash Advances.
+3. **Opening balances** through Nov 1: 24 weeks at ₱204.50, no-work weeks included and Cabiles's weeks 10–13 left out because March was not declared. Nerosa ₱1,022.50 (7, 14, 16, 29, 30), Navarra ₱1,022.50 (1, 2, 14, 17, 40), Cabiles ₱818.00 (9, 14, 16, 17), Isidro Albert ₱818.00 (3, 11, 20, 21), Gura ₱613.50 (1, 2, 14), Isidro Alma ₱409.00 (11, 38), Ocariza ₱204.50 (8); Ausencillo and Vecin nil. Total ₱4,908.00, set by clicking weeks on or off; the record suggests 28 weeks, ₱5,726.00, until Cabiles's four are clicked off. Week 45 onward is handled by the system.
 4. **Not Enrolled** mark on the Staff record (Vecin, Cristina): no deductions, no Employer Contributions, no missing-ID alert, visible on the record.
 5. All other Staff are set at their actual bracket (Therapists ₱8,000), so `weeklyPart` splits the monthly share exactly: ₱212.50 in a 4-week month, ₱170 in a 5-week month. Check: the forecast reproduces about ₱20,553 a month.
 6. Owner's follow-up, not code: written consent for deductions from the bonus; bookkeeper to confirm coverage for Vecin and the flat bracket.
 
 7. **As built** (migration 0026): `deferDeductions()` in the domain; the room is the smaller of earned − Take-home Floor and earned − Cash Advances. This replaces §5.7's "net pay can be negative" for Government Deductions. `payrolls` gains `gov_deferred`, `gov_collected`, `gov_balance_before`, `gov_override`; `gov_sss/phic/pagibig` stay the week's full shares, since the shop remits them regardless. `deduction_ledger` is written on approve and removed on back-to-draft, so a draft owes nothing. Approve recomputes and refuses (`stale`) if the figures moved; Adjustments and Cash Advances refresh the draft. Payslip shows one signed Deferred Deductions line. Tab: Payroll → Deferred Deductions, which suggests each opening balance from `past_therapist_weeks`.
+
+**14.6a Payroll totals and past Therapist Payrolls** (added 2026-11-07)
+
+1. Payroll → Totals, Super Admin only: `GET /payroll/totals?period=week|month|year&date=`, in `API/src/modules/payrollTotals.ts`. Live Payrolls plus `past_therapist_weeks` and `past_payslips`. A Payroll counts in the period holding its middle day, so a week across two months goes to the one with most of its days. This reproduces the owner's June, August and September lists, except the last Receptionist week of September, which differs by ₱118.49. Draft Payrolls count, with a notice.
+2. Print payroll list follows the owner's monthly PDF: business name, TIN, address, then No., Last, First and Middle Name, Civil Status, Gross Salary, Salary Basis, Remarks. Not Enrolled staff are left off unless ticked, as on those PDFs. TIN and address are new Business settings, kept out of the public `/branding`.
+3. The Receptionist already sees live Therapist weeks. Added: Pay Breakdown, and weeks before Go-live read only from `past_therapist_weeks`.
 
 **14.7 December pay**
 

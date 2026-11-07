@@ -53,6 +53,12 @@ describe('Business name and logo', () => {
     expect((await admin.send('PUT', '/branding', { businessName: 'Bad', logo: 'javascript:alert(1)' })).status).toBe(400);
     expect((await admin.send('PUT', '/branding', { businessName: 'Nuat Thai Lawaan', logo })).status).toBe(200);
     expect(await json(await client().get('/branding'))).toEqual({ businessName: 'Nuat Thai Lawaan', logo });
+    const svg = (text: string) => `data:image/svg+xml;base64,${btoa(text)}`;
+    const drawing = svg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle r="5"/></svg>');
+    expect((await admin.send('PUT', '/branding', { businessName: 'Nuat Thai Lawaan', logo: drawing })).status).toBe(200);
+    expect(await json(await client().get('/branding'))).toEqual({ businessName: 'Nuat Thai Lawaan', logo: drawing });
+    expect((await admin.send('PUT', '/branding', { businessName: 'Bad', logo: svg('<svg onload="alert(1)"></svg>') })).status).toBe(400);
+    expect((await admin.send('PUT', '/branding', { businessName: 'Bad', logo: svg('<html></html>') })).status).toBe(400);
     expect((await admin.send('PUT', '/branding', { businessName: 'Nuat Thai', logo: null })).status).toBe(200);
     expect(await json(await client().get('/branding'))).toEqual({ businessName: 'Nuat Thai', logo: null });
   });

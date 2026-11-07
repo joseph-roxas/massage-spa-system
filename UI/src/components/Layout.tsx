@@ -60,7 +60,7 @@ export function Layout() {
     <div className="flex min-h-screen bg-stone-100 text-stone-800">
       <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-stone-200 bg-white print:hidden">
         <div className="px-5 py-5">
-          <BrandMark />
+          <BrandMark stacked />
         </div>
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3">
           {NAV.filter((n) => (!n.capability || can(user.role, n.capability)) && n.hideFor !== user.role).map((n) => (

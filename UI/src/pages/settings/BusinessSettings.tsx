@@ -6,7 +6,7 @@ function BusinessForm({ saved }: { saved: Branding & BrandingDetails }) {
   const save = useSaveBranding();
   const [businessName, setName] = useState(saved.businessName ?? '');
   const [logo, setLogo] = useState(saved.logo);
-  const [tin, setTin] = useState(saved.tin ?? '');
+  const [contactNumber, setContactNumber] = useState(saved.contactNumber ?? '');
   const [address, setAddress] = useState(saved.address ?? '');
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -23,7 +23,7 @@ function BusinessForm({ saved }: { saved: Branding & BrandingDetails }) {
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    save.mutate({ businessName: businessName.trim() || null, logo, tin: tin.trim() || null, address: address.trim() || null });
+    save.mutate({ businessName: businessName.trim() || null, logo, contactNumber: contactNumber.trim() || null, address: address.trim() || null });
   }
 
   return (
@@ -45,8 +45,8 @@ function BusinessForm({ saved }: { saved: Branding & BrandingDetails }) {
           )}
         </div>
       </Field>
-      <Field label="TIN" hint="Printed on the payroll summary">
-        <Input maxLength={40} value={tin} onChange={(e) => setTin(e.target.value)} />
+      <Field label="Contact number" hint="Printed on the payroll summary">
+        <Input maxLength={40} value={contactNumber} onChange={(e) => setContactNumber(e.target.value)} />
       </Field>
       <Field label="Address" hint="Printed on the payroll summary">
         <Input maxLength={200} value={address} onChange={(e) => setAddress(e.target.value)} />

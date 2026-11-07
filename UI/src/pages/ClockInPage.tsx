@@ -164,7 +164,7 @@ export function ClockInPage() {
       <header className="mb-8 flex items-start justify-between gap-6">
         <div>
           <div className="mb-3">
-            <BrandMark />
+            <BrandMark large />
           </div>
           <p className="text-sm font-semibold uppercase tracking-widest text-teal-700">Clock-in Screen</p>
           <h1 className="text-3xl font-semibold">Tap your name</h1>

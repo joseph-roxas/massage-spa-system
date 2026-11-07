@@ -26,7 +26,7 @@ type Totals = {
   from: string;
   to: string;
   drafts: number;
-  business: { name: string | null; tin: string | null; address: string | null };
+  business: { name: string | null; contactNumber: string | null; address: string | null };
   people: Person[];
   months: { month: string; therapists: number; receptionist: number; relievers: number; total: number }[];
   onCall: number;
@@ -133,7 +133,7 @@ function PrintSheet({ data, heading, people }: { data: Totals; heading: string; 
   return (
     <section className="hidden text-sm text-black print:block">
       <h1 className="text-lg font-bold">{data.business.name ?? 'Payroll'}</h1>
-      {data.business.tin && <p>TIN {data.business.tin}</p>}
+      {data.business.contactNumber && <p>{data.business.contactNumber}</p>}
       {data.business.address && <p>{data.business.address}</p>}
       <p className="mb-4">{longDate(businessDayOf(new Date()))}</p>
       <h2 className="mb-2 font-bold">Payroll: {heading}</h2>

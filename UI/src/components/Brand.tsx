@@ -1,15 +1,17 @@
 import { useEffect } from 'react';
 import { useBranding } from '../lib/branding';
 
-/** The logo and business name with "Spa System" beneath; just "Spa System" until they are set. */
-export function BrandMark({ center = false }: { center?: boolean }) {
+/** The logo and business name with "Spa System" beneath; just "Spa System" until they are set. `stacked` puts the logo above the name; `large` is for a screen read from a distance. */
+export function BrandMark({ center = false, stacked = false, large = false }: { center?: boolean; stacked?: boolean; large?: boolean }) {
   const { data } = useBranding();
+  const layout = stacked ? `flex-col gap-2 ${center ? 'items-center text-center' : 'items-start'}` : `items-center gap-3 ${center ? 'justify-center' : ''}`;
+  const size = large ? 'h-24 w-24' : stacked ? 'h-14 w-14' : 'h-10 w-10';
   return (
-    <div className={`flex items-center gap-3 ${center ? 'justify-center' : ''}`}>
-      {data?.logo && <img src={data.logo} alt="" className="h-10 w-10 shrink-0 rounded object-contain" />}
-      <div className="min-w-0">
-        {data?.businessName && <p className="truncate text-sm font-semibold text-stone-800">{data.businessName}</p>}
-        <p className={`font-semibold uppercase tracking-widest text-teal-700 ${data?.businessName ? 'text-xs' : 'text-sm'}`}>Spa System</p>
+    <div className={`flex ${layout}`}>
+      {data?.logo && <img src={data.logo} alt="" className={`${size} shrink-0 rounded object-contain`} />}
+      <div className={stacked ? 'w-full min-w-0' : 'min-w-0'}>
+        {data?.businessName && <p className={`truncate font-semibold text-stone-800 ${large ? 'text-2xl' : 'text-sm'}`}>{data.businessName}</p>}
+        <p className={`font-semibold uppercase tracking-widest text-teal-700 ${large ? 'text-sm' : data?.businessName ? 'text-xs' : 'text-sm'}`}>Spa System</p>
       </div>
     </div>
   );

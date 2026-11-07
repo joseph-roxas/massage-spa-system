@@ -11,7 +11,7 @@ type Totals = {
   to: string;
   people: { displayName: string; kind: string; gross: number; gov: number; net: number; notEnrolled: boolean; civilStatus: string | null }[];
   months: { month: string; therapists: number; receptionist: number; total: number }[];
-  business: { name: string | null; tin: string | null };
+  business: { name: string | null; contactNumber: string | null };
 };
 const totals = async (c: Client, period: string, date: string) => json<Totals>(await c.get(`/payroll/totals?period=${period}&date=${date}`));
 
@@ -78,11 +78,11 @@ describe('Payroll totals', () => {
     expect((await totals(admin, 'month', '2026-11-05')).people).toEqual([]);
   });
 
-  it('carry the business’s TIN and address for printing, which stay private', async () => {
-    await admin.send('PUT', '/branding', { businessName: 'Test Spa', logo: null, tin: '123-456', address: 'Cebu' });
-    expect((await totals(admin, 'month', '2026-09-15')).business).toMatchObject({ name: 'Test Spa', tin: '123-456' });
+  it('carry the shop’s contact number and address for printing, which stay private', async () => {
+    await admin.send('PUT', '/branding', { businessName: 'Test Spa', logo: null, contactNumber: '0917 000 0000', address: 'Cebu' });
+    expect((await totals(admin, 'month', '2026-09-15')).business).toMatchObject({ name: 'Test Spa', contactNumber: '0917 000 0000' });
     expect(await json(await admin.get('/branding'))).toEqual({ businessName: 'Test Spa', logo: null });
-    expect(await json(await admin.get('/branding/details'))).toEqual({ tin: '123-456', address: 'Cebu' });
+    expect(await json(await admin.get('/branding/details'))).toEqual({ contactNumber: '0917 000 0000', address: 'Cebu' });
     const desk = await loggedIn('receptionist');
     expect((await desk.get('/branding/details')).status).toBe(403);
   });

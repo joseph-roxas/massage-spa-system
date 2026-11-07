@@ -673,7 +673,7 @@ Grilled with the owner on 2026-11-06 (five rounds). Vocabulary is in `GLOSSARY.m
 **14.6a Payroll totals and past Therapist Payrolls** (added 2026-11-07)
 
 1. Payroll → Totals, Super Admin only: `GET /payroll/totals?period=week|month|year&date=`, in `API/src/modules/payrollTotals.ts`. Live Payrolls plus `past_therapist_weeks` and `past_payslips`. A Payroll counts in the period holding its middle day, so a week across two months goes to the one with most of its days. This reproduces the owner's June, August and September lists, except the last Receptionist week of September, which differs by ₱118.49. Draft Payrolls count, with a notice.
-2. Print payroll list follows the owner's monthly PDF: business name, TIN, address, then No., Last, First and Middle Name, Civil Status, Gross Salary, Salary Basis, Remarks. Not Enrolled staff are left off unless ticked, as on those PDFs. TIN and address are new Business settings, kept out of the public `/branding`.
+2. Print payroll list follows the owner's monthly PDF: business name, contact number, address, then No., Last, First and Middle Name, Civil Status, Gross Salary, Salary Basis, Remarks. Not Enrolled staff are left off unless ticked, as on those PDFs. Contact number and address are new Business settings, kept out of the public `/branding`.
 3. The Receptionist already sees live Therapist weeks. Added: Pay Breakdown, and weeks before Go-live read only from `past_therapist_weeks`.
 
 **14.8a Guests not served on the Dashboard** (added 2026-11-07): No-shows, cancellations and Rejects for the month, who didn't show with their count to date, and the latest cancellation reasons. An Added Service that was cancelled doesn't count. No migration.

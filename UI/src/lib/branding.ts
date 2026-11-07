@@ -3,7 +3,7 @@ import { svgProblem } from '@spa/domain';
 import { api } from './api';
 
 export type Branding = { businessName: string | null; logo: string | null };
-export type BrandingDetails = { tin: string | null; address: string | null };
+export type BrandingDetails = { contactNumber: string | null; address: string | null };
 
 const KEY = ['branding'] as const;
 

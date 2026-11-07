@@ -13,7 +13,7 @@ export const branding = sqliteTable('branding', {
   /** A small image as a data URL, shrunk in the browser. */
   logo: text('logo'),
   /** On the printed payroll summary; not shown publicly. */
-  tin: text('tin'),
+  contactNumber: text('contact_number'),
   address: text('address'),
   updatedAt: text('updated_at').notNull(),
   updatedBy: text('updated_by'),

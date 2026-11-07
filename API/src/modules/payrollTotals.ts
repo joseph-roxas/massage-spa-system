@@ -43,7 +43,7 @@ export const payrollTotalsRoutes = new Hono<AuthedEnv>().get(
             .from(bonuses)
             .where(and(eq(bonuses.year, Number(from.slice(0, 4))), isNotNull(bonuses.paidAt)))
         : Promise.resolve([]),
-      db.select({ businessName: branding.businessName, tin: branding.tin, address: branding.address }).from(branding).get(),
+      db.select({ businessName: branding.businessName, contactNumber: branding.contactNumber, address: branding.address }).from(branding).get(),
     ]);
 
     const firstLiveWeek = payWeekOf(goLive, 'therapist').start;
@@ -89,7 +89,7 @@ export const payrollTotalsRoutes = new Hono<AuthedEnv>().get(
       from,
       to,
       drafts: live.filter((p) => p.status === 'draft' && inPeriod(payWeekMiddle(p.weekStart))).length,
-      business: { name: business?.businessName ?? null, tin: business?.tin ?? null, address: business?.address ?? null },
+      business: { name: business?.businessName ?? null, contactNumber: business?.contactNumber ?? null, address: business?.address ?? null },
       people: [...byPerson]
         .map(([staffId, row]) => {
           const p = people.find((x) => x.id === staffId)!;

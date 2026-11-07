@@ -104,7 +104,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
     <main className="flex min-h-screen items-center justify-center bg-stone-100 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6">
-          <BrandMark center />
+          <BrandMark center stacked />
         </div>
         <div className="rounded-xl border border-stone-200 bg-white p-8 shadow-sm">
           <h1 className="text-xl font-semibold text-stone-900">{title}</h1>

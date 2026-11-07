@@ -36,7 +36,7 @@ const body = z.object({
       if (message) ctx.addIssue({ code: 'custom', message });
     })
     .nullable(),
-  tin: z.string().trim().max(40).nullable().optional(),
+  contactNumber: z.string().trim().max(40).nullable().optional(),
   address: z.string().trim().max(200).nullable().optional(),
 });
 
@@ -46,15 +46,15 @@ export const brandingRoutes = new Hono<AuthedEnv>()
     const row = await c.var.db.select().from(branding).where(eq(branding.id, ROW)).get();
     return c.json({ businessName: row?.businessName ?? null, logo: row?.logo ?? null });
   })
-  /** The TIN and address, for whoever manages the settings; the login page doesn't need them. */
+  /** The contact number and address, for whoever manages the settings; the login page doesn't need them. */
   .get('/branding/details', requireAuth, requireCapability('settings.manage'), async (c) => {
     const row = await c.var.db.select().from(branding).where(eq(branding.id, ROW)).get();
-    return c.json({ tin: row?.tin ?? null, address: row?.address ?? null });
+    return c.json({ contactNumber: row?.contactNumber ?? null, address: row?.address ?? null });
   })
   .put('/branding', requireAuth, requireCapability('settings.manage'), zValidator('json', body, invalidInput), async (c) => {
     const db = c.var.db;
     const input = c.req.valid('json');
-    const details = { ...(input.tin !== undefined ? { tin: input.tin || null } : {}), ...(input.address !== undefined ? { address: input.address || null } : {}) };
+    const details = { ...(input.contactNumber !== undefined ? { contactNumber: input.contactNumber || null } : {}), ...(input.address !== undefined ? { address: input.address || null } : {}) };
     const values = { businessName: input.businessName || null, logo: input.logo, ...details, updatedAt: nowIso(), updatedBy: c.var.user.id };
     await db.batch([
       db.insert(branding).values({ id: ROW, ...values }).onConflictDoUpdate({ target: branding.id, set: values }),

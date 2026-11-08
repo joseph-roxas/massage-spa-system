@@ -12,6 +12,7 @@ import { attendanceRoutes } from './modules/attendance';
 import { bookingRoutes } from './modules/bookings';
 import { serviceChangeRoutes } from './modules/service-changes';
 import { catchUpRoutes } from './modules/catch-up';
+import { onCallRoutes } from './modules/on-call';
 import { salesRoutes } from './modules/sales';
 import { dayRoutes } from './modules/days';
 import { voucherRoutes } from './modules/vouchers';
@@ -62,6 +63,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/', bookingRoutes)
     .route('/', serviceChangeRoutes)
     .route('/', catchUpRoutes)
+    .route('/', onCallRoutes)
     .route('/sales', salesRoutes)
     .route('/', dayRoutes)
     .route('/', voucherRoutes)

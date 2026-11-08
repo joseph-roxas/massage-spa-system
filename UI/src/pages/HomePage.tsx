@@ -7,6 +7,7 @@ import { manilaTime } from '../lib/attendance';
 import { duration, longDate, peso } from '../lib/format';
 import { guestLabel, isNamedReservation, useBoard, useDeskAction, useReliefOwed, type Board, type Booking } from '../lib/front-desk';
 import { useDayAction } from '../lib/sales';
+import { AddOnCallDialog } from './front-desk/AddOnCallDialog';
 import { AddServiceDialog } from './front-desk/AddServiceDialog';
 import { CheckoutDialog } from './front-desk/CheckoutDialog';
 import { CashReminder, HandoverDialog, TopUpDialog } from './front-desk/CashDialogs';
@@ -113,13 +114,22 @@ function RoomTile({
 }
 
 function RotationPanel({ board }: { board: Board }) {
+  const canAddOnCall = useCan('staff.add_on_call');
+  const [addingOnCall, setAddingOnCall] = useState(false);
   return (
     <Card
       title="Rotation"
       actions={
-        <Link to="/clock" className="text-sm font-medium text-teal-700 hover:underline">
-          Clock-in Screen
-        </Link>
+        <span className="flex gap-3">
+          {canAddOnCall && (
+            <button type="button" className="text-sm font-medium text-teal-700 hover:underline" onClick={() => setAddingOnCall(true)}>
+              + On-call
+            </button>
+          )}
+          <Link to="/clock" className="text-sm font-medium text-teal-700 hover:underline">
+            Clock-in Screen
+          </Link>
+        </span>
       }
     >
       {board.rotation.length === 0 ? (
@@ -145,6 +155,7 @@ function RotationPanel({ board }: { board: Board }) {
         </ol>
       )}
       <p className="mt-3 text-xs text-stone-500">Done sends a therapist to the back, unless the guest asked for them. An LMT goes first from clock-in until their first un-requested service is done.</p>
+      {addingOnCall && <AddOnCallDialog onClose={() => setAddingOnCall(false)} />}
     </Card>
   );
 }

@@ -44,7 +44,7 @@ A dated credential a Therapist holds (TESDA NC-II or DOH licence), with a number
 _Avoid_: Cert, licence (alone)
 
 **On-call Therapist**:
-A Therapist called in for a single day to handle extra guests, paid their commission at the end of that day rather than through weekly Payroll.
+A Therapist called in for a single day to handle extra guests, paid their commission at the end of that day rather than through weekly Payroll. The Receptionist can add one directly, always at the Regular rate.
 _Avoid_: Extra, reliever
 
 **Reliever**:

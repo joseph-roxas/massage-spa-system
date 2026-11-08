@@ -33,7 +33,13 @@ describe('seeded catalogue', () => {
     expect(services.filter((s) => s.voucherEligible).map((s) => s.code).sort()).toEqual(['ARO', 'SWE', 'THAI', 'VEN']);
   });
 
-  it('has Happy Hours, the oil add-on, 8 rooms and the commission rates', async () => {
+  it('sets ₱50 aside on Aromatherapy, Hot Oil and Hot Stone only', async () => {
+    const admin = await loggedIn('super_admin');
+    const { services } = await json<{ services: { code: string; currentSetAside: number }[] }>(await admin.get('/catalogue/services'));
+    expect(services.filter((s) => s.currentSetAside > 0).map((s) => [s.code, s.currentSetAside])).toEqual([['ARO', 5000], ['HOIL', 5000], ['HSTN', 5000]]);
+  });
+
+  it('has Happy Hours, 8 rooms and the commission rates', async () => {
     const admin = await loggedIn('super_admin');
     const { promos } = await json<{ promos: Record<string, unknown>[] }>(await admin.get('/catalogue/promos'));
     expect(promos[0]).toMatchObject({
@@ -44,8 +50,6 @@ describe('seeded catalogue', () => {
       endTime: '18:00',
       validTo: '2026-11-30',
     });
-    const { addons } = await json<{ addons: { name: string; price: number }[] }>(await admin.get('/catalogue/addons'));
-    expect(addons).toEqual([expect.objectContaining({ name: 'Extra oil', price: 5000 })]);
     const { rooms } = await json<{ rooms: { id: number; isFlex: boolean }[] }>(await admin.get('/catalogue/rooms'));
     expect(rooms).toHaveLength(8);
     expect(rooms.filter((r) => r.isFlex).map((r) => r.id)).toEqual([8]);

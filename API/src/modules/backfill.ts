@@ -99,7 +99,7 @@ export const backfillRoutes = new Hono<AuthedEnv>()
         .select({
           month: sql<string>`substr(${dailySummaries.date}, 1, 7)`,
           days: sql<number>`count(*)`,
-          received: sql<number>`sum(${dailySummaries.cash} + ${dailySummaries.gcash} + ${dailySummaries.oil} + ${dailySummaries.voucher} - ${dailySummaries.foc})`,
+          received: sql<number>`sum(${dailySummaries.cash} + ${dailySummaries.gcash} + ${dailySummaries.voucher} - ${dailySummaries.foc})`,
         })
         .from(dailySummaries)
         .groupBy(sql`substr(${dailySummaries.date}, 1, 7)`)

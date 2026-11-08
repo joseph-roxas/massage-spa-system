@@ -40,6 +40,42 @@ function PriceForm({ service, onDone }: { service: Service; onDone: () => void }
   );
 }
 
+function SetAsideForm({ service, onDone }: { service: Service; onDone: () => void }) {
+  const [amount, setAmount] = useState('');
+  const [from, setFrom] = useState(todayManila());
+  const [error, setError] = useState<string | null>(null);
+  const save = useSave((body: { amount: number; effectiveFrom: string }) => ({ path: `/catalogue/services/${service.id}/set-asides`, body }), 'catalogue');
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const cents = parsePesos(amount);
+    if (cents === null) return setError('Enter a peso amount, e.g. 50, or 0 for none.');
+    setError(null);
+    save.mutate({ amount: cents, effectiveFrom: from }, { onSuccess: onDone });
+  }
+
+  return (
+    <FormPanel onSubmit={submit}>
+      <p className="text-sm text-stone-600">
+        Owner’s Set-aside on <strong>{service.name}</strong>: taken off the Regular Price before Commission. Sales already made keep theirs.
+      </p>
+      {(error || save.error) && <Alert>{error ?? save.error?.message}</Alert>}
+      <div className="grid grid-cols-3 items-end gap-3">
+        <Field label="Set-aside (₱)">
+          <Input inputMode="decimal" required value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={peso(service.currentSetAside)} />
+        </Field>
+        <Field label="Takes effect on">
+          <Input type="date" required min={todayManila()} value={from} onChange={(e) => setFrom(e.target.value)} />
+        </Field>
+        <div className="flex gap-2">
+          <Button type="submit" disabled={save.isPending}>Save</Button>
+          <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
+        </div>
+      </div>
+    </FormPanel>
+  );
+}
+
 type ServiceDraft = {
   code: string;
   name: string;
@@ -146,7 +182,7 @@ function ServiceForm({ service, onDone }: { service?: Service; onDone: () => voi
 }
 
 function ServiceRow({ service }: { service: Service }) {
-  const [mode, setMode] = useState<'view' | 'price' | 'edit'>('view');
+  const [mode, setMode] = useState<'view' | 'price' | 'set-aside' | 'edit'>('view');
   const removePrice = useSave((priceId: string) => ({ path: `/catalogue/services/${service.id}/prices/${priceId}`, method: 'DELETE' }), 'catalogue');
   return (
     <>
@@ -158,6 +194,7 @@ function ServiceRow({ service }: { service: Service }) {
             {service.kind === 'combo' && <Badge>Combo</Badge>}
             {service.voucherEligible && <Badge tone="teal">Voucher{service.voucherPrefix ? ` ${service.voucherPrefix}` : ''}</Badge>}
             {service.isFootType && <Badge>Recliner OK</Badge>}
+            {service.currentSetAside > 0 && <Badge tone="amber">Set-aside {peso(service.currentSetAside)}</Badge>}
             {!service.active && <Badge tone="red">Not offered</Badge>}
           </div>
         </td>
@@ -172,9 +209,15 @@ function ServiceRow({ service }: { service: Service }) {
               </button>
             </div>
           ))}
+          {service.upcomingSetAsides.map((a) => (
+            <div key={a.id} className="text-amber-700">
+              Set-aside {peso(a.amount)} from {longDate(a.effectiveFrom)}
+            </div>
+          ))}
         </td>
         <td className={`${td} whitespace-nowrap text-right`}>
           <Button variant="secondary" className="h-8 px-3" onClick={() => setMode('price')}>Change price</Button>{' '}
+          {service.kind === 'single' && <Button variant="secondary" className="h-8 px-3" onClick={() => setMode('set-aside')}>Set-aside</Button>}{' '}
           <Button variant="secondary" className="h-8 px-3" onClick={() => setMode('edit')}>Edit</Button>
         </td>
       </tr>
@@ -183,6 +226,8 @@ function ServiceRow({ service }: { service: Service }) {
           <td colSpan={6} className="px-3 pb-3">
             {mode === 'price' ? (
               <PriceForm service={service} onDone={() => setMode('view')} />
+            ) : mode === 'set-aside' ? (
+              <SetAsideForm service={service} onDone={() => setMode('view')} />
             ) : (
               <ServiceForm service={service} onDone={() => setMode('view')} />
             )}

@@ -187,7 +187,7 @@ const straddles = (week: PayWeek, goLive: string) => week.start < goLive && goLi
 async function therapistWeek(db: Db, person: Staff, week: PayWeek, override?: number | null) {
   const [sold, worked, advances, rates, commissionRows, adjustments, relief, balances, floor, before] = await Promise.all([
     db
-      .select({ businessDay: sales.businessDay, amount: sales.commissionAmount, regularPrice: sales.regularPrice, isHoliday: sales.isHoliday })
+      .select({ businessDay: sales.businessDay, amount: sales.commissionAmount, regularPrice: sales.regularPrice, setAside: sales.setAside, isHoliday: sales.isHoliday })
       .from(sales)
       .where(and(eq(sales.therapistId, person.id), eq(sales.status, 'paid'), gte(sales.businessDay, week.start), lte(sales.businessDay, week.end))),
     db
@@ -207,7 +207,7 @@ async function therapistWeek(db: Db, person: Staff, week: PayWeek, override?: nu
   // What the Holiday rate added on top of the normal rate, for the Payslip.
   const commissions = sold.map((s) => {
     const rate = s.isHoliday ? commissionRateOn(commissionRows, person.therapistClass ?? 'regular', s.businessDay) : undefined;
-    const normal = rate ? Math.round((s.regularPrice * rate.normalBp) / 10_000) : s.amount;
+    const normal = rate ? Math.round(((s.regularPrice - s.setAside) * rate.normalBp) / 10_000) : s.amount;
     return { businessDay: s.businessDay, amount: s.amount, holidayExtra: Math.max(0, s.amount - normal) };
   });
   const pay = therapistPayroll({

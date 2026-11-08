@@ -46,7 +46,7 @@ const quarterParam = z.string().refine(isQuarter, 'Use a quarter like 2026-Q3.')
 
 const CASH_OUT_LABELS: Record<string, string> = { petty_cash: 'Petty cash', laundry: 'Laundry', supplies: 'Supplies (from the drawer)', food: 'Food / rice', transport: 'Transport', other: 'Other cash-outs' };
 
-/** Gross sales for Percentage Tax: every payment received for Services, Add-ons and Vouchers, by Business Day. */
+/** Gross sales for Percentage Tax: every payment received for Services and Vouchers, by Business Day. */
 async function grossSales(db: Db, from: string, to: string) {
   const [svc, vouchers, past] = await Promise.all([
     db
@@ -92,7 +92,6 @@ export async function statementFor(db: Db, from: string, to: string) {
     db
       .select({
         services: sql<number>`sum(${sales.serviceAmount})`,
-        addons: sql<number>`sum(${sales.addonsTotal})`,
         discounts: sql<number>`sum(case when ${sales.discountType} in ('senior', 'pwd', 'promo') then ${sales.discountAmount} else 0 end)`,
         commission: sql<number>`sum(${sales.commissionAmount})`,
       })
@@ -148,7 +147,6 @@ export async function statementFor(db: Db, from: string, to: string) {
 
   const revenue: StatementLine[] = [
     { label: 'Services (after discounts)', amount: (n(sold?.services) + past.services) as Centavos },
-    { label: 'Add-ons', amount: (n(sold?.addons) + past.oil) as Centavos },
     { label: 'Vouchers sold', amount: (n(vouchers?.s) + past.voucher) as Centavos },
   ];
   const costs: StatementLine[] = [

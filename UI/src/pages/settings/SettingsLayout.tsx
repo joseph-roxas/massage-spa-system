@@ -4,7 +4,7 @@ const TABS = [
   { to: 'services', label: 'Services & Prices' },
   { to: 'promos', label: 'Promos' },
   { to: 'holidays', label: 'Holidays' },
-  { to: 'rooms', label: 'Rooms & Add-ons' },
+  { to: 'rooms', label: 'Rooms' },
   { to: 'staff', label: 'Staff' },
   { to: 'pay', label: 'Commission & Pay' },
   { to: 'front-desk', label: 'Front-desk device' },

@@ -28,12 +28,14 @@ export const sales = sqliteTable(
       .references(() => staff.id),
     /** Centavos, before any Discount. */
     regularPrice: integer('regular_price').notNull(),
+    /** Centavos of the Regular Price that are the owner's before Commission. Part of the sale. */
+    setAside: integer('set_aside').notNull().default(0),
     discountType: text('discount_type', { enum: DISCOUNT_TYPES }).notNull(),
     /** Senior/PWD ID number, the Promo id, or the Voucher serial. */
     discountRef: text('discount_ref'),
     discountBp: integer('discount_bp').notNull().default(0),
     discountAmount: integer('discount_amount').notNull().default(0),
-    /** Paid for the Service after the Discount; Royalty Gross Sales counts this, not Add-ons. */
+    /** Paid for the Service after the Discount; Royalty Gross Sales counts this. */
     serviceAmount: integer('service_amount').notNull(),
     addonsTotal: integer('addons_total').notNull().default(0),
     amountDue: integer('amount_due').notNull(),

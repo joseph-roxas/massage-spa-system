@@ -8,7 +8,6 @@ export async function summaryTotals(db: DrizzleD1Database, from: string, to: str
     .select({
       cash: sql<number>`coalesce(sum(${dailySummaries.cash}), 0)`,
       gcash: sql<number>`coalesce(sum(${dailySummaries.gcash}), 0)`,
-      oil: sql<number>`coalesce(sum(${dailySummaries.oil}), 0)`,
       voucher: sql<number>`coalesce(sum(${dailySummaries.voucher}), 0)`,
       foc: sql<number>`coalesce(sum(${dailySummaries.foc}), 0)`,
       commission: sql<number>`coalesce(sum(${dailySummaries.commission}), 0)`,
@@ -18,10 +17,9 @@ export async function summaryTotals(db: DrizzleD1Database, from: string, to: str
     .get();
   const cash = Number(row?.cash ?? 0);
   const gcash = Number(row?.gcash ?? 0);
-  const oil = Number(row?.oil ?? 0);
   const voucher = Number(row?.voucher ?? 0);
   const foc = Number(row?.foc ?? 0);
-  return { cash, gcash, oil, voucher, foc, commission: Number(row?.commission ?? 0), services: cash + gcash - foc, received: cash + gcash + oil + voucher - foc };
+  return { cash, gcash, voucher, foc, commission: Number(row?.commission ?? 0), services: cash + gcash - foc, received: cash + gcash + voucher - foc };
 }
 
 /** The Receptionist's gross pay for whole past months starting inside the range. */

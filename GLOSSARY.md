@@ -90,8 +90,17 @@ _Avoid_: Treatment, package
 **Combo**:
 A Service made of two treatments sold at a single price (C1–C7), performed and commissioned as one Service by one Therapist.
 
-**Add-on**:
-An optional extra charged on top of a Service (currently extra oil, ₱50) that belongs wholly to the shop: no Commission, not in Royalty Gross Sales.
+**Top-up**:
+More time on a single Service already under way, in steps of 30 minutes and as many times as the Guest asks. It stays the same Booking, Therapist, Room and sale and costs no extra Rotation place. Foot and Back Massage, at either length, are topped up at the price the owner sets for their 30 minutes; any other 1-hour Service at half its Regular Price; a 1.5-hour Service with a 30-minute head, back or foot massage at that massage's price. Combos cannot be topped up.
+_Avoid_: Extension, add-on
+
+**Service Change**:
+Replacing the Service on a Booking while it is under way or before it is paid. The sale becomes the new Service at its full price and nothing is charged for the old one.
+_Avoid_: Upgrade, downgrade
+
+**Therapist Change**:
+Another Therapist taking over a Service already under way at the Guest's wish. The clock keeps running, the new Therapist earns the whole Commission, and the replaced Therapist earns nothing for it and keeps their place in the Rotation.
+_Avoid_: Reassignment, swap
 
 **Booking**:
 A Guest's reservation of a Service with a Therapist, either a Walk-in starting now or Scheduled for a later time.
@@ -112,14 +121,21 @@ A Booking made on arrival, assigned to a Therapist immediately.
 
 **Added Service**:
 A Service a Guest asks for partway through their stay, booked as a follow-on Booking in the same Room that starts when the current one ends; by default the same Therapist performs it. The whole stay is checked out and paid together and costs the Therapist one Rotation place.
-_Avoid_: Extension, upgrade, add-on (that is the oil)
+_Avoid_: Extension (that is a Top-up), upgrade
 
 **Requested Therapist**:
 The specific Therapist a Guest asks for; takes priority over the Rotation and does not cost that Therapist their Rotation place.
 _Avoid_: Preferred therapist
 
+**Reserved**:
+The mark on a Therapist from 30 minutes before a Scheduled Booking that names them. A Therapist may take another Guest only if that Service is due to end before they become Reserved. Scheduled Bookings naming no Therapist hold nobody.
+_Avoid_: On hold, blocked
+
+**Grace Period**:
+The 15 minutes after its scheduled time that a Scheduled Booking waits for its Guest before closing by itself as a No-show.
+
 **Rotation**:
-The order in which clocked-in Therapists take un-requested Guests, starting by arrival time; a Therapist who finishes a Service goes to the back.
+The order in which clocked-in Therapists take un-requested Guests, starting by arrival time; a Therapist who finishes a Service goes to the back. An LMT goes ahead of everyone from clock-in until they finish their first un-requested Service.
 _Avoid_: Queue, turn list
 
 **DTR (Daily Time Record)**:
@@ -139,7 +155,11 @@ The Super Admin's check of every DTR entry added by hand, corrected, or still mi
 _Avoid_: DTR audit, approval
 
 **Go-live**:
-The first real Business Day run on the system, Sunday 2026-11-08. Everything before it exists only as Daily Summaries and opening balances.
+The first Business Day recorded in the system as real Sales, Monday 2026-11-02. Everything before it exists only as Daily Summaries and opening balances.
+
+**Catch-up Day**:
+A Business Day from 2026-11-02 to 2026-11-08, run on paper and entered afterwards by the Super Admin from those records as real Sales, DTR and Expenses, with no Guest Records. The Front Desk went live the day after, 2026-11-09.
+_Avoid_: Backfill (that is Daily Summaries)
 
 **Business Day**:
 The span from opening (2:00pm) until that day's Day Close, even past midnight; all sales and DTR belong to it. Activity before 6:00am counts toward the previous day.
@@ -159,7 +179,11 @@ _Avoid_: End of day, Z-reading
 ## Money in
 
 **Regular Price**:
-A Service's list price before any Discount; the basis for every Commission.
+A Service's list price before any Discount.
+
+**Owner's Set-aside**:
+A fixed amount of the Regular Price of Aromatherapy, Hot Oil and Hot Stone Massage (₱50 at present) that is the owner's before Commission is worked out. It is bookkeeping only: it stays in Sales, Royalty Gross Sales and Sales Cash. Combos have none.
+_Avoid_: Oil, oil fee, add-on
 
 **Discount**:
 A reduction in what the Guest pays, always absorbed by the shop. At most one per Service, chosen at checkout; the best applicable Promo is offered first.
@@ -213,7 +237,7 @@ _Avoid_: Comp, freebie
 How money is received: Cash or GCash.
 
 **Royalty Gross Sales**:
-For a calendar month: money received for Services after Discounts plus Voucher sales on the day sold. Excludes Add-ons, Voucher redemptions and Real FOCs.
+For a calendar month: money received for Services after Discounts plus Voucher sales on the day sold. Excludes Voucher redemptions and Real FOCs.
 
 **Royalty**:
 The monthly fee owed to the franchisor, 3% of Royalty Gross Sales.
@@ -221,16 +245,13 @@ The monthly fee owed to the franchisor, 3% of Royalty Gross Sales.
 ## Money out
 
 **Commission**:
-A Therapist's share of the Regular Price of each Service they perform (including FOCs): Regular 30% / LMT 40%, or 50% / 60% on a Holiday.
+A Therapist's share of the Regular Price, less any Owner's Set-aside, of each Service they perform (including FOCs and whatever the Guest was discounted): Regular 30% / LMT 40%, or 50% / 60% on a Holiday.
 
 **Holiday**:
 A date the Super Admin flags as raising Therapist Commission rates (and triggering Receptionist holiday premium).
 
 **Pay Week**:
 Monday through Sunday for Therapists, Sunday through Saturday for the Receptionist. Its Payroll is released the following week.
-
-**Commission before Go-live**:
-A Therapist's Commission for the days of their first Pay Week before Go-live, entered by hand so that week's Payroll is complete.
 
 **Payroll**:
 The weekly computation of each staff member's pay for one Pay Week, net of Government Deductions and Cash Advance repayment.
@@ -248,7 +269,7 @@ _Avoid_: Payroll summary, register
 
 **Adjustment**:
 A labelled amount, added or taken off, that the Super Admin puts on a Payroll with a reason, e.g. a correction for an earlier week. Not part of basic pay for 13th Month Pay.
-_Avoid_: Add-on (that is the oil on a Service), bonus
+_Avoid_: Bonus
 
 **Paper Payslip**:
 A blank printed form for writing a Therapist's or the Receptionist's Payslip by hand when the system can't be used; each has its own layout.

@@ -150,7 +150,7 @@ function FrontDeskLog() {
             </div>
           </div>
         )}
-        <p className="text-stone-600">Senior/PWD: 20% off with ID number. Only one discount per guest: the larger one. Extra oil ₱50 is never discounted.</p>
+        <p className="text-stone-600">Senior/PWD: 20% off with ID number. Only one discount per guest: the larger one.</p>
       </section>
     </div>
   );

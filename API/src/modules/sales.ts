@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import {
   can,
   commissionFor,
@@ -21,7 +21,7 @@ import {
   type PaymentLine,
   type Quote,
 } from '@spa/domain';
-import { addons, bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, saleAddons, sales, servicePrices, services, staff, vouchers, voucherSales } from '@spa/db';
+import { bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
@@ -36,7 +36,6 @@ const quoteBody = z.object({
   statutory: z.enum(['senior', 'pwd']).nullable().default(null),
   /** The Promo picked at checkout, or null for none; left out, the best that applies. */
   promoId: z.string().min(1).nullish(),
-  addonIds: z.array(z.string().min(1)).max(10).default([]),
   complimentary: z.boolean().default(false),
   voucherSerial: z.string().trim().max(40).nullable().default(null),
 });
@@ -48,7 +47,6 @@ const checkout = z.object({
     .nullable()
     .default(null),
   promoId: z.string().min(1).nullish(),
-  addonIds: z.array(z.string().min(1)).max(10).default([]),
   /** Super Admin only. */
   complimentaryReason: z.string().trim().min(3, 'Give a short reason.').max(300).nullable().default(null),
   voucherSerial: z.string().trim().max(40).nullable().default(null),
@@ -87,7 +85,7 @@ type VoucherBundle = {
 type Priced = {
   booking: typeof bookings.$inferSelect;
   quote: Quote;
-  addonLines: { id: string; name: string; price: number }[];
+  setAside: number;
   commission: { bp: number; amount: Centavos };
   isHoliday: boolean;
   voucher: typeof vouchers.$inferSelect | null;
@@ -128,22 +126,21 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
     voucherBundle = await bundleOf(c, voucher!);
   }
   const day = booking.businessDay;
-  const [prices, allPromos, chosenAddons, therapist, holiday, rates] = await Promise.all([
+  const [prices, setAsides, allPromos, therapist, holiday, rates] = await Promise.all([
     db.select().from(servicePrices).where(eq(servicePrices.serviceId, booking.serviceId)),
+    db.select().from(serviceSetAsides).where(eq(serviceSetAsides.serviceId, booking.serviceId)),
     db
       .select({ promo: promos, serviceName: services.name })
       .from(promos)
       .innerJoin(services, eq(services.id, promos.serviceId))
       .where(eq(promos.active, true)),
-    input.addonIds.length ? db.select().from(addons).where(inArray(addons.id, input.addonIds)) : Promise.resolve([]),
     db.select().from(staff).where(eq(staff.id, booking.therapistId)).get(),
     db.select().from(holidays).where(eq(holidays.date, day)).get(),
     db.select().from(commissionRates),
   ]);
   const regular = effectiveOn(prices, day);
   if (!regular) return fail(c, 409, 'no_price', 'This service has no price for that day. Ask the Super Admin to set one.');
-  const addonLines = input.addonIds.map((id) => chosenAddons.find((a) => a.id === id));
-  if (addonLines.some((a) => !a || !a.active)) return fail(c, 400, 'unknown_addon', 'Pick add-ons that are offered.');
+  const setAside = effectiveOn(setAsides, day)?.amount ?? 0;
 
   const rate = commissionRateOn(rates, therapist?.therapistClass ?? 'regular', day);
   if (!rate) return fail(c, 409, 'no_commission_rate', 'No Commission rate is set for this therapist. Ask the Super Admin.');
@@ -174,10 +171,9 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
       statutory: input.statutory,
       complimentary: input.complimentary,
       voucher: voucher && { serial: voucher.serial, isFree: voucherBundle!.thisIsFree },
-      addonPrices: addonLines.map((a) => a!.price as Centavos),
     }),
-    addonLines: addonLines.map((a) => ({ id: a!.id, name: a!.name, price: a!.price })),
-    commission: commissionFor(regular.regularPrice as Centavos, rate, isHoliday),
+    setAside,
+    commission: commissionFor(regular.regularPrice as Centavos, rate, isHoliday, setAside),
     isHoliday,
     voucher,
     voucherBundle,
@@ -212,12 +208,11 @@ const priceFor = (c: Context<AuthedEnv>, input: CheckoutInput) =>
     bookingId: input.bookingId,
     statutory: input.statutory?.kind ?? null,
     promoId: input.promoId,
-    addonIds: input.addonIds,
     complimentary: !!input.complimentaryReason,
     voucherSerial: input.voucherSerial,
   });
 
-/** Everything one Sale writes: the Sale, its Add-ons, its payments, the Voucher it redeems. */
+/** Everything one Sale writes: the Sale, its payments, the Voucher it redeems. */
 function saleStatements(c: Context<AuthedEnv>, input: CheckoutInput, priced: Priced, lines: readonly PaymentLine[], bookletInvoiceNo: string | null, now: string) {
   const db = c.var.db;
   const { booking, quote, commission } = priced;
@@ -238,12 +233,12 @@ function saleStatements(c: Context<AuthedEnv>, input: CheckoutInput, priced: Pri
       serviceId: booking.serviceId,
       therapistId: booking.therapistId!,
       regularPrice: quote.regularPrice,
+      setAside: priced.setAside,
       discountType: quote.discount.type,
       discountRef,
       discountBp: quote.discount.bp,
       discountAmount: quote.discount.amount,
       serviceAmount: quote.serviceAmount,
-      addonsTotal: quote.addonsTotal,
       amountDue: quote.amountDue,
       focKind: quote.focKind,
       commissionBp: commission.bp,
@@ -254,7 +249,6 @@ function saleStatements(c: Context<AuthedEnv>, input: CheckoutInput, priced: Pri
       createdAt: now,
       createdBy: c.var.user.id,
     }),
-    ...priced.addonLines.map((a) => db.insert(saleAddons).values({ id: crypto.randomUUID(), saleId: id, addonId: a.id, name: a.name, price: a.price })),
     ...lines.map((p) =>
       db.insert(payments).values({
         id: crypto.randomUUID(),
@@ -300,7 +294,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
   .post('/quote', zValidator('json', quoteBody, invalidInput), async (c) => {
     const priced = await price(c, c.req.valid('json'));
     if (priced instanceof Response) return priced;
-    return c.json({ ...priced.quote, addons: priced.addonLines, promos: priced.promoChoices, voucherBundle: priced.voucherBundle });
+    return c.json({ ...priced.quote, promos: priced.promoChoices, voucherBundle: priced.voucherBundle });
   })
 
   .post('/', zValidator('json', sale, invalidInput), async (c) => {
@@ -393,20 +387,14 @@ export const salesRoutes = new Hono<AuthedEnv>()
   .get('/', zValidator('query', z.object({ day: isoDate }), invalidInput), async (c) => {
     const db = c.var.db;
     const { day } = c.req.valid('query');
-    const [rows, pays, extras] = await Promise.all([
+    const [rows, pays] = await Promise.all([
       db.select().from(sales).where(eq(sales.businessDay, day)).orderBy(asc(sales.createdAt)),
       db.select().from(payments).where(eq(payments.businessDay, day)),
-      db
-        .select({ saleId: saleAddons.saleId, name: saleAddons.name, price: saleAddons.price })
-        .from(saleAddons)
-        .innerJoin(sales, eq(sales.id, saleAddons.saleId))
-        .where(eq(sales.businessDay, day)),
     ]);
     return c.json({
       sales: rows.map((s) => ({
         ...s,
         payments: pays.filter((p) => p.saleId === s.id),
-        addons: extras.filter((a) => a.saleId === s.id),
       })),
     });
   });

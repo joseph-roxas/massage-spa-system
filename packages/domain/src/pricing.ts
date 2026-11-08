@@ -27,7 +27,6 @@ export type QuoteInput = {
   complimentary?: boolean;
   /** The Guest is paying with a Voucher for this Service; `isFree` if this Redemption is a Real FOC. */
   voucher?: { serial: string; isFree: boolean } | null;
-  addonPrices?: readonly Centavos[];
 };
 
 export type Quote = {
@@ -35,7 +34,6 @@ export type Quote = {
   discount: { type: DiscountType; bp: number; amount: Centavos; promoId: string | null; label: string };
   /** What the Guest pays for the Service itself, after the Discount. */
   serviceAmount: Centavos;
-  addonsTotal: Centavos;
   amountDue: Centavos;
   focKind: FocKind;
 };
@@ -47,10 +45,9 @@ const NONE = { type: 'none', bp: 0, promoId: null, label: 'No discount' } as con
  * largest the Guest qualifies for (Statutory wins a tie, since it is the
  * Guest's legal entitlement); a picked Promo applies only if it covers the Service.
  * A Voucher or Complimentary Service covers the whole Service and excludes
- * every other Discount. Add-ons go on top and are never discounted.
+ * every other Discount.
  */
 export function quoteSale(input: QuoteInput): Quote {
-  const addonsTotal = (input.addonPrices ?? []).reduce((s, p) => s + p, 0) as Centavos;
   const price = input.regularPrice;
 
   let best: Omit<Quote['discount'], 'amount'> = NONE;
@@ -81,16 +78,15 @@ export function quoteSale(input: QuoteInput): Quote {
     regularPrice: price,
     discount: { ...best, amount },
     serviceAmount,
-    addonsTotal,
-    amountDue: (serviceAmount + addonsTotal) as Centavos,
+    amountDue: serviceAmount,
     focKind: best.type === 'complimentary' || input.voucher?.isFree ? 'real' : best.type === 'voucher' ? 'prepaid' : 'none',
   };
 }
 
-/** Commission is always on the Regular Price, whatever the Guest paid. */
-export function commissionFor(regularPrice: Centavos, rate: CommissionRate, isHoliday: boolean): { bp: number; amount: Centavos } {
+/** Commission is on the Regular Price less any Owner's Set-aside, whatever the Guest paid. */
+export function commissionFor(regularPrice: Centavos, rate: CommissionRate, isHoliday: boolean, setAside: number = 0): { bp: number; amount: Centavos } {
   const bp = isHoliday ? rate.holidayBp : rate.normalBp;
-  return { bp, amount: percentOf(regularPrice, bp / 100) };
+  return { bp, amount: percentOf((regularPrice - setAside) as Centavos, bp / 100) };
 }
 
 export type PaymentMethod = 'cash' | 'gcash';

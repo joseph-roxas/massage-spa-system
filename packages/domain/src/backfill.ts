@@ -97,8 +97,8 @@ export function monthOfWeek(weekStart: string): string {
   return addDays(weekStart, 3).slice(0, 7);
 }
 
-/** Money received for the day, the sheet's NET SALES. */
-export const moneyReceived = (d: DailySummaryDraft) => d.cash + d.gcash + d.oil + d.voucher - d.foc;
+/** Money received for the day. Oil is the Owner's Set-aside, already inside the sales, so unlike the sheet's NET SALES it isn't added. */
+export const moneyReceived = (d: DailySummaryDraft) => d.cash + d.gcash + d.voucher - d.foc;
 
 /** Odd figures to look at before saving: a mistyped amount shows up against the Guests or Commission. */
 export function dayWarnings(d: DailySummaryDraft): string[] {

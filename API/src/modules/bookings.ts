@@ -140,7 +140,7 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       now,
       businessDay: dayRow ?? null,
       unclosed: unclosed.filter((d) => d.date < day).map((d) => d.date),
-      // Money received so far today, Cash and GCash, including Add-ons and Vouchers sold.
+      // Money received so far today, Cash and GCash, including Vouchers sold.
       today: { sales: Number(takings?.s ?? 0) + Number(voucherTakings?.s ?? 0), guests: daySales.length, turnedAway: Number(turnedAway?.n ?? 0) },
       next: state.next?.staffId ?? null,
       // Staff celebrating today, for the Front Desk banner.

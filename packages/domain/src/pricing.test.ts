@@ -63,15 +63,14 @@ describe('quoteSale', () => {
     expect(quoteSale(swedish({ promos: [big], promoId: null, statutory: 'senior' })).discount).toMatchObject({ type: 'senior', bp: 2000 });
   });
 
-  it('adds Add-ons on top, undiscounted', () => {
-    const q = quoteSale(swedish({ statutory: 'pwd', addonPrices: [pesos(50)] }));
-    expect(q).toMatchObject({ serviceAmount: pesos(400), addonsTotal: pesos(50), amountDue: pesos(450) });
+  it('charges the Service after its Discount', () => {
+    expect(quoteSale(swedish({ statutory: 'pwd' }))).toMatchObject({ serviceAmount: pesos(400), amountDue: pesos(400) });
   });
 
-  it('makes a Complimentary Service a Real FOC, but Add-ons are still paid', () => {
-    const q = quoteSale(swedish({ complimentary: true, statutory: 'senior', addonPrices: [pesos(50)] }));
+  it('makes a Complimentary Service a Real FOC', () => {
+    const q = quoteSale(swedish({ complimentary: true, statutory: 'senior' }));
     expect(q.discount).toMatchObject({ type: 'complimentary', amount: pesos(500) });
-    expect(q).toMatchObject({ serviceAmount: 0, amountDue: pesos(50), focKind: 'real' });
+    expect(q).toMatchObject({ serviceAmount: 0, amountDue: 0, focKind: 'real' });
   });
 
   it('ignores Promos for other Services', () => {
@@ -88,6 +87,13 @@ describe('commissionFor', () => {
     expect(commissionFor(pesos(500), regular, true)).toEqual({ bp: 5000, amount: pesos(250) });
     expect(commissionFor(pesos(750), lmt, false).amount).toBe(pesos(300));
     expect(commissionFor(pesos(750), lmt, true).amount).toBe(pesos(450));
+  });
+
+  it('takes the Owner’s Set-aside off first', () => {
+    expect(commissionFor(pesos(700), regular, false, pesos(50))).toEqual({ bp: 3000, amount: pesos(195) });
+    expect(commissionFor(pesos(700), lmt, false, pesos(50)).amount).toBe(pesos(260));
+    expect(commissionFor(pesos(700), regular, true, pesos(50)).amount).toBe(pesos(325));
+    expect(commissionFor(pesos(700), lmt, true, pesos(50)).amount).toBe(pesos(390));
   });
 });
 

@@ -27,7 +27,6 @@ import {
   items,
   payments,
   payrolls,
-  saleAddons,
   sales,
   services,
   staff,
@@ -69,7 +68,7 @@ export async function dailySales(db: Db, r: Range): Promise<Report> {
         regular: sql<number>`sum(${sales.regularPrice})`,
         discounts: sql<number>`sum(${sales.discountAmount})`,
         services: sql<number>`sum(${sales.serviceAmount})`,
-        addons: sql<number>`sum(${sales.addonsTotal})`,
+        setAside: sql<number>`sum(${sales.setAside})`,
         commission: sql<number>`sum(${sales.commissionAmount})`,
       })
       .from(sales)
@@ -112,7 +111,7 @@ export async function dailySales(db: Db, r: Range): Promise<Report> {
     col('regular', 'Regular Price', 'money'),
     col('discounts', 'Discounts & FOCs', 'money'),
     col('services', 'Services paid', 'money'),
-    col('addons', 'Add-ons', 'money'),
+    col('setAside', 'Owner’s Set-aside', 'money'),
     col('vouchers', 'Vouchers sold', 'money'),
     col('cash', 'Cash in', 'money'),
     col('gcash', 'GCash in', 'money'),
@@ -121,7 +120,7 @@ export async function dailySales(db: Db, r: Range): Promise<Report> {
   ];
   const days = new Map<string, Row>();
   const base = (day: string): Row => ({ date: day });
-  for (const x of s) into(days, x.day, base(x.day), { guests: x.guests, regular: x.regular, discounts: x.discounts, services: x.services, addons: x.addons, commission: x.commission });
+  for (const x of s) into(days, x.day, base(x.day), { guests: x.guests, regular: x.regular, discounts: x.discounts, services: x.services, setAside: x.setAside, commission: x.commission });
   for (const x of [...pay, ...vpay]) into(days, x.day, base(x.day), { [x.method]: x.amount });
   for (const x of vs) into(days, x.day, base(x.day), { vouchers: x.total });
   for (const x of outs) into(days, x.day, base(x.day), { cashOuts: x.amount });
@@ -133,9 +132,9 @@ export async function dailySales(db: Db, r: Range): Promise<Report> {
       regular: x.cash + x.gcash,
       discounts: x.foc,
       services: x.cash + x.gcash - x.foc,
-      addons: x.oil,
+      setAside: x.oil,
       vouchers: x.voucher,
-      cash: x.cash + x.oil + x.voucher - x.foc,
+      cash: x.cash + x.voucher - x.foc,
       gcash: x.gcash,
       cashOuts: x.laundry + x.expenses,
       commission: x.commission,
@@ -150,7 +149,7 @@ export async function dailySales(db: Db, r: Range): Promise<Report> {
     columns,
     rows,
     totals: totalsOf(columns, rows),
-    note: 'Services paid = Regular Price − Discounts & FOCs. Cash and GCash include Voucher sales. Days marked Summary only are from before go-live.',
+    note: 'Services paid = Regular Price − Discounts & FOCs. The Owner’s Set-aside is already inside the sales, shown for information. Cash and GCash include Voucher sales. Days marked Summary only are from before go-live.',
   };
 }
 
@@ -211,7 +210,7 @@ export async function therapistSales(db: Db, r: Range): Promise<Report> {
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => b.commission - a.commission);
-  return { title: 'Sales per therapist', columns, rows, totals: totalsOf(columns, rows), note: 'Requested = served a Guest who asked for them. Commission is on the Regular Price, FOCs included.' };
+  return { title: 'Sales per therapist', columns, rows, totals: totalsOf(columns, rows), note: 'Requested = served a Guest who asked for them. Commission is on the Regular Price less any Owner’s Set-aside, FOCs included.' };
 }
 
 async function guests(db: Db, r: Range): Promise<Report> {
@@ -298,18 +297,6 @@ export async function foc(db: Db, r: Range): Promise<Report> {
     totals: totalsOf(columns, rows),
     note: 'Real FOCs are truly free (Complimentary, the free 6th Voucher). A paid Voucher is a Prepaid FOC: its money came in when it was sold.',
   };
-}
-
-async function addons(db: Db, r: Range): Promise<Report> {
-  const rows0 = await db
-    .select({ name: saleAddons.name, count: sql<number>`count(*)`, revenue: sql<number>`sum(${saleAddons.price})` })
-    .from(saleAddons)
-    .innerJoin(sales, eq(sales.id, saleAddons.saleId))
-    .where(and(eq(sales.status, 'paid'), gte(sales.businessDay, r.from), lte(sales.businessDay, r.to)))
-    .groupBy(saleAddons.name);
-  const columns = [col('name', 'Add-on'), col('count', 'Sold', 'int'), col('revenue', 'Revenue (shop only)', 'money')];
-  const rows = rows0.map((x) => ({ name: x.name, count: n(x.count), revenue: n(x.revenue) }));
-  return { title: 'Add-ons', columns, rows, totals: totalsOf(columns, rows) };
 }
 
 async function payroll(db: Db, r: Range): Promise<Report> {
@@ -421,7 +408,6 @@ const BUILDERS: Record<ReportName, (db: Db, r: Range) => Promise<Report>> = {
   guests,
   'service-times': serviceTimesReport,
   foc,
-  addons,
   payroll,
   inventory,
   expenses: expenseReport,

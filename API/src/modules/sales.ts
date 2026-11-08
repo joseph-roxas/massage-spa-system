@@ -203,10 +203,10 @@ async function bundleOf(c: Context<AuthedEnv>, voucher: typeof vouchers.$inferSe
   };
 }
 
-type CheckoutInput = z.infer<typeof checkout>;
+export type CheckoutInput = z.infer<typeof checkout>;
 
 /** Prices one checkout line the way the quote did. */
-const priceFor = (c: Context<AuthedEnv>, input: CheckoutInput) =>
+export const priceFor = (c: Context<AuthedEnv>, input: CheckoutInput) =>
   price(c, {
     bookingId: input.bookingId,
     statutory: input.statutory?.kind ?? null,
@@ -216,7 +216,7 @@ const priceFor = (c: Context<AuthedEnv>, input: CheckoutInput) =>
   });
 
 /** Everything one Sale writes: the Sale, its payments, the Voucher it redeems. */
-function saleStatements(c: Context<AuthedEnv>, input: CheckoutInput, priced: Priced, lines: readonly PaymentLine[], bookletInvoiceNo: string | null, now: string) {
+export function saleStatements(c: Context<AuthedEnv>, input: CheckoutInput, priced: Priced, lines: readonly PaymentLine[], bookletInvoiceNo: string | null, now: string) {
   const db = c.var.db;
   const { booking, quote, commission } = priced;
   const id = crypto.randomUUID();

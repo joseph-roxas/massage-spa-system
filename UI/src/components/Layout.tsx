@@ -26,6 +26,7 @@ const NAV: { to: string; label: string; capability?: Capability; hideFor?: Role[
   { to: '/paper-sheet', label: 'Paper backup', capability: 'bookings.manage', hideFor: FRONT_DESK_ROLES },
   { to: '/settings', label: 'Settings', capability: 'settings.manage' },
   { to: '/admin/go-live', label: 'Go-live', capability: 'settings.manage' },
+  { to: '/admin/catch-up', label: 'Nov 2–8 entry', capability: 'settings.manage' },
   { to: '/admin/backfill', label: 'This year’s records', capability: 'settings.manage' },
   { to: '/admin/users', label: 'Users', capability: 'users.manage' },
 ];

@@ -25,6 +25,8 @@ async function newStaff(admin: Client, fields: Record<string, unknown>, pin = '1
 async function punched(staffId: string, day: string, inAt: string, outAt: string, relief = false) {
   const now = new Date().toISOString();
   await env.DB.prepare(`UPDATE pay_rules SET value_json = '"2020-01-05"' WHERE key = 'go_live_date'`).run();
+  // These weeks are counted back from today; keep them ordinary.
+  await env.DB.prepare(`DELETE FROM holidays WHERE date = '2026-11-02'`).run();
   await env.DB.batch([
     env.DB.prepare(`INSERT OR IGNORE INTO business_days (date, opened_at, closed_at) VALUES (?, ?, ?)`).bind(day, now, now),
     env.DB.prepare(`INSERT INTO dtr (id, staff_id, business_day, clock_in, clock_out, source, is_relief, created_at) VALUES (?, ?, ?, ?, ?, 'manual', ?, ?)`).bind(

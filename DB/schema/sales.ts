@@ -51,6 +51,8 @@ export const sales = sqliteTable(
     reason: text('reason'),
     voidReason: text('void_reason'),
     voidedBy: text('voided_by').references(() => users.id),
+    /** Entered afterwards from the paper records (ADR 0009). */
+    catchUp: integer('catch_up', { mode: 'boolean' }).notNull().default(false),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by').references(() => users.id),
   },

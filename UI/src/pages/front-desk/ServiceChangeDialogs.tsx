@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { topUpTotal } from '@spa/domain';
 import { Alert, Button, Checkbox, Field, Input, Select } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { api } from '../../lib/api';
@@ -10,7 +11,11 @@ import { useDeskAction, type Board } from '../../lib/front-desk';
 /** What these dialogs need of a Booking; checkout has less to hand than the board. */
 export type ChangeTarget = { id: string; serviceId: string; serviceName: string; status: string; startedAt: string | null; durationMin: number };
 
-type TopUpOptions = { eligible: boolean; price: number | null; parts: { part: 'head' | 'back' | 'foot'; price: number | null }[] };
+type TopUpChoice = { price: number | null; hourPrice: number | null; steps: number };
+type TopUpOptions = TopUpChoice & { eligible: boolean; parts: (TopUpChoice & { part: 'head' | 'back' | 'foot' })[] };
+
+/** What adding `steps` costs on top of what's there, since two halves make a full hour. */
+const addedCost = (c: TopUpChoice | undefined, steps: number) => (c && c.price !== null ? topUpTotal(c.steps + steps, c.price, c.hourPrice) - topUpTotal(c.steps, c.price, c.hourPrice) : null);
 
 const PART_LABEL = { head: 'Head massage', back: 'Back massage', foot: 'Foot massage' } as const;
 const STEPS = [1, 2, 3, 4];
@@ -23,7 +28,7 @@ export function ServiceTopUpDialog({ booking, onClose }: { booking: ChangeTarget
   const [part, setPart] = useState<'head' | 'back' | 'foot' | ''>('');
   const data = options.data;
   const picking = !!data?.parts.length;
-  const each = picking ? (data.parts.find((p) => p.part === part)?.price ?? null) : (data?.price ?? null);
+  const adds = addedCost(picking ? data.parts.find((p) => p.part === part) : data, steps);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -51,16 +56,16 @@ export function ServiceTopUpDialog({ booking, onClose }: { booking: ChangeTarget
                 <option value="">Choose…</option>
                 {data.parts.map((p) => (
                   <option key={p.part} value={p.part}>
-                    {PART_LABEL[p.part]} · {peso(p.price)}
+                    {PART_LABEL[p.part]} · {peso(addedCost(p, steps))}
                   </option>
                 ))}
               </Select>
             </Field>
           )}
         </div>
-        {each !== null && (
+        {adds !== null && (
           <p className="text-sm">
-            Adds <span className="font-semibold tabular-nums">{peso(each * steps)}</span> to the bill.
+            Adds <span className="font-semibold tabular-nums">{peso(adds)}</span> to the bill.
           </p>
         )}
         <div className="flex justify-end gap-2">
@@ -68,6 +73,26 @@ export function ServiceTopUpDialog({ booking, onClose }: { booking: ChangeTarget
           <Button type="submit" disabled={act.isPending || !data?.eligible || (picking && !part)}>Add time</Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+const CHOICE = 'block w-full rounded-lg border-2 border-teal-700 px-4 py-3 text-left hover:bg-teal-50';
+
+/** The one question the Service button asks, because changing and adding charge the Guest differently. */
+export function ServiceChoiceDialog({ booking, onChange, onAdd, onClose }: { booking: ChangeTarget; onChange: () => void; onAdd: () => void; onClose: () => void }) {
+  return (
+    <Modal title={booking.serviceName} onClose={onClose}>
+      <div className="space-y-3">
+        <button type="button" className={CHOICE} onClick={onChange}>
+          <span className="block text-base font-semibold text-teal-900">Change to a different service</span>
+          <span className="block text-sm text-stone-600">The guest pays only for the new one.</span>
+        </button>
+        <button type="button" className={CHOICE} onClick={onAdd}>
+          <span className="block text-base font-semibold text-teal-900">Add another service after this</span>
+          <span className="block text-sm text-stone-600">The guest pays for both.</span>
+        </button>
+      </div>
     </Modal>
   );
 }

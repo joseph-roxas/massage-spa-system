@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { TOP_UP_PARTS, TOP_UP_STEP_MIN, topUpHourService, topUpPrice, topUpRule, topUpTotal, type Centavos, type TopUpPart } from '@spa/domain';
 import { Alert, Button, Checkbox, Field, Input, Select } from '../../components/ui';
 import { GuestPicker, guestBody, NO_GUEST, type GuestChoice } from '../../components/GuestPicker';
 import { Modal } from '../../components/Modal';
@@ -6,6 +7,9 @@ import { fromLocalInput, useClockStaff } from '../../lib/attendance';
 import { useServices } from '../../lib/catalogue';
 import { duration, peso } from '../../lib/format';
 import { fetchSuggestion, useDeskAction } from '../../lib/front-desk';
+
+/** Up to three more hours from the booking form; a longer stay can still be topped up during the Service. */
+const MAX_EXTRA_STEPS = 6;
 
 export function NewBookingDialog({
   kind,
@@ -28,11 +32,28 @@ export function NewBookingDialog({
     scheduledAt: '',
     notes: '',
     startNow: true,
+    extraSteps: 0,
+    topUpPart: '' as '' | TopUpPart,
   });
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const offered = services.data?.services.filter((s) => s.active) ?? [];
   const therapists = staff.data?.staff.filter((s) => s.kind === 'therapist') ?? [];
+  const service = offered.find((s) => s.id === form.serviceId);
+  const rule = service ? topUpRule(service) : null;
+  const picking = rule?.kind === 'pick_part' && form.extraSteps > 0;
+  const priceOf = (id: string) => (services.data?.services.find((s) => s.id === id)?.currentPrice ?? undefined) as Centavos | undefined;
+  /** One 30-minute step, once it is known. */
+  const stepPrice = (part: TopUpPart | null) => (service && rule ? topUpPrice(rule, (service.currentPrice ?? 0) as Centavos, part, priceOf) : null);
+  /** All the extra time, each full hour at its 1-hour price where there is one. */
+  const extraPrice = (part: TopUpPart | null) => {
+    const each = stepPrice(part);
+    if (each === null || !rule) return null;
+    const hourService = topUpHourService(rule, part);
+    return topUpTotal(form.extraSteps, each, hourService ? (priceOf(hourService) ?? null) : null);
+  };
+  const extra = extraPrice(form.topUpPart || null);
+  const lengths = service && rule ? Array.from({ length: MAX_EXTRA_STEPS + 1 }, (_, i) => i) : [];
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -42,6 +63,8 @@ export function NewBookingDialog({
       ...guestBody(guest),
       requestedTherapistId: form.requestedTherapistId || null,
       notes: form.notes,
+      extraSteps: form.extraSteps,
+      topUpPart: form.topUpPart || null,
       ...(kind === 'scheduled' ? { scheduledAt: fromLocalInput(form.scheduledAt) } : {}),
     };
     const { id } = await create.mutateAsync({ path: '/bookings', body }).catch(() => ({ id: undefined }));
@@ -65,7 +88,7 @@ export function NewBookingDialog({
       <form onSubmit={submit} className="space-y-4">
         {(create.error || start.error) && <Alert>{(create.error ?? start.error)?.message}</Alert>}
         <Field label="Service">
-          <Select required autoFocus value={form.serviceId} onChange={(e) => set('serviceId', e.target.value)}>
+          <Select required autoFocus value={form.serviceId} onChange={(e) => setForm((f) => ({ ...f, serviceId: e.target.value, extraSteps: 0, topUpPart: '' }))}>
             <option value="">Choose a service…</option>
             <optgroup label="Services">
               {offered.filter((s) => s.kind === 'single').map((s) => (
@@ -83,6 +106,32 @@ export function NewBookingDialog({
             </optgroup>
           </Select>
         </Field>
+        {lengths.length > 0 && service && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="How long" hint={form.extraSteps > 0 && extra !== null ? `${peso((service.currentPrice ?? 0) + extra)} in all` : 'The menu time unless the guest asks for longer'}>
+              <Select value={form.extraSteps} onChange={(e) => set('extraSteps', Number(e.target.value))}>
+                {lengths.map((i) => (
+                  <option key={i} value={i}>
+                    {duration(service.durationMin + i * TOP_UP_STEP_MIN)}
+                    {i === 0 ? ' (menu)' : ''}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {picking && (
+              <Field label="Extra time is">
+                <Select required value={form.topUpPart} onChange={(e) => set('topUpPart', e.target.value as TopUpPart)}>
+                  <option value="">Choose…</option>
+                  {TOP_UP_PARTS.map((p) => (
+                    <option key={p} value={p}>
+                      {p[0]!.toUpperCase() + p.slice(1)} massage · {peso(extraPrice(p))}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+          </div>
+        )}
         <GuestPicker value={guest} onChange={setGuest} nameLabel={kind === 'walk_in' ? 'Guest name (optional)' : 'Guest name'} required={kind === 'scheduled'} />
         <div className="grid grid-cols-2 gap-3">
           <Field label="Requested therapist" hint="Leave as Rotation unless the guest asks for someone">

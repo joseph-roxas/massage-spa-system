@@ -70,7 +70,7 @@ describe('Top-up', () => {
     const id = await inService(desk, t, 'aroma-90');
     expect((await desk.post(`/bookings/${id}/top-up`, {})).status).toBe(400);
     const options = await json<{ parts: { part: string; price: number }[] }>(await desk.get(`/bookings/${id}/top-up-options`));
-    expect(options.parts).toEqual([{ part: 'head', price: 25000 }, { part: 'back', price: 25000 }, { part: 'foot', price: 25000 }]);
+    expect(options.parts).toEqual([{ part: 'head', price: 25000, hourPrice: null, steps: 0 }, { part: 'back', price: 25000, hourPrice: 45000, steps: 0 }, { part: 'foot', price: 25000, hourPrice: 45000, steps: 0 }]);
     expect((await desk.post(`/bookings/${id}/top-up`, { part: 'head' })).status).toBe(201);
     // (₱700 + ₱250 − ₱50) × 30%.
     expect(await checkout(desk, id)).toMatchObject({ regularPrice: 95000, setAside: 5000, commissionAmount: 27000 });
@@ -108,6 +108,127 @@ describe('Top-up', () => {
     expect((await desk.post(`/bookings/${id}/top-up`, {})).status).toBe(201);
     const q = await json<{ regularPrice: number; topUpsTotal: number; amountDue: number }>(await desk.post('/sales/quote', { bookingId: id, promoId: null }));
     expect(q).toMatchObject({ regularPrice: 50000, topUpsTotal: 25000, amountDue: 75000 });
+  });
+});
+
+describe('an Added Service', () => {
+  const rewind = (id: string, minutes: number) => env.DB.prepare(`UPDATE bookings SET started_at = ? WHERE id = ?`).bind(new Date(Date.now() - minutes * 60_000).toISOString(), id).run();
+  type Row = Board['bookings'][number] & { status: string; startedAt: string | null; doneAt: string | null };
+  const row = async (desk: Client, id: string) => line(await board(desk), id) as Row;
+
+  it('starts by itself when the time is up and the Therapist is the same', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const first = await inService(desk, t);
+    const { id: next } = await json<{ id: string }>(await desk.post(`/bookings/${first}/add-service`, { serviceId: 'ventosa-90' }));
+    expect((await row(desk, next)).status).toBe('waiting');
+    await rewind(first, 61);
+    const before = await row(desk, first);
+    expect(before).toMatchObject({ status: 'done' });
+    const after = await row(desk, next);
+    expect(after).toMatchObject({ status: 'in_service', therapistId: t });
+    // It counts from when the first one ended, not from when someone looked.
+    expect(after.startedAt).toBe(before.doneAt);
+  });
+
+  it('waits while time is left, and for a Top-up that adds more', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const first = await inService(desk, t);
+    const { id: next } = await json<{ id: string }>(await desk.post(`/bookings/${first}/add-service`, { serviceId: 'thai-60' }));
+    await desk.post(`/bookings/${first}/top-up`, {});
+    await rewind(first, 61);
+    expect((await row(desk, next)).status).toBe('waiting');
+    await rewind(first, 91);
+    expect((await row(desk, next)).status).toBe('in_service');
+  });
+
+  it('waits for the desk when another Therapist takes it', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const a = await therapist(admin);
+    const b = await therapist(admin);
+    const first = await inService(desk, a);
+    const { id: next } = await json<{ id: string }>(await desk.post(`/bookings/${first}/add-service`, { serviceId: 'thai-60', therapistId: b }));
+    await rewind(first, 61);
+    expect((await row(desk, first)).status).toBe('in_service');
+    expect((await row(desk, next)).status).toBe('waiting');
+  });
+
+  it('can be anything after a foot massage on the recliner, which becomes a floor bed', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const { id: first } = await json<{ id: string }>(await desk.post('/bookings', { kind: 'walk_in', serviceId: 'foot-60' }));
+    expect((await desk.post(`/bookings/${first}/start`, { therapistId: t, roomId: 8, flexMode: 'recliner', overrideReason: 'test' })).status).toBe(200);
+    const res = await desk.post(`/bookings/${first}/add-service`, { serviceId: 'ventosa-90' });
+    expect(res.status).toBe(201);
+    const { id } = await json<{ id: string }>(res);
+    const flex = (b: string) => env.DB.prepare(`SELECT flex_mode f FROM bookings WHERE id = ?`).bind(b).first<{ f: string }>();
+    expect(await flex(id)).toEqual({ f: 'floor' });
+    expect(await flex(first)).toEqual({ f: 'recliner' });
+  });
+});
+
+describe('a longer time from the start', () => {
+  const newBooking = (desk: Client, body: Record<string, unknown>) => desk.post('/bookings', { kind: 'walk_in', ...body });
+
+  it('books 1.5 hours of Foot Massage as the menu price plus one Top-up', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const res = await newBooking(desk, { serviceId: 'foot-60', extraSteps: 1 });
+    expect(res.status).toBe(201);
+    const { id } = await json<{ id: string }>(res);
+    expect(line(await board(desk), id)).toMatchObject({ durationMin: 90, topUpMin: 30 });
+    expect((await desk.post(`/bookings/${id}/start`, { therapistId: t, roomId: 3, flexMode: null, overrideReason: 'test' })).status).toBe(200);
+    expect(await checkout(desk, id)).toMatchObject({ regularPrice: 70000, topUpsTotal: 25000, commissionAmount: 21000 });
+  });
+
+  it('charges a full extra hour at the 1-hour price, booked at once or added in halves', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const atOnce = await json<{ id: string }>(await newBooking(desk, { serviceId: 'foot-60', extraSteps: 2 }));
+    expect((await desk.post(`/bookings/${atOnce.id}/start`, { therapistId: t, roomId: 4, flexMode: null, overrideReason: 'test' })).status).toBe(200);
+    expect(await checkout(desk, atOnce.id)).toMatchObject({ regularPrice: 90000, topUpsTotal: 45000 });
+
+    const halves = await inService(desk, t, 'foot-60');
+    await desk.post(`/bookings/${halves}/top-up`, {});
+    await desk.post(`/bookings/${halves}/top-up`, {});
+    expect(await checkout(desk, halves)).toMatchObject({ regularPrice: 90000, topUpsTotal: 45000 });
+
+    const more = await inService(desk, t, 'foot-60');
+    await desk.post(`/bookings/${more}/top-up`, { steps: 3 });
+    expect(await checkout(desk, more)).toMatchObject({ regularPrice: 115000, topUpsTotal: 70000 });
+  });
+
+  it('stays at the menu time by default, refuses a Combo, and asks which massage on 1.5-hour Services', async () => {
+    const desk = await loggedIn('receptionist');
+    const { id } = await json<{ id: string }>(await newBooking(desk, { serviceId: 'swedish-60' }));
+    expect(line(await board(desk), id)).toMatchObject({ durationMin: 60, topUpMin: 0 });
+    expect((await newBooking(desk, { serviceId: 'c1', extraSteps: 1 })).status).toBe(409);
+    expect((await newBooking(desk, { serviceId: 'aroma-90', extraSteps: 1 })).status).toBe(400);
+    expect((await newBooking(desk, { serviceId: 'aroma-90', extraSteps: 1, topUpPart: 'foot' })).status).toBe(201);
+  });
+
+  it('counts the longer time against a reservation', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    // Reserved from 90 minutes from now: a 1-hour walk-in fits, 2 hours doesn't.
+    await desk.post('/bookings', { kind: 'scheduled', serviceId: 'swedish-60', guestName: 'Next', requestedTherapistId: t, scheduledAt: new Date(Date.now() + 121 * 60_000).toISOString() });
+    expect((await newBooking(desk, { serviceId: 'swedish-60', requestedTherapistId: t })).status).toBe(201);
+    expect((await newBooking(desk, { serviceId: 'swedish-60', requestedTherapistId: t, extraSteps: 2 })).status).toBe(409);
+  });
+
+  it('clears the added time if the Service is changed before it starts', async () => {
+    const desk = await loggedIn('receptionist');
+    const { id } = await json<{ id: string }>(await newBooking(desk, { serviceId: 'foot-60', extraSteps: 1 }));
+    expect((await desk.send('PATCH', `/bookings/${id}`, { serviceId: 'thai-60' })).status).toBe(200);
+    expect(line(await board(desk), id)).toMatchObject({ serviceId: 'thai-60', durationMin: 60, topUpMin: 0 });
   });
 });
 

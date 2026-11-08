@@ -20,8 +20,9 @@ export function AddServiceDialog({ booking, onClose }: { booking: Booking; onClo
   const [therapistId, setTherapistId] = useState(booking.therapistId ?? '');
   const clash = add.error instanceof ApiError && add.error.code === 'clash' ? add.error.message : null;
 
-  // The recliner only takes foot services.
-  const offered = (services.data?.services ?? []).filter((s) => s.active && (booking.flexMode !== 'recliner' || s.isFootType));
+  const offered = (services.data?.services ?? []).filter((s) => s.active);
+  // The recliner only takes foot services, so anything else needs the room set up again.
+  const needsFloorBed = booking.flexMode === 'recliner' && offered.find((s) => s.id === serviceId)?.isFootType === false;
   const therapists = (staff.data?.staff ?? []).filter((s) => s.kind === 'therapist' && (s.clockedInAt || s.id === booking.therapistId));
 
   function send(confirm: boolean) {
@@ -38,7 +39,7 @@ export function AddServiceDialog({ booking, onClose }: { booking: Booking; onClo
         }}
       >
         <p className="text-sm text-stone-600">
-          Follows {booking.serviceName} in the same room and starts when it is done. Paid together at checkout.
+          Follows {booking.serviceName} in the same room and starts by itself when the time is up, if the same therapist does it. Paid together at checkout.
         </p>
         {add.error && !clash && <Alert>{add.error.message}</Alert>}
         <Field label="Service">
@@ -52,6 +53,7 @@ export function AddServiceDialog({ booking, onClose }: { booking: Booking; onClo
             ))}
           </Select>
         </Field>
+        {needsFloorBed && <Alert tone="info">This room will need to be set up as a floor bed for this service.</Alert>}
         <Field label="Therapist" hint="The same therapist unless someone else takes over">
           <Select value={therapistId} onChange={(e) => setTherapistId(e.target.value)}>
             {therapists.map((t) => (

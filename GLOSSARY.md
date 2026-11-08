@@ -91,7 +91,7 @@ _Avoid_: Treatment, package
 A Service made of two treatments sold at a single price (C1–C7), performed and commissioned as one Service by one Therapist.
 
 **Top-up**:
-More time on a single Service already under way, in steps of 30 minutes and as many times as the Guest asks. It stays the same Booking, Therapist, Room and sale and costs no extra Rotation place. Foot and Back Massage, at either length, are topped up at the price the owner sets for their 30 minutes; any other 1-hour Service at half its Regular Price; a 1.5-hour Service with a 30-minute head, back or foot massage at that massage's price. Combos cannot be topped up.
+More time on a single Service, asked for when booking or while it is under way, in steps of 30 minutes and as many times as the Guest asks. It stays the same Booking, Therapist, Room and sale and costs no extra Rotation place. Foot and Back Massage, at either length, are topped up at the price the owner sets for their 30 minutes; any other 1-hour Service at half its Regular Price; a 1.5-hour Service with a 30-minute head, back or foot massage at that massage's price. A full extra hour of Foot or Back Massage costs its 1-hour price, not two 30-minute prices. Combos cannot be topped up.
 _Avoid_: Extension, add-on
 
 **Service Change**:

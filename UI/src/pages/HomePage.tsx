@@ -15,7 +15,7 @@ import { CashOutDialog, DayCloseDialog, EarlyCloseDialog } from './front-desk/Da
 import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 import { NewBookingDialog } from './front-desk/NewBookingDialog';
 import { ReservationDialog, type ReservationChange } from './front-desk/ReservationDialog';
-import { ChangeServiceDialog, ChangeTherapistDialog, ServiceTopUpDialog } from './front-desk/ServiceChangeDialogs';
+import { ChangeServiceDialog, ChangeTherapistDialog, ServiceChoiceDialog, ServiceTopUpDialog } from './front-desk/ServiceChangeDialogs';
 import { StartDialog } from './front-desk/StartDialog';
 import { TurnedAwayDialog } from './front-desk/TurnedAwayDialog';
 
@@ -35,14 +35,13 @@ function minutesLeft(endsAt: string, now: number): number {
 
 const tileButton = 'truncate rounded border border-teal-700 px-1 py-1 text-xs font-medium text-teal-800 hover:bg-white';
 
-type RoomAction = 'top-up' | 'service' | 'therapist';
+type RoomAction = 'top-up' | 'service-choice' | 'change-service' | 'therapist';
 
 function RoomTile({
   room,
   now,
   next,
   onDone,
-  onAdd,
   onChange,
 }: {
   room: Board['rooms'][number];
@@ -50,7 +49,6 @@ function RoomTile({
   /** The Added Service waiting to follow in this Room. */
   next: Booking | undefined;
   onDone: (b: Booking) => void;
-  onAdd: (b: Booking) => void;
   onChange: (b: Booking, what: RoomAction) => void;
 }) {
   const b = room.booking;
@@ -91,19 +89,15 @@ function RoomTile({
       <div className="mt-2 grid grid-cols-2 gap-1">
         {b.serviceKind === 'single' && (
           <button type="button" className={tileButton} onClick={() => onChange(b, 'top-up')}>
-            + Time
+            Add time
           </button>
         )}
-        {!next && (
-          <button type="button" title="Add a service" className={tileButton} onClick={() => onAdd(b)}>
-            + Service
-          </button>
-        )}
-        <button type="button" className={tileButton} onClick={() => onChange(b, 'service')}>
-          Service…
+        {/* With a service already following, the only thing left to do is change this one. */}
+        <button type="button" className={tileButton} onClick={() => onChange(b, next ? 'change-service' : 'service-choice')}>
+          Service
         </button>
-        <button type="button" className={tileButton} onClick={() => onChange(b, 'therapist')}>
-          Therapist…
+        <button type="button" className={`${tileButton} ${b.serviceKind === 'single' ? 'col-span-2' : ''}`} onClick={() => onChange(b, 'therapist')}>
+          Therapist
         </button>
         <button type="button" className="col-span-2 truncate rounded bg-teal-700 px-2 py-1 text-xs font-medium text-white hover:bg-teal-800" onClick={() => onDone(b)}>
           Done · {b.therapistName}
@@ -400,7 +394,7 @@ function FrontDeskBoard() {
         <div className="space-y-6">
           <section aria-label="Rooms" className="grid grid-cols-4 gap-3">
             {board.rooms.map((r) => (
-              <RoomTile key={r.id} room={r} now={now} next={r.booking ? nextAfter(r.booking) : undefined} onDone={(b) => setFinishing(b.id)} onAdd={(b) => setAdding(b.id)} onChange={(b, what) => setRoomAction({ id: b.id, what })} />
+              <RoomTile key={r.id} room={r} now={now} next={r.booking ? nextAfter(r.booking) : undefined} onDone={(b) => setFinishing(b.id)} onChange={(b, what) => setRoomAction({ id: b.id, what })} />
             ))}
           </section>
 
@@ -465,7 +459,18 @@ function FrontDeskBoard() {
       {payingBooking && <CheckoutDialog booking={payingBooking} onClose={() => setPaying(null)} />}
       {addingBooking && <AddServiceDialog booking={addingBooking} onClose={() => setAdding(null)} />}
       {actedOn && roomAction?.what === 'top-up' && <ServiceTopUpDialog booking={actedOn} onClose={() => setRoomAction(null)} />}
-      {actedOn && roomAction?.what === 'service' && <ChangeServiceDialog booking={actedOn} onClose={() => setRoomAction(null)} />}
+      {actedOn && roomAction?.what === 'service-choice' && (
+        <ServiceChoiceDialog
+          booking={actedOn}
+          onChange={() => setRoomAction({ id: actedOn.id, what: 'change-service' })}
+          onAdd={() => {
+            setRoomAction(null);
+            setAdding(actedOn.id);
+          }}
+          onClose={() => setRoomAction(null)}
+        />
+      )}
+      {actedOn && roomAction?.what === 'change-service' && <ChangeServiceDialog booking={actedOn} onClose={() => setRoomAction(null)} />}
       {actedOn && roomAction?.what === 'therapist' && <ChangeTherapistDialog booking={actedOn} currentName={actedOn.therapistName} board={board} onClose={() => setRoomAction(null)} />}
       {changingBooking && changing && <ReservationDialog booking={changingBooking} mode={changing.mode} onClose={() => setChanging(null)} />}
       {finishingBooking && (

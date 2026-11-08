@@ -2,12 +2,13 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, eq, inArray } from 'drizzle-orm';
-import { addMinutes, businessDayOf, effectiveOn, roomFits, serviceSpanFrom, TOP_UP_PARTS, TOP_UP_STEP_MIN, topUpPrice, topUpRule, type Centavos, type TopUpPart } from '@spa/domain';
-import { bookings, bookingTopUps, rooms, sales, servicePrices, services, staff, therapistChanges } from '@spa/db';
+import { addMinutes, businessDayOf, flexModeFor, roomFits, serviceSpanFrom, TOP_UP_PARTS, TOP_UP_STEP_MIN, topUpHourService, topUpPrice, topUpRule, topUpStepPrices, type Centavos, type TopUpPart } from '@spa/domain';
+import { bookings, bookingTopUps, rooms, sales, services, staff, therapistChanges } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { frontDeskState, type BookingRow } from '../lib/front-desk';
 import { fail, invalidInput } from '../lib/http';
+import { priceBook, priceTopUp } from '../lib/top-ups';
 import { nowIso } from '../lib/time';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { reservedClash } from './bookings';
@@ -45,11 +46,6 @@ async function runsIntoReservation(c: Context<AuthedEnv>, booking: BookingRow, d
   return reservedClash(c, therapistId, serviceSpanFrom(booking.startedAt!, durationMin + extra), booking.id);
 }
 
-async function priceBook(c: Context<AuthedEnv>, day: string) {
-  const all = await c.var.db.select().from(servicePrices);
-  return (serviceId: string) => effectiveOn(all.filter((p) => p.serviceId === serviceId), day)?.regularPrice as Centavos | undefined;
-}
-
 async function serviceOf(c: Context<AuthedEnv>, id: string): Promise<Service | undefined> {
   return c.var.db.select().from(services).where(eq(services.id, id)).get();
 }
@@ -61,13 +57,18 @@ export const serviceChangeRoutes = new Hono<AuthedEnv>()
     if (booking instanceof Response) return booking;
     const service = (await serviceOf(c, booking.serviceId))!;
     const rule = topUpRule(service);
-    if (!rule) return c.json({ eligible: false, price: null, parts: [] });
-    const priceOf = await priceBook(c, booking.businessDay);
+    if (!rule) return c.json({ eligible: false, price: null, hourPrice: null, steps: 0, parts: [] });
+    const [priceOf, existing] = await Promise.all([priceBook(c.var.db, booking.businessDay), c.var.db.select({ part: bookingTopUps.part }).from(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id))]);
     const regular = priceOf(service.id) ?? (0 as Centavos);
+    const hourPrice = (part: TopUpPart | null) => {
+      const hourService = topUpHourService(rule, part);
+      return hourService ? (priceOf(hourService) ?? null) : null;
+    };
+    const steps = (part: TopUpPart | null) => existing.filter((e) => e.part === part).length;
     if (rule.kind === 'pick_part') {
-      return c.json({ eligible: true, price: null, parts: TOP_UP_PARTS.map((part) => ({ part, price: topUpPrice(rule, regular, part, priceOf) })) });
+      return c.json({ eligible: true, price: null, hourPrice: null, steps: 0, parts: TOP_UP_PARTS.map((part) => ({ part, price: topUpPrice(rule, regular, part, priceOf), hourPrice: hourPrice(part), steps: steps(part) })) });
     }
-    return c.json({ eligible: true, price: topUpPrice(rule, regular, null, priceOf), parts: [] });
+    return c.json({ eligible: true, price: topUpPrice(rule, regular, null, priceOf), hourPrice: hourPrice(null), steps: steps(null), parts: [] });
   })
 
   .post('/bookings/:id/top-up', ...guard, zValidator('json', topUpBody, invalidInput), async (c) => {
@@ -75,14 +76,13 @@ export const serviceChangeRoutes = new Hono<AuthedEnv>()
     const booking = await changeable(c);
     if (booking instanceof Response) return booking;
     const service = (await serviceOf(c, booking.serviceId))!;
-    const rule = topUpRule(service);
-    if (!rule) return fail(c, 409, 'combo', 'A combo can’t be topped up. Add a service instead.');
     const input = c.req.valid('json');
-    const part: TopUpPart | null = rule.kind === 'pick_part' ? input.part : null;
-    if (rule.kind === 'pick_part' && !part) return fail(c, 400, 'part_required', 'Choose head, back or foot.');
-    const priceOf = await priceBook(c, booking.businessDay);
-    const price = topUpPrice(rule, priceOf(service.id) ?? (0 as Centavos), part, priceOf);
-    if (price === null) return fail(c, 409, 'no_price', 'That 30-minute price is not set. Ask the Super Admin.');
+    const priced = await priceTopUp(db, service, booking.businessDay, input.part);
+    if ('problem' in priced) return fail(c, priced.problem.status, priced.problem.code, priced.problem.message);
+    const { part } = priced;
+    // Priced together with what's already been added, so two halves make a full hour.
+    const earlier = (await db.select().from(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id))).filter((t) => t.part === part);
+    const prices = topUpStepPrices(earlier.length + input.steps, priced.price, priced.hourPrice);
 
     const durationMin = booking.durationMin + input.steps * TOP_UP_STEP_MIN;
     const running = booking.status === 'in_service';
@@ -92,12 +92,13 @@ export const serviceChangeRoutes = new Hono<AuthedEnv>()
       if (blocked) return fail(c, 409, 'therapist_reserved', blocked);
     }
     const now = nowIso();
-    const rows = Array.from({ length: input.steps }, () => ({ id: crypto.randomUUID(), bookingId: booking.id, minutes: TOP_UP_STEP_MIN, price, part, createdAt: now, createdBy: c.var.user.id }));
+    const rows = prices.slice(earlier.length).map((price) => ({ id: crypto.randomUUID(), bookingId: booking.id, minutes: TOP_UP_STEP_MIN, price, part, createdAt: now, createdBy: c.var.user.id }));
     await db.batch([
       db.insert(bookingTopUps).values(rows),
+      ...earlier.map((t, i) => db.update(bookingTopUps).set({ price: prices[i]! }).where(eq(bookingTopUps.id, t.id))),
       db.update(bookings).set({ durationMin }).where(eq(bookings.id, booking.id)),
       ...(next ? [db.update(bookings).set({ scheduledAt: addMinutes(booking.startedAt!, durationMin) }).where(eq(bookings.id, next.id))] : []),
-      auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.top_up', entity: 'booking', entityId: booking.id, after: { steps: input.steps, price, part } }),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.top_up', entity: 'booking', entityId: booking.id, after: { steps: input.steps, prices, part } }),
     ]);
     return c.json({ durationMin }, 201);
   })
@@ -112,7 +113,8 @@ export const serviceChangeRoutes = new Hono<AuthedEnv>()
     const service = await serviceOf(c, input.serviceId);
     if (!service || !service.active) return fail(c, 400, 'unknown_service', 'Pick a service that is offered.');
     const room = await db.select().from(rooms).where(eq(rooms.id, booking.roomId!)).get();
-    if (!room || !roomFits(room, service, booking.flexMode)) return fail(c, 400, 'room_unsuitable', 'The recliner is for foot services only.');
+    const flexMode = room ? flexModeFor(room, booking.flexMode, service) : booking.flexMode;
+    if (!room || !roomFits(room, service, flexMode)) return fail(c, 400, 'room_unsuitable', 'Pick a room that is in use.');
 
     const running = booking.status === 'in_service';
     const next = running ? await followOn(c, booking.id) : undefined;
@@ -122,7 +124,7 @@ export const serviceChangeRoutes = new Hono<AuthedEnv>()
     }
     await db.batch([
       db.delete(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id)),
-      db.update(bookings).set({ serviceId: service.id, durationMin: service.durationMin }).where(eq(bookings.id, booking.id)),
+      db.update(bookings).set({ serviceId: service.id, durationMin: service.durationMin, flexMode }).where(eq(bookings.id, booking.id)),
       ...(next ? [db.update(bookings).set({ scheduledAt: addMinutes(booking.startedAt!, service.durationMin) }).where(eq(bookings.id, next.id))] : []),
       auditInsert(db, {
         actorUserId: c.var.user.id,

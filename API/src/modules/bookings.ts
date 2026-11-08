@@ -2,12 +2,12 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { addMinutes, businessDayOf, isBirthday, overlaps, roomFits, stayOf, suggestRoom, suggestTherapist } from '@spa/domain';
+import { addMinutes, businessDayOf, clock, GRACE_PERIOD_MIN, isBirthday, overlaps, reservationHold, RESERVED_LEAD_MIN, roomFits, serviceSpanFrom, stayOf, suggestRoom, suggestTherapist, toManila, type Span } from '@spa/domain';
 import { bookings, businessDays, FLEX_MODES, payments, rejects, rooms, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays } from '../lib/business-days';
-import { activeBookingsFor, bookingSpan, frontDeskState, type BookingRow } from '../lib/front-desk';
+import { activeBookingsFor, bookingSpan, closeMissedBookings, frontDeskState, holdSpan, isNamedReservation, reservedSpansExcept, type BookingRow } from '../lib/front-desk';
 import { resolveGuest, visitStatsFor } from '../lib/guests';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
@@ -40,7 +40,12 @@ const newBooking = z.discriminatedUnion('kind', [
   bookingFields.extend({ kind: z.literal('scheduled'), scheduledAt: instant }),
 ]);
 
-const editBooking = bookingFields.partial().extend({ scheduledAt: instant.optional() });
+const editBooking = bookingFields.partial().extend({
+  scheduledAt: instant.optional(),
+  /** Why a named reservation is being moved or given another Therapist. */
+  reason: z.string().trim().max(300).optional(),
+  guestAsked: z.boolean().optional(),
+});
 
 const startBody = z.object({
   therapistId: z.string().min(1),
@@ -48,6 +53,7 @@ const startBody = z.object({
   flexMode: z.enum(FLEX_MODES).nullable(),
   portableTable: z.boolean().default(false),
   overrideReason: z.string().trim().max(200).optional(),
+  guestAsked: z.boolean().optional(),
 });
 
 const addServiceBody = z.object({
@@ -58,7 +64,7 @@ const addServiceBody = z.object({
   confirm: z.boolean().default(false),
 });
 
-const reasonBody = z.object({ reason: z.string().trim().min(3, 'Give a short reason.').max(300) });
+const reasonBody = z.object({ reason: z.string().trim().min(3, 'Give a short reason.').max(300), guestAsked: z.boolean().optional() });
 
 function isUniqueViolation(err: unknown): boolean {
   return err instanceof Error && /UNIQUE constraint failed/i.test(`${err.message} ${String(err.cause ?? '')}`);
@@ -68,15 +74,39 @@ async function loadBooking(c: Context<AuthedEnv>): Promise<BookingRow | undefine
   return c.var.db.select().from(bookings).where(eq(bookings.id, c.req.param('id')!)).get();
 }
 
-/** Problem with holding `therapistId` for a Guest over `span`, ignoring `selfId`. */
-async function requestClash(c: Context<AuthedEnv>, therapistId: string, span: { start: string; end: string }, selfId?: string) {
+/**
+ * Problem with holding `therapistId` for a Guest over `span`, ignoring `selfId`.
+ * `hold` is what a new reservation would keep; a Service under way only clashes with its actual time.
+ */
+async function requestClash(c: Context<AuthedEnv>, therapistId: string, span: Span, selfId?: string, hold: Span = span) {
   const person = await c.var.db.select().from(staff).where(eq(staff.id, therapistId)).get();
   if (!person || person.kind !== 'therapist' || !person.active) return 'Pick an active therapist.';
   const now = nowIso();
   const others = (await activeBookingsFor(c.var.db, therapistId)).filter((b) => b.id !== selfId);
   for (const b of others) {
-    const s = bookingSpan(b, now);
-    if (s && overlaps(s, span)) return `${person.displayName} is already booked for that time.`;
+    const s = holdSpan(b, now);
+    if (s && overlaps(s, b.status === 'in_service' ? span : hold)) return `${person.displayName} is already booked for that time.`;
+  }
+  return null;
+}
+
+const manilaClock = (iso: string) => clock(toManila(new Date(iso)).time);
+
+/** Why `therapistId` can't give a Service over `span`: an earlier reservation comes first. Null if they can. */
+async function reservedClash(c: Context<AuthedEnv>, therapistId: string, span: Span, selfId?: string) {
+  const now = nowIso();
+  const others = (await activeBookingsFor(c.var.db, therapistId)).filter((b) => b.id !== selfId && isNamedReservation(b));
+  const hit = others.find((b) => overlaps(holdSpan(b, now)!, span));
+  if (!hit) return null;
+  const person = await c.var.db.select({ displayName: staff.displayName }).from(staff).where(eq(staff.id, therapistId)).get();
+  return `${person?.displayName ?? 'This therapist'} has a reservation at ${manilaClock(hit.scheduledAt!)}, so this service would have to end by ${manilaClock(addMinutes(hit.scheduledAt!, -RESERVED_LEAD_MIN))}.`;
+}
+
+/** A named reservation is changed only at the Guest's request, with a reason. The Super Admin needs only the reason. */
+function reservationChangeRefused(c: Context<AuthedEnv>, reason: string | undefined, guestAsked: boolean | undefined) {
+  if (!reason || reason.trim().length < 3) return fail(c, 400, 'reason_required', 'Give a short reason.');
+  if (c.var.user.role !== 'super_admin' && !guestAsked) {
+    return fail(c, 403, 'guest_must_ask', 'A reservation with a named therapist can only be changed when the guest asks for it.');
   }
   return null;
 }
@@ -162,14 +192,19 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     if (!service || !service.active) return fail(c, 400, 'unknown_service', 'Pick a service that is offered.');
     const now = nowIso();
     const scheduledAt = input.kind === 'scheduled' ? input.scheduledAt : null;
-    if (scheduledAt && scheduledAt < addMinutes(now, -30)) {
+    if (scheduledAt && scheduledAt <= addMinutes(now, -GRACE_PERIOD_MIN)) {
       return fail(c, 400, 'in_past', 'A scheduled booking cannot be in the past.');
     }
     if (input.requestedTherapistId) {
-      const start = scheduledAt ?? now;
-      const clash = await requestClash(c, input.requestedTherapistId, { start, end: addMinutes(start, service.durationMin) });
-      // A walk-in may wait for a busy Requested Therapist; a scheduled time must be free.
-      if (clash && input.kind === 'scheduled') return fail(c, 409, 'therapist_booked', clash);
+      if (scheduledAt) {
+        const span = { start: scheduledAt, end: addMinutes(scheduledAt, service.durationMin) };
+        const clash = await requestClash(c, input.requestedTherapistId, span, undefined, reservationHold(scheduledAt, service.durationMin));
+        if (clash) return fail(c, 409, 'therapist_booked', clash);
+      } else {
+        // A walk-in may wait for a busy Requested Therapist, but not take an earlier reservation's time.
+        const reserved = await reservedClash(c, input.requestedTherapistId, serviceSpanFrom(now, service.durationMin));
+        if (reserved) return fail(c, 409, 'therapist_reserved', reserved);
+      }
     }
     // A walk-in is today's activity; a booking for later opens nothing yet.
     if (input.kind === 'walk_in') {
@@ -208,6 +243,14 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       return fail(c, 409, 'started', 'Only bookings that have not started can be changed.');
     }
     const input = c.req.valid('json');
+    const movingReservation =
+      isNamedReservation(booking) &&
+      ((input.scheduledAt !== undefined && input.scheduledAt !== booking.scheduledAt) ||
+        (input.requestedTherapistId !== undefined && input.requestedTherapistId !== booking.requestedTherapistId));
+    if (movingReservation) {
+      const refused = reservationChangeRefused(c, input.reason, input.guestAsked);
+      if (refused) return refused;
+    }
     const changes: Partial<BookingRow> = {};
     if (input.guestName !== undefined) changes.guestName = input.guestName;
     if (input.guestPhone !== undefined) changes.guestPhone = input.guestPhone;
@@ -237,12 +280,12 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const merged = { ...booking, ...changes };
     if (merged.requestedTherapistId && merged.status === 'scheduled') {
       const span = bookingSpan(merged, nowIso())!;
-      const clash = await requestClash(c, merged.requestedTherapistId, span, booking.id);
+      const clash = await requestClash(c, merged.requestedTherapistId, span, booking.id, merged.scheduledAt ? reservationHold(merged.scheduledAt, merged.durationMin) : span);
       if (clash) return fail(c, 409, 'therapist_booked', clash);
     }
     // The new Guest Record goes in first so the Booking can point at it.
     await db.batch([
-      auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.update', entity: 'booking', entityId: booking.id, before: booking, after: changes }),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.update', entity: 'booking', entityId: booking.id, before: booking, after: { ...changes, guestAsked: input.guestAsked }, reason: input.reason }),
       ...(newGuest ? [newGuest] : []),
       db.update(bookings).set(changes).where(eq(bookings.id, booking.id)),
     ]);
@@ -279,12 +322,9 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const service = (await db.select().from(services).where(eq(services.id, booking.serviceId)).get())!;
     const now = nowIso();
     const state = await frontDeskState(db, businessDayOf(new Date(now)), now);
-    const span = { start: now, end: addMinutes(now, booking.durationMin) };
-    // This Guest's own hold must not block their own therapist.
-    const held = new Map(state.heldSpans);
-    if (booking.requestedTherapistId) held.delete(booking.requestedTherapistId);
+    const span = serviceSpanFrom(now, booking.durationMin);
     return c.json({
-      therapist: suggestTherapist(state.rotation, { span }, { requestedId: booking.requestedTherapistId, heldSpans: held }),
+      therapist: suggestTherapist(state.rotation, { span }, { requestedId: booking.requestedTherapistId, heldSpans: state.heldSpans, reservedSpans: reservedSpansExcept(state.reservations, booking.id) }),
       room: suggestRoom(state.rooms, state.occupiedRoomIds, service),
     });
   })
@@ -313,12 +353,18 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     }
     if (state.occupiedRoomIds.has(room.id)) return fail(c, 409, 'room_taken', `${room.name} is taken.`);
 
-    const held = new Map(state.heldSpans);
-    if (booking.requestedTherapistId) held.delete(booking.requestedTherapistId);
+    const span = serviceSpanFrom(now, booking.durationMin);
+    const reserved = await reservedClash(c, input.therapistId, span, booking.id);
+    if (reserved) return fail(c, 409, 'therapist_reserved', reserved);
+    if (isNamedReservation(booking) && input.therapistId !== booking.requestedTherapistId) {
+      const refused = reservationChangeRefused(c, input.overrideReason, input.guestAsked);
+      if (refused) return refused;
+    }
+
     const suggested = suggestTherapist(
       state.rotation,
-      { span: { start: now, end: addMinutes(now, booking.durationMin) } },
-      { requestedId: booking.requestedTherapistId, heldSpans: held },
+      { span },
+      { requestedId: booking.requestedTherapistId, heldSpans: state.heldSpans, reservedSpans: reservedSpansExcept(state.reservations, booking.id) },
     );
     const overriding = suggested?.staffId !== input.therapistId;
     if (overriding && (input.overrideReason ?? '').length < 3) {
@@ -391,7 +437,9 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       const state = await frontDeskState(db, businessDayOf(new Date(now)), now);
       if (!state.rotation.some((r) => r.staffId === therapistId)) return fail(c, 409, 'not_on_duty', 'That therapist is not clocked in.');
     }
-    // Running into someone's next Booking is allowed once the desk has seen it.
+    // An earlier reservation can't be run into at all; any other waiting Guest can, once the desk has seen it.
+    const reserved = await reservedClash(c, therapistId, span, parent.id);
+    if (reserved) return fail(c, 409, 'therapist_reserved', reserved);
     const clash = await requestClash(c, therapistId, span, parent.id);
     if (clash && !input.confirm) return fail(c, 409, 'clash', `${clash} Add it anyway, or move the later booking.`);
     const id = crypto.randomUUID();
@@ -484,8 +532,10 @@ export const bookingRoutes = new Hono<AuthedEnv>()
   })
 
   .post('/bookings/:id/arrived', async (c) => {
+    await closeMissedBookings(c.var.db, nowIso());
     const booking = await loadBooking(c);
     if (!booking) return fail(c, 404, 'not_found', 'Booking not found.');
+    if (booking.status === 'no_show') return fail(c, 409, 'grace_over', 'The 15 minutes have passed, so this booking closed as a no-show. Add the guest as a walk-in.');
     if (booking.status !== 'scheduled') return fail(c, 409, 'not_scheduled', 'Only a scheduled booking can arrive.');
     await c.var.db.update(bookings).set({ status: 'waiting' }).where(eq(bookings.id, booking.id));
     return c.json({ ok: true });
@@ -497,11 +547,15 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     if (booking.status !== 'scheduled' && booking.status !== 'waiting') {
       return fail(c, 409, 'started', 'Only bookings that have not started can be cancelled.');
     }
-    const { reason } = c.req.valid('json');
+    const { reason, guestAsked } = c.req.valid('json');
+    if (isNamedReservation(booking)) {
+      const refused = reservationChangeRefused(c, reason, guestAsked);
+      if (refused) return refused;
+    }
     const db = c.var.db;
     await db.batch([
       db.update(bookings).set({ status: 'cancelled', cancelReason: reason }).where(eq(bookings.id, booking.id)),
-      auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.cancel', entity: 'booking', entityId: booking.id, reason }),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.cancel', entity: 'booking', entityId: booking.id, after: { guestAsked }, reason }),
     ]);
     return c.json({ ok: true });
   })
@@ -510,6 +564,9 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const booking = await loadBooking(c);
     if (!booking) return fail(c, 404, 'not_found', 'Booking not found.');
     if (booking.status !== 'scheduled') return fail(c, 409, 'not_scheduled', 'Only a scheduled booking can be a no-show.');
+    if (isNamedReservation(booking) && nowIso() < addMinutes(booking.scheduledAt!, GRACE_PERIOD_MIN)) {
+      return fail(c, 409, 'grace_period', 'This reservation closes by itself 15 minutes after its time if the guest has not arrived.');
+    }
     const db = c.var.db;
     await db.batch([
       db.update(bookings).set({ status: 'no_show' }).where(eq(bookings.id, booking.id)),

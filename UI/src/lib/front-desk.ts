@@ -101,3 +101,7 @@ export function useDeskAction() {
 }
 
 export const guestLabel = (b: Pick<Booking, 'guestName'>) => b.guestName || 'Walk-in guest';
+
+/** A Scheduled Booking naming its Therapist, not started yet. */
+export const isNamedReservation = (b: Pick<Booking, 'kind' | 'requestedTherapistId' | 'status'>) =>
+  b.kind === 'scheduled' && !!b.requestedTherapistId && (b.status === 'scheduled' || b.status === 'waiting');

@@ -27,6 +27,8 @@ export type RotationRow = {
   position: number;
   status: 'free' | 'in_service';
   queuedSince: string;
+  /** When the Guest they are Reserved for is due, from 30 minutes before. */
+  reservedFor: string | null;
 };
 
 export type DtrEntry = {

@@ -234,20 +234,20 @@ describe('Added Services', () => {
     ]);
   });
 
-  it('warns when it runs into the therapist’s next booking, and can be cancelled before it starts', async () => {
+  it('cannot run into the therapist’s reservation, and can be cancelled before it starts', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');
     const t = await therapist(admin);
     const first = await inService(desk, t);
-    // A guest booked with this therapist in 70 minutes: a 60-minute Added Service after this hour clashes.
+    // A guest booked with this therapist in 70 minutes: an Added Service after this hour runs into it, whatever the desk says.
     await desk.post('/bookings', { kind: 'scheduled', serviceId: 'swedish-60', guestName: 'Next', requestedTherapistId: t, scheduledAt: new Date(Date.now() + 70 * 60_000).toISOString() });
-    const warned = await desk.post(`/bookings/${first}/add-service`, { serviceId: 'back-60' });
-    expect(warned.status).toBe(409);
-    expect((await json<{ error: string }>(warned)).error).toBe('clash');
-    const { id } = await json<{ id: string }>(await desk.post(`/bookings/${first}/add-service`, { serviceId: 'back-60', confirm: true }));
+    const refused = await desk.post(`/bookings/${first}/add-service`, { serviceId: 'back-60', confirm: true });
+    expect(refused.status).toBe(409);
+    expect((await json<{ error: string }>(refused)).error).toBe('therapist_reserved');
+    // Another Therapist can take it, and it can be called off.
+    const other = await therapist(admin);
+    const { id } = await json<{ id: string }>(await desk.post(`/bookings/${first}/add-service`, { serviceId: 'back-60', therapistId: other }));
     expect((await desk.post(`/bookings/${id}/cancel`, { reason: 'changed mind' })).status).toBe(200);
-    // Cancelled, it no longer blocks adding another (which still clashes, so still warns).
-    expect((await json<{ error: string }>(await desk.post(`/bookings/${first}/add-service`, { serviceId: 'foot-30' }))).error).toBe('clash');
   });
 });
 

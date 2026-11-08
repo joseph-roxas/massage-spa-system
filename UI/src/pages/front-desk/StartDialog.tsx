@@ -2,9 +2,11 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Checkbox, Field, Input, Select } from '../../components/ui';
 import { Modal } from '../../components/Modal';
+import { manilaTime } from '../../lib/attendance';
+import { useCurrentUser } from '../../lib/auth';
 import { useServices } from '../../lib/catalogue';
 import { duration } from '../../lib/format';
-import { fetchSuggestion, guestLabel, useDeskAction, type Board, type Booking } from '../../lib/front-desk';
+import { fetchSuggestion, guestLabel, isNamedReservation, useDeskAction, type Board, type Booking } from '../../lib/front-desk';
 
 export function StartDialog({ booking, board, onClose }: { booking: Booking; board: Board; onClose: () => void }) {
   const suggestion = useQuery({ queryKey: ['suggest', booking.id], queryFn: () => fetchSuggestion(booking.id), staleTime: 0 });
@@ -15,6 +17,8 @@ export function StartDialog({ booking, board, onClose }: { booking: Booking; boa
   const [flexMode, setFlexMode] = useState<'floor' | 'recliner'>('floor');
   const [portableTable, setPortableTable] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
+  const [guestAsked, setGuestAsked] = useState(false);
+  const { data: me } = useCurrentUser();
 
   // Pre-fill with the suggestion once it arrives.
   const s = suggestion.data;
@@ -33,6 +37,8 @@ export function StartDialog({ booking, board, onClose }: { booking: Booking; boa
   const room = board.rooms.find((r) => String(r.id) === roomId);
   const overriding = !!therapistId && s?.therapist?.staffId !== therapistId;
   const freeRooms = board.rooms.filter((r) => r.active && !r.booking);
+  // Giving a named reservation to someone else is the Guest's call.
+  const mustAsk = isNamedReservation(booking) && !!therapistId && therapistId !== booking.requestedTherapistId && me?.role !== 'super_admin';
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -45,6 +51,7 @@ export function StartDialog({ booking, board, onClose }: { booking: Booking; boa
           flexMode: room?.isFlex ? flexMode : null,
           portableTable,
           overrideReason: overriding ? overrideReason : undefined,
+          guestAsked,
         },
       },
       { onSuccess: onClose },
@@ -71,13 +78,16 @@ export function StartDialog({ booking, board, onClose }: { booking: Booking; boa
           <Field label="Therapist">
             <Select required value={therapistId} onChange={(e) => setTherapistId(e.target.value)}>
               <option value="">Choose…</option>
-              {board.rotation.map((r) => (
-                <option key={r.staffId} value={r.staffId} disabled={r.status !== 'free'}>
-                  {r.position}. {r.displayName}
-                  {s?.therapist?.staffId === r.staffId ? (s.therapist.reason === 'requested' ? ' (requested)' : ' (next)') : ''}
-                  {r.status !== 'free' ? ' (with a guest)' : ''}
-                </option>
-              ))}
+              {board.rotation.map((r) => {
+                const reservedElsewhere = !!r.reservedFor && r.staffId !== booking.requestedTherapistId;
+                return (
+                  <option key={r.staffId} value={r.staffId} disabled={r.status !== 'free' || reservedElsewhere}>
+                    {r.position}. {r.displayName}
+                    {s?.therapist?.staffId === r.staffId ? (s.therapist.reason === 'requested' ? ' (requested)' : ' (next)') : ''}
+                    {r.status !== 'free' ? ' (with a guest)' : reservedElsewhere ? ` (reserved ${manilaTime(r.reservedFor!)})` : ''}
+                  </option>
+                );
+              })}
             </Select>
           </Field>
           <Field label="Room">
@@ -109,9 +119,10 @@ export function StartDialog({ booking, board, onClose }: { booking: Booking; boa
             <Input required minLength={3} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} />
           </Field>
         )}
+        {mustAsk && <Checkbox label="The guest asked for another therapist" checked={guestAsked} onChange={(e) => setGuestAsked(e.target.checked)} />}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Not yet</Button>
-          <Button type="submit" disabled={start.isPending || !therapistId || !roomId}>Start service</Button>
+          <Button type="submit" disabled={start.isPending || !therapistId || !roomId || (mustAsk && !guestAsked)}>Start service</Button>
         </div>
       </form>
     </Modal>

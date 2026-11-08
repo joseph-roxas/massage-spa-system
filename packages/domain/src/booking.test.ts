@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addMinutes, overlaps, roomFits, suggestRoom, suggestTherapist, type RoomInfo, stayOf } from './booking';
+import { addMinutes, overlaps, reservationHold, roomFits, serviceSpanFrom, suggestRoom, suggestTherapist, type RoomInfo, stayOf } from './booking';
 import type { RotationEntry } from './rotation';
 
 const rooms: RoomInfo[] = [...Array.from({ length: 7 }, (_, i) => ({ id: i + 1, isFlex: false, active: true })), { id: 8, isFlex: true, active: true }];
@@ -66,6 +66,28 @@ describe('suggestTherapist', () => {
     expect(suggestTherapist(rotation, { span }, { requestedId: 'C', heldSpans: none })).toEqual({ staffId: 'C', reason: 'requested' });
     expect(suggestTherapist(rotation, { span }, { requestedId: 'A', heldSpans: none })).toBeNull();
     expect(suggestTherapist(rotation, { span }, { requestedId: 'Z', heldSpans: none })).toBeNull();
+  });
+});
+
+describe('a named reservation', () => {
+  const at = '2026-11-03T09:00:00.000Z';
+  const hold = reservationHold(at, 60);
+  const rotation: RotationEntry[] = [{ staffId: 'A', position: 1, status: 'free', queuedSince: at }];
+  const requested = (startMinBefore: number, durationMin: number) =>
+    suggestTherapist(rotation, { span: serviceSpanFrom(addMinutes(at, -startMinBefore), durationMin) }, { requestedId: 'A', heldSpans: new Map(), reservedSpans: new Map([['A', [hold]]]) });
+
+  it('starts holding its Therapist 30 minutes before', () => {
+    expect(hold).toEqual({ start: '2026-11-03T08:30:00.000Z', end: '2026-11-03T10:00:00.000Z' });
+  });
+
+  it('refuses a 1-hour walk-in an hour before, but allows a 30-minute one', () => {
+    expect(requested(60, 60)).toBeNull();
+    expect(requested(60, 30)).toEqual({ staffId: 'A', reason: 'requested' });
+    expect(requested(45, 30)).toBeNull();
+  });
+
+  it('ignores the seconds on the desk clock', () => {
+    expect(serviceSpanFrom('2026-11-03T08:00:20.000Z', 30)).toEqual({ start: '2026-11-03T08:00:00.000Z', end: '2026-11-03T08:30:00.000Z' });
   });
 });
 

@@ -10,6 +10,48 @@ const onDuty = (staffId: string, clockIn: string): RotationTherapist => ({
 });
 const order = (rotation: { staffId: string }[]) => rotation.map((r) => r.staffId);
 
+describe('LMT priority', () => {
+  const lmt = (staffId: string, clockIn: string): RotationTherapist => ({ ...onDuty(staffId, clockIn), isLmt: true });
+  const busy = (staffId: string, startedAt: string): ServiceTurn => ({ staffId, requested: false, startedAt: at(startedAt), doneAt: null });
+  const next = (team: RotationTherapist[], turns: ServiceTurn[]) => nextInRotation(computeRotation(team, turns))?.staffId;
+
+  it('follows the first example: the rotation changes as each LMT clocks in', () => {
+    expect(next([onDuty('R1', '13:45'), onDuty('R2', '13:50'), onDuty('R3', '14:00')], [])).toBe('R1');
+    const first = [busy('R1', '14:01')];
+    const at247 = [onDuty('R1', '13:45'), onDuty('R2', '13:50'), onDuty('R3', '14:00'), lmt('L1', '14:45')];
+    expect(next(at247, first)).toBe('L1');
+    const at300 = [...at247, onDuty('R4', '14:48'), lmt('L2', '14:55')];
+    expect(next(at300, [...first, busy('L1', '14:47')])).toBe('L2');
+    expect(next(at300, [...first, busy('L1', '14:47'), busy('L2', '15:00')])).toBe('R2');
+  });
+
+  it('follows the second example: an LMT only goes first once they have clocked in', () => {
+    const at245 = [onDuty('R1', '13:45'), onDuty('R2', '13:50'), onDuty('R3', '14:00'), lmt('L1', '14:45')];
+    expect(next(at245, [])).toBe('L1');
+    const at250 = [...at245, onDuty('R4', '14:48')];
+    expect(next(at250, [busy('L1', '14:45')])).toBe('R1');
+    const later = [...at250, lmt('L2', '14:55')];
+    expect(next(later, [busy('L1', '14:45'), busy('R1', '14:50')])).toBe('L2');
+  });
+
+  it('applies however late the LMT clocks in', () => {
+    expect(next([onDuty('R1', '13:45'), lmt('L1', '18:30')], [])).toBe('L1');
+  });
+
+  it('ends with the first finished un-requested Service, and a later clock-in joins at the back', () => {
+    const l1 = lmt('L1', '14:00');
+    const served: ServiceTurn = { staffId: 'L1', requested: false, startedAt: at('14:05'), doneAt: at('15:05') };
+    expect(order(computeRotation([l1, onDuty('R1', '14:30')], [served]))).toEqual(['R1', 'L1']);
+    const back: RotationTherapist = { staffId: 'L1', isLmt: true, shifts: [{ clockIn: at('14:00'), clockOut: at('15:30') }, { clockIn: at('16:00'), clockOut: null }] };
+    expect(order(computeRotation([back, onDuty('R1', '15:45')], [served]))).toEqual(['R1', 'L1']);
+  });
+
+  it('survives a requested Service', () => {
+    const requested: ServiceTurn = { staffId: 'L1', requested: true, startedAt: at('14:05'), doneAt: at('15:05') };
+    expect(next([lmt('L1', '14:00'), onDuty('R1', '13:00')], [requested])).toBe('L1');
+  });
+});
+
 describe('Rotation', () => {
   // T2 arrives first, then T1, then T3.
   const team = [onDuty('T1', '13:50'), onDuty('T2', '13:40'), onDuty('T3', '14:05')];

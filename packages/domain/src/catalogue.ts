@@ -52,7 +52,7 @@ export type Promo = {
 };
 
 /** "14:00" → "2:00pm". */
-function clock(t: HhMm): string {
+export function clock(t: HhMm): string {
   const [h, m] = t.split(':').map(Number) as [number, number];
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}`;
 }

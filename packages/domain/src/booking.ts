@@ -41,6 +41,11 @@ export function roomFits(room: RoomInfo, service: ServiceInfo, flexMode: FlexMod
   return flexMode === 'floor' || service.isFootType;
 }
 
+/** A Flex Room on its recliner is reset as a floor bed when the Service moves on to something that isn't for the feet. */
+export function flexModeFor(room: Pick<RoomInfo, 'isFlex'>, current: FlexMode | null, service: Pick<ServiceInfo, 'isFootType'>): FlexMode | null {
+  return room.isFlex && current === 'recliner' && !service.isFootType ? 'floor' : current;
+}
+
 /**
  * The Room to offer for a Service, given which Rooms are taken right now.
  * Foot-type Services go to the Flex Room's recliner first (that's what it is

@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNotNull, lte, or } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
-import { addMinutes, computeRotation, GRACE_PERIOD_MIN, nextInRotation, RESERVED_LEAD_MIN, type ServiceTurn, type Span } from '@spa/domain';
+import { addMinutes, businessDayOf, computeRotation, GRACE_PERIOD_MIN, nextInRotation, RESERVED_LEAD_MIN, type ServiceTurn, type Span } from '@spa/domain';
 import { bookings, dtr, rooms, staff } from '@spa/db';
 import { auditInsert } from './audit';
 
@@ -19,6 +19,33 @@ export async function closeMissedBookings(db: DrizzleD1Database, now: string): P
     .where(and(eq(bookings.status, 'scheduled'), isNotNull(bookings.scheduledAt), lte(bookings.scheduledAt, addMinutes(now, -GRACE_PERIOD_MIN))))
     .returning({ id: bookings.id });
   await Promise.all(missed.map((b) => auditInsert(db, { actorUserId: null, action: 'booking.no_show_auto', entity: 'booking', entityId: b.id })));
+}
+
+/**
+ * When a Service's time is up and the same Therapist has an Added Service
+ * waiting after it, that one starts by itself, from the moment the first ended.
+ */
+export async function startFollowingServices(db: DrizzleD1Database, now: string): Promise<void> {
+  // Round again in case the one just started has run out too, e.g. no one had the board open.
+  for (let round = 0; round < 8; round++) {
+    const waiting = await db.select().from(bookings).where(and(eq(bookings.status, 'waiting'), isNotNull(bookings.parentBookingId), isNotNull(bookings.therapistId)));
+    if (!waiting.length) return;
+    const parents = await db.select().from(bookings).where(and(eq(bookings.status, 'in_service'), inArray(bookings.id, waiting.map((w) => w.parentBookingId!))));
+    let started = 0;
+    for (const child of waiting) {
+      const parent = parents.find((p) => p.id === child.parentBookingId);
+      if (!parent?.startedAt || parent.therapistId !== child.therapistId) continue;
+      const endedAt = addMinutes(parent.startedAt, parent.durationMin);
+      if (endedAt > now) continue;
+      await db.batch([
+        db.update(bookings).set({ status: 'done', doneAt: endedAt }).where(and(eq(bookings.id, parent.id), eq(bookings.status, 'in_service'))),
+        db.update(bookings).set({ status: 'in_service', startedAt: endedAt, businessDay: businessDayOf(new Date(endedAt)) }).where(and(eq(bookings.id, child.id), eq(bookings.status, 'waiting'))),
+        auditInsert(db, { actorUserId: null, action: 'booking.follow_on_auto', entity: 'booking', entityId: child.id, after: { startedAt: endedAt, after: parent.id } }),
+      ]);
+      started++;
+    }
+    if (!started) return;
+  }
 }
 
 /** When a Booking will occupy its therapist, for clash checks. Null once finished or called off. */
@@ -53,6 +80,7 @@ export function holdSpan(b: BookingRow, now: string): Span | null {
  */
 export async function frontDeskState(db: DrizzleD1Database, day: string, now: string) {
   await closeMissedBookings(db, now);
+  await startFollowingServices(db, now);
   const [therapists, entries, dayBookings, allRooms] = await Promise.all([
     db
       .select({ id: staff.id, displayName: staff.displayName, therapistClass: staff.therapistClass, isOnCall: staff.isOnCall })

@@ -13,6 +13,37 @@ const THIRTY_MINUTE_VERSION: Record<string, string> = { 'foot-60': 'foot-30', 'b
 
 export type TopUpRule = { kind: 'half' } | { kind: 'price_of'; serviceId: string } | { kind: 'pick_part' };
 
+/** The 1-hour Service whose price a full extra hour of this massage costs. */
+const ONE_HOUR_VERSION: Record<string, string> = { 'foot-30': 'foot-60', 'back-30': 'back-60' };
+
+/** The Service whose price a full extra hour costs, when it isn't simply two 30-minute Top-ups. */
+export function topUpHourService(rule: TopUpRule, part: TopUpPart | null): string | null {
+  if (rule.kind === 'price_of') return ONE_HOUR_VERSION[rule.serviceId] ?? null;
+  if (rule.kind === 'pick_part' && part) return ONE_HOUR_VERSION[TOP_UP_PART_SERVICE[part]] ?? null;
+  return null;
+}
+
+/** The total for `steps` of 30 minutes: each full hour at the 1-hour price when there is one. */
+export function topUpTotal(steps: number, thirtyMin: number, oneHour: number | null): number {
+  if (oneHour === null) return steps * thirtyMin;
+  return Math.floor(steps / 2) * oneHour + (steps % 2) * thirtyMin;
+}
+
+/** That total split across each 30-minute step, so the steps always add up to it. */
+export function topUpStepPrices(steps: number, thirtyMin: number, oneHour: number | null): Centavos[] {
+  const out: number[] = [];
+  for (let done = 0; done < steps; done += 2) {
+    if (done + 1 === steps || oneHour === null) {
+      out.push(thirtyMin);
+      if (done + 1 < steps) out.push(thirtyMin);
+    } else {
+      const first = Math.ceil(oneHour / 2);
+      out.push(first, oneHour - first);
+    }
+  }
+  return out as Centavos[];
+}
+
 /** How a Service's Top-up is priced; null for a Combo, which can't be topped up. */
 export function topUpRule(service: { id: string; kind: 'single' | 'combo'; durationMin: number }): TopUpRule | null {
   if (service.kind === 'combo') return null;

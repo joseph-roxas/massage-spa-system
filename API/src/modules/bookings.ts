@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { addMinutes, businessDayOf, clock, GRACE_PERIOD_MIN, isBirthday, overlaps, reservationHold, RESERVED_LEAD_MIN, roomFits, serviceSpanFrom, stayOf, suggestRoom, suggestTherapist, toManila, type Span } from '@spa/domain';
+import { addMinutes, businessDayOf, clock, flexModeFor, GRACE_PERIOD_MIN, TOP_UP_PARTS, TOP_UP_STEP_MIN, topUpStepPrices, isBirthday, overlaps, reservationHold, RESERVED_LEAD_MIN, roomFits, serviceSpanFrom, stayOf, suggestRoom, suggestTherapist, toManila, type Span } from '@spa/domain';
 import { bookings, bookingTopUps, businessDays, FLEX_MODES, payments, rejects, rooms, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
@@ -10,6 +10,7 @@ import { openDayFor, openDays } from '../lib/business-days';
 import { activeBookingsFor, bookingSpan, closeMissedBookings, frontDeskState, holdSpan, isNamedReservation, reservedSpansExcept, type BookingRow } from '../lib/front-desk';
 import { resolveGuest, visitStatsFor } from '../lib/guests';
 import { fail, invalidInput } from '../lib/http';
+import { priceTopUp } from '../lib/top-ups';
 import { nowIso } from '../lib/time';
 import { requireAuth, requireCapability } from '../auth/middleware';
 
@@ -35,9 +36,12 @@ const bookingFields = z.object({
   notes: optionalText(300),
 });
 
+/** Longer than the menu from the start: Top-ups on the Booking, in 30-minute steps. */
+const extraTime = { extraSteps: z.number().int().min(0).max(8).default(0), topUpPart: z.enum(TOP_UP_PARTS).nullable().default(null) };
+
 const newBooking = z.discriminatedUnion('kind', [
-  bookingFields.extend({ kind: z.literal('walk_in') }),
-  bookingFields.extend({ kind: z.literal('scheduled'), scheduledAt: instant }),
+  bookingFields.extend({ kind: z.literal('walk_in'), ...extraTime }),
+  bookingFields.extend({ kind: z.literal('scheduled'), scheduledAt: instant, ...extraTime }),
 ]);
 
 const editBooking = bookingFields.partial().extend({
@@ -203,14 +207,17 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     if (scheduledAt && scheduledAt <= addMinutes(now, -GRACE_PERIOD_MIN)) {
       return fail(c, 400, 'in_past', 'A scheduled booking cannot be in the past.');
     }
+    const extra = input.extraSteps > 0 ? await priceTopUp(db, service, businessDayOf(new Date(scheduledAt ?? now)), input.topUpPart) : null;
+    if (extra && 'problem' in extra) return fail(c, extra.problem.status, extra.problem.code, extra.problem.message);
+    const durationMin = service.durationMin + input.extraSteps * TOP_UP_STEP_MIN;
     if (input.requestedTherapistId) {
       if (scheduledAt) {
-        const span = { start: scheduledAt, end: addMinutes(scheduledAt, service.durationMin) };
-        const clash = await requestClash(c, input.requestedTherapistId, span, undefined, reservationHold(scheduledAt, service.durationMin));
+        const span = { start: scheduledAt, end: addMinutes(scheduledAt, durationMin) };
+        const clash = await requestClash(c, input.requestedTherapistId, span, undefined, reservationHold(scheduledAt, durationMin));
         if (clash) return fail(c, 409, 'therapist_booked', clash);
       } else {
         // A walk-in may wait for a busy Requested Therapist, but not take an earlier reservation's time.
-        const reserved = await reservedClash(c, input.requestedTherapistId, serviceSpanFrom(now, service.durationMin));
+        const reserved = await reservedClash(c, input.requestedTherapistId, serviceSpanFrom(now, durationMin));
         if (reserved) return fail(c, 409, 'therapist_reserved', reserved);
       }
     }
@@ -231,15 +238,19 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       guestName: guest.name,
       guestPhone: guest.phone,
       serviceId: service.id,
-      durationMin: service.durationMin,
+      durationMin,
       scheduledAt,
       requestedTherapistId: input.requestedTherapistId ?? null,
       notes: input.notes ?? null,
       createdAt: now,
       createdBy: c.var.user.id,
     };
-    if (guest.insert) await db.batch([guest.insert, db.insert(bookings).values(row)]);
-    else await db.insert(bookings).values(row);
+    const topUps = extra
+      ? topUpStepPrices(input.extraSteps, extra.price, extra.hourPrice).map((price) => ({ id: crypto.randomUUID(), bookingId: id, minutes: TOP_UP_STEP_MIN, price, part: extra.part, createdAt: now, createdBy: c.var.user.id }))
+      : [];
+    // The new Guest Record goes in first so the Booking can point at it.
+    const statements = [...(guest.insert ? [guest.insert] : []), db.insert(bookings).values(row), ...(topUps.length ? [db.insert(bookingTopUps).values(topUps)] : [])];
+    await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
     return c.json({ id, guestId: guest.guestId }, 201);
   })
 
@@ -260,6 +271,7 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       if (refused) return refused;
     }
     const changes: Partial<BookingRow> = {};
+    let serviceChanged = false;
     if (input.guestName !== undefined) changes.guestName = input.guestName;
     if (input.guestPhone !== undefined) changes.guestPhone = input.guestPhone;
     let newGuest = null;
@@ -280,6 +292,7 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       if (!service || !service.active) return fail(c, 400, 'unknown_service', 'Pick a service that is offered.');
       changes.serviceId = service.id;
       changes.durationMin = service.durationMin;
+      serviceChanged = true;
     }
     if (input.scheduledAt && booking.kind === 'scheduled') {
       changes.scheduledAt = input.scheduledAt;
@@ -295,6 +308,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     await db.batch([
       auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.update', entity: 'booking', entityId: booking.id, before: booking, after: { ...changes, guestAsked: input.guestAsked }, reason: input.reason }),
       ...(newGuest ? [newGuest] : []),
+      // Added time belonged to the old Service.
+      ...(serviceChanged ? [db.delete(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id))] : []),
       db.update(bookings).set(changes).where(eq(bookings.id, booking.id)),
     ]);
     return c.json({ ok: true });
@@ -436,7 +451,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       db.select().from(rooms).where(eq(rooms.id, parent.roomId)).get(),
     ]);
     if (!service || !service.active) return fail(c, 400, 'unknown_service', 'Pick a service that is offered.');
-    if (!room || !roomFits(room, service, parent.flexMode)) return fail(c, 400, 'room_unsuitable', 'The recliner is for foot services only.');
+    const flexMode = room ? flexModeFor(room, parent.flexMode, service) : parent.flexMode;
+    if (!room || !roomFits(room, service, flexMode)) return fail(c, 400, 'room_unsuitable', 'Pick a room that is in use.');
     const therapistId = input.therapistId ?? parent.therapistId!;
     const start = addMinutes(parent.startedAt, parent.durationMin);
     const span = { start, end: addMinutes(start, service.durationMin) };
@@ -467,7 +483,7 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       requestedTherapistId: therapistId === parent.therapistId ? parent.requestedTherapistId : null,
       therapistId,
       roomId: parent.roomId,
-      flexMode: parent.flexMode,
+      flexMode,
       portableTable: parent.portableTable,
       parentBookingId: parent.id,
       createdAt: nowIso(),

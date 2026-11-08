@@ -8,7 +8,7 @@ async function json<T>(res: Response): Promise<T> {
 
 type Board = {
   next: string | null;
-  rotation: { staffId: string; status: string }[];
+  rotation: { staffId: string; status: string; reservedFor: string | null }[];
   rooms: { id: number; booking: { id: string } | null }[];
   bookings: { id: string; status: string; therapistId: string | null; roomId: number | null }[];
 };
@@ -168,12 +168,103 @@ describe('no double-booking', () => {
     const a = await therapist(admin);
     const at = new Date(Date.now() + 3 * 3_600_000).toISOString();
     const half = new Date(Date.now() + 3.5 * 3_600_000).toISOString();
-    const after = new Date(Date.now() + 4 * 3_600_000).toISOString();
+    const tooSoon = new Date(Date.now() + 4 * 3_600_000).toISOString();
+    const after = new Date(Date.now() + 4.5 * 3_600_000).toISOString();
     const book = (scheduledAt: string) =>
       desk.post('/bookings', { kind: 'scheduled', serviceId: 'swedish-60', requestedTherapistId: a, scheduledAt, guestName: 'Ms. Cruz' });
     expect((await book(at)).status).toBe(201);
     expect((await book(half)).status).toBe(409);
+    // The next reservation keeps them from 30 minutes before it.
+    expect((await book(tooSoon)).status).toBe(409);
     expect((await book(after)).status).toBe(201);
+  });
+});
+
+describe('a named reservation', () => {
+  const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+  const reserve = async (desk: Client, a: string, minutes: number) =>
+    (await json<{ id: string }>(await desk.post('/bookings', { kind: 'scheduled', serviceId: 'swedish-60', requestedTherapistId: a, scheduledAt: inMinutes(minutes), guestName: 'Ms. Reyes' }))).id;
+  const walkInFor = (desk: Client, serviceId: string, a: string) => desk.post('/bookings', { kind: 'walk_in', serviceId, requestedTherapistId: a });
+
+  it('refuses a walk-in that would run past 30 minutes before it, and allows one that ends in time', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const a = await therapist(admin);
+    await reserve(desk, a, 61);
+    const long = await walkInFor(desk, 'swedish-60', a);
+    expect(long.status).toBe(409);
+    expect((await json<{ error: string }>(long)).error).toBe('therapist_reserved');
+    const short = await walkInFor(desk, 'foot-30', a);
+    expect(short.status).toBe(201);
+    const { id } = await json<{ id: string }>(short);
+    expect(await startSuggested(desk, id)).toMatchObject({ therapist: { staffId: a, reason: 'requested' } });
+    // No extensions: an Added Service runs past it, and "add anyway" doesn't help.
+    const more = await desk.post(`/bookings/${id}/add-service`, { serviceId: 'foot-30', confirm: true });
+    expect(more.status).toBe(409);
+    expect((await json<{ error: string }>(more)).error).toBe('therapist_reserved');
+  });
+
+  it('skips the Therapist in the Rotation without costing their place, and cannot be overridden', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const a = await therapist(admin);
+    const b = await therapist(admin);
+    await reserve(desk, a, 60);
+    const g = await walkIn(desk);
+    expect((await json<Suggestion>(await desk.get(`/bookings/${g}/suggest`))).therapist?.staffId).toBe(b);
+    expect((await desk.post(`/bookings/${g}/start`, { therapistId: a, roomId: 1, flexMode: null, overrideReason: 'Guest prefers them' })).status).toBe(409);
+    expect((await board(desk)).rotation.map((r) => r.staffId)).toEqual([a, b]);
+  });
+
+  it('marks the Therapist Reserved from 30 minutes before and takes them out of Next', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const a = await therapist(admin);
+    const b = await therapist(admin);
+    const later = await reserve(desk, a, 45);
+    let state = await board(desk);
+    expect(state.rotation.find((r) => r.staffId === a)?.reservedFor).toBeNull();
+    expect(state.next).toBe(a);
+    await env.DB.prepare(`UPDATE bookings SET scheduled_at = ? WHERE id = ?`).bind(inMinutes(20), later).run();
+    state = await board(desk);
+    expect(state.rotation.find((r) => r.staffId === a)?.reservedFor).toBeTruthy();
+    expect(state.next).toBe(b);
+    // Their own Guest can still be started.
+    expect(await startSuggested(desk, later)).toMatchObject({ therapist: { staffId: a, reason: 'requested' } });
+  });
+
+  it('is changed only when the Guest asks, with a reason; the Super Admin needs only the reason', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const a = await therapist(admin);
+    const id = await reserve(desk, a, 120);
+    expect((await desk.post(`/bookings/${id}/cancel`, { reason: 'Slow day' })).status).toBe(403);
+    expect((await desk.send('PATCH', `/bookings/${id}`, { scheduledAt: inMinutes(180), reason: 'Slow day' })).status).toBe(403);
+    expect((await desk.send('PATCH', `/bookings/${id}`, { scheduledAt: inMinutes(180), guestAsked: true })).status).toBe(400);
+    expect((await desk.send('PATCH', `/bookings/${id}`, { scheduledAt: inMinutes(180), guestAsked: true, reason: 'Guest is running late' })).status).toBe(200);
+    expect((await desk.post(`/bookings/${id}/no-show`)).status).toBe(409);
+    expect((await admin.post(`/bookings/${id}/cancel`, { reason: 'Therapist is sick' })).status).toBe(200);
+  });
+
+  it('closes as a No-show 15 minutes after its time, freeing the Therapist', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const a = await therapist(admin);
+    const late = await reserve(desk, a, 60);
+    const onTime = await reserve(desk, a, 240);
+    const unnamed = await json<{ id: string }>(await desk.post('/bookings', { kind: 'scheduled', serviceId: 'thai-60', scheduledAt: inMinutes(30) }));
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE bookings SET scheduled_at = ? WHERE id IN (?, ?)`).bind(inMinutes(-16), late, unnamed.id),
+    ]);
+    const state = await board(desk);
+    const status = (id: string) => state.bookings.find((b) => b.id === id)?.status;
+    expect(status(late)).toBe('no_show');
+    expect(status(unnamed.id)).toBe('no_show');
+    expect(status(onTime)).toBe('scheduled');
+    expect(state.rotation.find((r) => r.staffId === a)?.reservedFor).toBeNull();
+    expect(state.next).toBe(a);
+    const row = await env.DB.prepare(`SELECT action FROM audit_log WHERE entity_id = ? AND action = 'booking.no_show_auto'`).bind(late).first();
+    expect(row).toBeTruthy();
   });
 });
 

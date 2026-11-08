@@ -75,7 +75,7 @@ async function closingState(c: Context<AuthedEnv>, day: string) {
             ? 'Still in service'
             : b.status === 'waiting'
               ? 'Still waiting: start or cancel'
-              : 'Booked but not arrived: mark no-show or cancel',
+              : 'Booked but not arrived: it closes by itself 15 minutes after its time, or cancel it',
     }));
 
   const onCallIds = new Set(onCallStaff.map((s) => s.id));

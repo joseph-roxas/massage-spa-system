@@ -5,7 +5,7 @@ import { Modal } from '../components/Modal';
 import { useCan, useCurrentUser } from '../lib/auth';
 import { manilaTime } from '../lib/attendance';
 import { duration, longDate, peso } from '../lib/format';
-import { guestLabel, useBoard, useDeskAction, useReliefOwed, type Board, type Booking } from '../lib/front-desk';
+import { guestLabel, isNamedReservation, useBoard, useDeskAction, useReliefOwed, type Board, type Booking } from '../lib/front-desk';
 import { useDayAction } from '../lib/sales';
 import { AddServiceDialog } from './front-desk/AddServiceDialog';
 import { CheckoutDialog } from './front-desk/CheckoutDialog';
@@ -13,6 +13,7 @@ import { CashReminder, HandoverDialog, TopUpDialog } from './front-desk/CashDial
 import { CashOutDialog, DayCloseDialog, EarlyCloseDialog } from './front-desk/DayDialogs';
 import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 import { NewBookingDialog } from './front-desk/NewBookingDialog';
+import { ReservationDialog, type ReservationChange } from './front-desk/ReservationDialog';
 import { StartDialog } from './front-desk/StartDialog';
 import { TurnedAwayDialog } from './front-desk/TurnedAwayDialog';
 
@@ -111,17 +112,23 @@ function RotationPanel({ board }: { board: Board }) {
                 {r.displayName} {r.therapistClass === 'lmt' && <Badge tone="teal">LMT</Badge>} {r.isOnCall && <Badge tone="amber">On-call</Badge>}
               </span>
               {r.staffId === board.next && <span className="text-xs font-semibold text-teal-800">Next</span>}
-              {r.status === 'in_service' ? <Badge tone="amber">Busy</Badge> : <Badge>Free</Badge>}
+              {r.status === 'in_service' ? (
+                <Badge tone="amber">Busy</Badge>
+              ) : r.reservedFor ? (
+                <Badge tone="red">Reserved {manilaTime(r.reservedFor)}</Badge>
+              ) : (
+                <Badge>Free</Badge>
+              )}
             </li>
           ))}
         </ol>
       )}
-      <p className="mt-3 text-xs text-stone-500">Done sends a therapist to the back, unless the guest asked for them.</p>
+      <p className="mt-3 text-xs text-stone-500">Done sends a therapist to the back, unless the guest asked for them. An LMT goes first from clock-in until their first un-requested service is done.</p>
     </Card>
   );
 }
 
-function QueueLine({ b, onStart }: { b: Booking; onStart: (b: Booking) => void }) {
+function QueueLine({ b, onStart, onChange }: { b: Booking; onStart: (b: Booking) => void; onChange: (b: Booking, mode: ReservationChange) => void }) {
   const act = useDeskAction();
   const call = (path: string, body?: unknown) => act.mutate({ path: `/bookings/${b.id}/${path}`, body });
   return (
@@ -141,22 +148,19 @@ function QueueLine({ b, onStart }: { b: Booking; onStart: (b: Booking) => void }
       {b.status === 'scheduled' && (
         <>
           <Button variant="secondary" className="h-8 px-3" onClick={() => call('arrived')}>Arrived</Button>
-          <Button variant="secondary" className="h-8 px-3" onClick={() => confirm(`Mark ${guestLabel(b)} as a no-show?`) && call('no-show')}>
-            No-show
-          </Button>
+          {!isNamedReservation(b) && (
+            <Button variant="secondary" className="h-8 px-3" onClick={() => confirm(`Mark ${guestLabel(b)} as a no-show?`) && call('no-show')}>
+              No-show
+            </Button>
+          )}
+          <Button variant="secondary" className="h-8 px-3" onClick={() => onChange(b, 'move')}>Move</Button>
         </>
       )}
       <Button className="h-8 px-3" onClick={() => onStart(b)}>Start</Button>
-      <button
-        type="button"
-        className="text-xs text-stone-500 underline"
-        onClick={() => {
-          const reason = prompt(`Why is ${guestLabel(b)}'s booking cancelled?`);
-          if (reason && reason.trim().length >= 3) call('cancel', { reason });
-        }}
-      >
+      <button type="button" className="text-xs text-stone-500 underline" onClick={() => onChange(b, 'cancel')}>
         Cancel
       </button>
+      {act.error && <span className="text-xs text-red-700">{act.error.message}</span>}
     </li>
   );
 }
@@ -288,6 +292,7 @@ function FrontDeskBoard() {
   const [paying, setPaying] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
   const [finishing, setFinishing] = useState<string | null>(null);
+  const [changing, setChanging] = useState<{ id: string; mode: ReservationChange } | null>(null);
   const [dayDialog, setDayDialog] = useState<DayDialog>(null);
   const [turningAway, setTurningAway] = useState(false);
   const canCash = useCan('cashouts.record');
@@ -315,6 +320,7 @@ function FrontDeskBoard() {
   const unpaid = finished.filter((b) => !b.sale).length;
   const addingBooking = board.bookings.find((b) => b.id === adding);
   const finishingBooking = board.bookings.find((b) => b.id === finishing && b.status === 'in_service');
+  const changingBooking = board.bookings.find((b) => b.id === changing?.id);
   const nextAfter = (b: Booking) => board.bookings.find((x) => x.parentBookingId === b.id && x.status === 'waiting');
   // Done hands straight over to checkout, since the guest pays on the way out; an Added Service starts instead.
   const markDone = (b: Booking) =>
@@ -370,7 +376,7 @@ function FrontDeskBoard() {
             ) : (
               <ul className="divide-y divide-stone-100">
                 {queue.map((b) => (
-                  <QueueLine key={b.id} b={b} onStart={(x) => setStarting(x.id)} />
+                  <QueueLine key={b.id} b={b} onStart={(x) => setStarting(x.id)} onChange={(x, mode) => setChanging({ id: x.id, mode })} />
                 ))}
               </ul>
             )}
@@ -424,6 +430,7 @@ function FrontDeskBoard() {
       {startingBooking && <StartDialog booking={startingBooking} board={board} onClose={() => setStarting(null)} />}
       {payingBooking && <CheckoutDialog booking={payingBooking} onClose={() => setPaying(null)} />}
       {addingBooking && <AddServiceDialog booking={addingBooking} onClose={() => setAdding(null)} />}
+      {changingBooking && changing && <ReservationDialog booking={changingBooking} mode={changing.mode} onClose={() => setChanging(null)} />}
       {finishingBooking && (
         <Modal title="Finish this service?" onClose={() => setFinishing(null)}>
           <p className="text-2xl font-bold text-stone-900">{finishingBooking.therapistName}</p>

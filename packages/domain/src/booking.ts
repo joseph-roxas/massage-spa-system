@@ -16,6 +16,23 @@ export function addMinutes(iso: string, minutes: number): string {
   return new Date(new Date(iso).getTime() + minutes * 60_000).toISOString();
 }
 
+/** How long before a named reservation its Therapist becomes Reserved. */
+export const RESERVED_LEAD_MIN = 30;
+
+/** How long a Scheduled Booking waits for its Guest before closing as a No-show. */
+export const GRACE_PERIOD_MIN = 15;
+
+/** The time a named reservation keeps its Therapist: from when they become Reserved until its Service ends. */
+export function reservationHold(scheduledAt: string, durationMin: number): Span {
+  return { start: addMinutes(scheduledAt, -RESERVED_LEAD_MIN), end: addMinutes(scheduledAt, durationMin) };
+}
+
+/** A Service starting now, counted from the start of the minute: 4:00:20 is 4:00 on the desk's clock. */
+export function serviceSpanFrom(now: string, durationMin: number): Span {
+  const start = new Date(Math.floor(new Date(now).getTime() / 60_000) * 60_000).toISOString();
+  return { start, end: addMinutes(start, durationMin) };
+}
+
 /** Whether a Service can be done in a Room set up a given way. */
 export function roomFits(room: RoomInfo, service: ServiceInfo, flexMode: FlexMode | null): boolean {
   if (!room.active) return false;
@@ -48,18 +65,19 @@ export type TherapistSuggestion = { staffId: string; reason: 'requested' | 'rota
 /**
  * Who should take this Guest now.
  *
- * A Requested Therapist always wins, if they are on duty and free. Otherwise
- * it is the first free therapist in the Rotation who isn't held for a
- * Scheduled Booking that would start before this Service ends.
+ * A Requested Therapist wins, if they are on duty, free and not kept for
+ * someone else's reservation. Otherwise it is the first free therapist in the
+ * Rotation who isn't held for a Guest during this Service.
  */
 export function suggestTherapist(
   rotation: readonly RotationEntry[],
   service: { span: Span },
-  options: { requestedId: string | null; heldSpans: ReadonlyMap<string, readonly Span[]> },
+  options: { requestedId: string | null; heldSpans: ReadonlyMap<string, readonly Span[]>; reservedSpans?: ReadonlyMap<string, readonly Span[]> },
 ): TherapistSuggestion | null {
   const free = (id: string) => rotation.some((r) => r.staffId === id && r.status === 'free');
   if (options.requestedId) {
-    return free(options.requestedId) ? { staffId: options.requestedId, reason: 'requested' } : null;
+    const reserved = options.reservedSpans?.get(options.requestedId) ?? [];
+    return free(options.requestedId) && !reserved.some((h) => overlaps(h, service.span)) ? { staffId: options.requestedId, reason: 'requested' } : null;
   }
   for (const r of rotation) {
     if (r.status !== 'free') continue;

@@ -62,7 +62,7 @@ describe('User Request → approval → login', () => {
       password: 'short',
     });
     expect(res.status).toBe(400);
-    expect(await json(res)).toMatchObject({ error: 'invalid_input' });
+    expect(await json(res)).toMatchObject({ error: 'invalid_input', message: 'Please check: Email, Password.' });
   });
 
   it('blocks a rejected request from logging in', async () => {

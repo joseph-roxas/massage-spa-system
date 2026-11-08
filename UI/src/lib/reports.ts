@@ -5,6 +5,8 @@ import { api } from './api';
 export const REPORT_LABELS: Record<ReportName, { title: string; blurb: string }> = {
   'daily-sales': { title: 'Daily sales', blurb: 'Guests, sales, discounts, cash and GCash per day' },
   'therapist-sales': { title: 'Sales per therapist', blurb: 'Services, requests, FOCs and commission' },
+  'therapist-detail': { title: 'Therapist Sales', blurb: 'Each service, its price and commission' },
+  'therapist-changes': { title: 'Therapist Changes', blurb: 'Who took over a service, and why' },
   guests: { title: 'Guests per day', blurb: 'Walk-ins, scheduled, no-shows, cancelled' },
   'service-times': { title: 'Services by time of day', blurb: 'Which services start at which hour' },
   foc: { title: 'Discounts & FOCs', blurb: 'Senior, PWD, promo, vouchers, complimentary' },
@@ -13,10 +15,10 @@ export const REPORT_LABELS: Record<ReportName, { title: string; blurb: string }>
   expenses: { title: 'Expenses', blurb: 'Spending by category' },
 };
 
-export const useReport = (name: ReportName, from: string, to: string) =>
+export const useReport = (name: ReportName, from: string, to: string, therapist = '') =>
   useQuery({
-    queryKey: ['reports', name, from, to],
-    queryFn: () => api<{ report: Report }>(`/reports/${name}?from=${from}&to=${to}`),
+    queryKey: ['reports', name, from, to, therapist],
+    queryFn: () => api<{ report: Report }>(`/reports/${name}?from=${from}&to=${to}${therapist ? `&therapist=${therapist}` : ''}`),
     placeholderData: (prev) => prev,
   });
 

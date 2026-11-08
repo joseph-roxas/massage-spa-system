@@ -161,6 +161,32 @@ describe('Therapist Change', () => {
     expect(b).toBeTruthy();
   });
 
+  it('shows in the reports, with subtotals per Therapist', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const a = await therapist(admin);
+    const b = await therapist(admin);
+    const id = await inService(desk, a);
+    await desk.post(`/bookings/${id}/change-therapist`, { therapistId: b, reason: 'Pressure hurt the shoulder' });
+    await checkout(desk, id);
+    await checkout(desk, await inService(desk, a, 'aroma-90'));
+    const range = `from=${today()}&to=${today()}`;
+    type Report = { rows: Record<string, unknown>[]; totals: Record<string, unknown> };
+    const changes = (await json<{ report: Report }>(await desk.get(`/reports/therapist-changes?${range}`))).report;
+    expect(changes.rows.filter((r) => r.reason === 'Pressure hurt the shoulder')).toHaveLength(1);
+
+    const one = (await json<{ report: Report }>(await desk.get(`/reports/therapist-detail?${range}&therapist=${b}`))).report;
+    expect(one.rows).toHaveLength(1);
+    expect(one.rows[0]).toMatchObject({ regular: 50000, commission: 15000 });
+    expect(String(one.rows[0]!.note)).toMatch(/Took over from .*Pressure hurt the shoulder/);
+
+    const all = (await json<{ report: Report }>(await desk.get(`/reports/therapist-detail?${range}`))).report;
+    expect(all.rows.filter((r) => r.rowKind !== 'subtotal').find((r) => r.commission === 19500)).toMatchObject({ regular: 70000, setAside: 5000 });
+    expect(all.rows.some((r) => r.rowKind === 'subtotal')).toBe(true);
+    const sum = all.rows.filter((r) => r.rowKind !== 'subtotal').reduce((s, r) => s + Number(r.commission), 0);
+    expect(all.totals.commission).toBe(sum);
+  });
+
   it('costs the new Therapist a place unless the Guest named them', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');

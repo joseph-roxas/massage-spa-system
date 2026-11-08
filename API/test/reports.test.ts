@@ -71,10 +71,12 @@ describe('reports', () => {
     expect(g.rows[0]).toMatchObject({ guests: 2, walkIns: 2, scheduled: 0 });
   });
 
-  it('gives the Receptionist today’s sales and guests only', async () => {
+  it('gives the Receptionist any dates, but only the reports meant for the desk', async () => {
     const desk = await loggedIn('receptionist');
     expect((await report(desk, 'daily-sales')).status).toBe(200);
-    expect((await report(desk, 'daily-sales', '2026-01-01', today())).status).toBe(403);
+    expect((await report(desk, 'daily-sales', '2026-01-01', today())).status).toBe(200);
+    expect((await report(desk, 'therapist-detail', '2026-01-01', today())).status).toBe(200);
+    expect((await report(desk, 'therapist-changes', '2026-01-01', today())).status).toBe(200);
     expect((await report(desk, 'therapist-sales')).status).toBe(403);
     expect((await report(desk, 'expenses')).status).toBe(403);
   });

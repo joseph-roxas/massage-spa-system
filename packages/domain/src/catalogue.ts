@@ -15,6 +15,9 @@ export function effectiveOn<T extends Effective>(entries: readonly T[], date: Is
 
 export type ServicePrice = Effective & { regularPrice: Centavos };
 
+/** The Owner's Set-aside on a Service from a date; Services with none have no entries. */
+export type ServiceSetAside = Effective & { amount: Centavos };
+
 export type TherapistClass = 'regular' | 'lmt';
 
 /** Percentages in basis points: 3000 = 30%. */

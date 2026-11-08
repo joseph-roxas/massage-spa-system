@@ -36,6 +36,23 @@ export const servicePrices = sqliteTable(
   (t) => [uniqueIndex('service_prices_service_from_idx').on(t.serviceId, t.effectiveFrom)],
 );
 
+/** Owner's Set-aside history; the one in force is the latest effective_from on or before the day. */
+export const serviceSetAsides = sqliteTable(
+  'service_set_asides',
+  {
+    id: text('id').primaryKey(),
+    serviceId: text('service_id')
+      .notNull()
+      .references(() => services.id),
+    /** Centavos. */
+    amount: integer('amount').notNull(),
+    effectiveFrom: text('effective_from').notNull(),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by'),
+  },
+  (t) => [uniqueIndex('service_set_asides_service_from_idx').on(t.serviceId, t.effectiveFrom)],
+);
+
 export const promos = sqliteTable(
   'promos',
   {

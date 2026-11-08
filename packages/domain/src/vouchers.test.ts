@@ -82,13 +82,12 @@ describe('redemption', () => {
       promos: [],
       statutory: 'senior',
       voucher: { serial: 'SWE-AAAAAA', isFree },
-      addonPrices: [pesos(50)],
     });
 
-  it('covers the Service as a Prepaid FOC, excluding other Discounts; Add-ons are still paid', () => {
+  it('covers the Service as a Prepaid FOC, excluding other Discounts', () => {
     const q = quote(false);
     expect(q.discount).toMatchObject({ type: 'voucher', amount: pesos(500) });
-    expect(q).toMatchObject({ serviceAmount: 0, amountDue: pesos(50), focKind: 'prepaid' });
+    expect(q).toMatchObject({ serviceAmount: 0, amountDue: 0, focKind: 'prepaid' });
   });
 
   it('makes a free Voucher a Real FOC', () => {

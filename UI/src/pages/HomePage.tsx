@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { Alert, Badge, Button, Card } from '../components/ui';
+import { Modal } from '../components/Modal';
 import { useCan, useCurrentUser } from '../lib/auth';
 import { manilaTime } from '../lib/attendance';
 import { duration, longDate, peso } from '../lib/format';
@@ -63,15 +64,16 @@ function RoomTile({
   const left = b.endsAt ? minutesLeft(b.endsAt, now) : null;
   return (
     <div className={`rounded-lg border p-3 text-sm ${left !== null && left <= 0 ? 'border-amber-400 bg-amber-50' : 'border-teal-600 bg-teal-50'}`}>
-      <p className="font-medium">
-        {room.name} {b.flexMode === 'recliner' && <span className="text-xs text-stone-500">(recliner)</span>}
+      <p className="text-xs font-medium text-stone-600">
+        {room.name} {b.flexMode === 'recliner' && <span className="text-stone-500">(recliner)</span>}
       </p>
-      <p className="truncate">
+      <p className="truncate text-xl font-bold leading-tight text-stone-900" title={b.therapistName ?? undefined}>
+        {b.therapistName}
+      </p>
+      <p className="mt-1 truncate">
         {guestLabel(b)} {b.guestIsRegular && <Badge tone="teal">Regular</Badge>}
       </p>
-      <p className="truncate text-xs text-stone-600">
-        {b.serviceCode} · {b.therapistName}
-      </p>
+      <p className="truncate text-xs text-stone-600">{b.serviceCode}</p>
       {next && <p className="truncate text-xs font-medium text-teal-800">then {next.serviceCode}{next.therapistId !== b.therapistId ? ` · ${next.therapistName}` : ''}</p>}
       <p className="mt-1 text-xs font-medium tabular-nums">{left === null ? '' : left > 0 ? `${left} min left` : 'Time is up'}</p>
       <div className="mt-2 flex flex-wrap justify-end gap-1">
@@ -80,8 +82,8 @@ function RoomTile({
             + Service
           </button>
         )}
-        <button type="button" className="rounded bg-teal-700 px-2 py-1 text-xs font-medium text-white hover:bg-teal-800" onClick={() => onDone(b)}>
-          Done
+        <button type="button" className="max-w-full truncate rounded bg-teal-700 px-2 py-1 text-xs font-medium text-white hover:bg-teal-800" onClick={() => onDone(b)}>
+          Done · {b.therapistName}
         </button>
       </div>
     </div>
@@ -285,6 +287,7 @@ function FrontDeskBoard() {
   const [starting, setStarting] = useState<string | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState<string | null>(null);
   const [dayDialog, setDayDialog] = useState<DayDialog>(null);
   const [turningAway, setTurningAway] = useState(false);
   const canCash = useCan('cashouts.record');
@@ -311,9 +314,19 @@ function FrontDeskBoard() {
   const payingBooking = board.bookings.find((b) => b.id === paying);
   const unpaid = finished.filter((b) => !b.sale).length;
   const addingBooking = board.bookings.find((b) => b.id === adding);
+  const finishingBooking = board.bookings.find((b) => b.id === finishing && b.status === 'in_service');
   const nextAfter = (b: Booking) => board.bookings.find((x) => x.parentBookingId === b.id && x.status === 'waiting');
   // Done hands straight over to checkout, since the guest pays on the way out; an Added Service starts instead.
-  const markDone = (b: Booking) => done.mutate({ path: `/bookings/${b.id}/done` }, { onSuccess: (res) => !res.startedNext && setPaying(b.id) });
+  const markDone = (b: Booking) =>
+    done.mutate(
+      { path: `/bookings/${b.id}/done` },
+      {
+        onSuccess: (res) => {
+          setFinishing(null);
+          if (!res.startedNext) setPaying(b.id);
+        },
+      },
+    );
 
   return (
     <div className="space-y-6">
@@ -347,7 +360,7 @@ function FrontDeskBoard() {
         <div className="space-y-6">
           <section aria-label="Rooms" className="grid grid-cols-4 gap-3">
             {board.rooms.map((r) => (
-              <RoomTile key={r.id} room={r} now={now} next={r.booking ? nextAfter(r.booking) : undefined} onDone={markDone} onAdd={(b) => setAdding(b.id)} />
+              <RoomTile key={r.id} room={r} now={now} next={r.booking ? nextAfter(r.booking) : undefined} onDone={(b) => setFinishing(b.id)} onAdd={(b) => setAdding(b.id)} />
             ))}
           </section>
 
@@ -411,6 +424,23 @@ function FrontDeskBoard() {
       {startingBooking && <StartDialog booking={startingBooking} board={board} onClose={() => setStarting(null)} />}
       {payingBooking && <CheckoutDialog booking={payingBooking} onClose={() => setPaying(null)} />}
       {addingBooking && <AddServiceDialog booking={addingBooking} onClose={() => setAdding(null)} />}
+      {finishingBooking && (
+        <Modal title="Finish this service?" onClose={() => setFinishing(null)}>
+          <p className="text-2xl font-bold text-stone-900">{finishingBooking.therapistName}</p>
+          <p className="mt-1 text-sm text-stone-700">
+            {guestLabel(finishingBooking)} · {finishingBooking.serviceName} · {board.rooms.find((r) => r.id === finishingBooking.roomId)?.name}
+          </p>
+          {done.error && (
+            <div className="mt-3">
+              <Alert>{done.error.message}</Alert>
+            </div>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setFinishing(null)}>Go back</Button>
+            <Button disabled={done.isPending} onClick={() => markDone(finishingBooking)}>Yes, it’s done</Button>
+          </div>
+        </Modal>
+      )}
       {turningAway && <TurnedAwayDialog onClose={() => setTurningAway(false)} />}
       {dayDialog === 'cash-outs' && <CashOutDialog day={board.day} onClose={() => setDayDialog(null)} />}
       {dayDialog === 'early-close' && <EarlyCloseDialog onClose={() => setDayDialog(null)} />}

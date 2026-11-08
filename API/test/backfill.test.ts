@@ -21,7 +21,7 @@ const month = (over = {}) => ({
   ...over,
 });
 
-const received = (1_000_000 + 100_000 + 4_000 + 150_000 - 20_000) * 2;
+const received = (1_000_000 + 100_000 + 150_000 - 20_000) * 2;
 
 let admin: Client;
 
@@ -51,7 +51,7 @@ describe('Backfill', () => {
     expect((await admin.send('PUT', `/backfill/months/${M}`, month())).status).toBe(200);
     expect((await admin.send('PUT', `/backfill/months/${M}`, month())).status).toBe(200);
     const s = await statement();
-    expect(line(s.revenue, 'Services (after discounts)') + line(s.revenue, 'Add-ons') + line(s.revenue, 'Vouchers sold')).toBe(received);
+    expect(line(s.revenue, 'Services (after discounts)') + line(s.revenue, 'Vouchers sold')).toBe(received);
     expect(line(s.costs, 'Therapist commission')).toBe(700_000);
     expect(line(s.costs, 'Receptionist pay')).toBe(2_000_000);
     expect(line(s.costs, 'Electricity')).toBe(800_000);

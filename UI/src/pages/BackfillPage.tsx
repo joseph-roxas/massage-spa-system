@@ -258,7 +258,7 @@ const EMPTY = { cash: '', gcash: '', oil: '', voucher: '', foc: '', commission: 
 const MONEY_FIELDS = [
   ['cash', 'Gross Sales (cash)'],
   ['gcash', 'GCash'],
-  ['oil', 'Oil'],
+  ['oil', 'Oil (Owner’s Set-aside, not added to sales)'],
   ['voucher', 'Voucher sold'],
   ['foc', 'FOC'],
   ['commission', 'Commission'],

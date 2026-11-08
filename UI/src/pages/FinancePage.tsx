@@ -210,7 +210,7 @@ function PercentageTaxCard() {
           <table className="w-full sm:w-96">
             <tbody>
               <tr>
-                <td className={td}>Services and add-ons received</td>
+                <td className={td}>Services received</td>
                 <td className={`${td} text-right tabular-nums`}>{peso(s.grossSales.services)}</td>
               </tr>
               <tr>

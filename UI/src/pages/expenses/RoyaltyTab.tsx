@@ -74,7 +74,7 @@ export function RoyaltyTab() {
       >
         {act.error && <Alert>{act.error.message}</Alert>}
         <p className="mb-3 text-sm text-stone-500">
-          Gross Sales = what guests paid for Services after discounts (not Add-ons, Voucher redemptions or Real FOCs) plus Vouchers sold that month. Each statement is a
+          Gross Sales = what guests paid for Services after discounts (not Voucher redemptions or Real FOCs) plus Vouchers sold that month. Each statement is a
           pending Expense until you mark it paid; recompute it if sales were corrected.
         </p>
         {data?.statements.length === 0 ? (

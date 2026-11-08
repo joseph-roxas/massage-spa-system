@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, like } from 'drizzle-orm';
 import { effectiveOn, type Centavos } from '@spa/domain';
-import { addons, HOLIDAY_TYPES, holidays, promos, rooms, SERVICE_KINDS, servicePrices, services } from '@spa/db';
+import { HOLIDAY_TYPES, holidays, promos, rooms, SERVICE_KINDS, servicePrices, serviceSetAsides, services } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { fail, invalidInput } from '../lib/http';
@@ -38,6 +38,7 @@ const newService = serviceFields
   .extend({ regularPrice: centavos, effectiveFrom: isoDate });
 
 const newPrice = z.object({ regularPrice: centavos, effectiveFrom: notInPast('Effective date') });
+const newSetAside = z.object({ amount: centavos, effectiveFrom: notInPast('Effective date') });
 
 const promoFields = z
   .object({
@@ -53,7 +54,6 @@ const promoFields = z
   .refine((p) => p.endTime > p.startTime, { message: 'End time must be after start time.', path: ['endTime'] })
   .refine((p) => p.validTo >= p.validFrom, { message: 'End date must be on or after start date.', path: ['validTo'] });
 
-const addonFields = z.object({ name, price: centavos, active: z.boolean() });
 const roomFields = z.object({ name, isFlex: z.boolean(), active: z.boolean() });
 const holidayFields = z.object({ name, type: z.enum(HOLIDAY_TYPES), raisesCommission: z.boolean() });
 
@@ -67,9 +67,10 @@ export const catalogueRoutes = new Hono<AuthedEnv>()
   // ---- Services & Regular Prices ----
   .get('/services', async (c) => {
     const db = c.var.db;
-    const [rows, prices] = await Promise.all([
+    const [rows, prices, setAsides] = await Promise.all([
       db.select().from(services).orderBy(asc(services.sortOrder), asc(services.code)),
       db.select().from(servicePrices).orderBy(asc(servicePrices.effectiveFrom)),
+      db.select().from(serviceSetAsides).orderBy(asc(serviceSetAsides.effectiveFrom)),
     ]);
     const today = todayInManila();
     return c.json({
@@ -79,8 +80,11 @@ export const catalogueRoutes = new Hono<AuthedEnv>()
           .filter((p) => p.serviceId === s.id)
           .map((p) => ({ ...p, regularPrice: p.regularPrice as Centavos }));
         const current = effectiveOn(history, today);
+        const setAside = setAsides.filter((a) => a.serviceId === s.id);
         return {
           ...s,
+          currentSetAside: effectiveOn(setAside, today)?.amount ?? 0,
+          upcomingSetAsides: setAside.filter((a) => a.effectiveFrom > today),
           currentPrice: current?.regularPrice ?? null,
           upcomingPrices: history.filter((p) => p.effectiveFrom > today),
           priceHistory: history,
@@ -159,6 +163,24 @@ export const catalogueRoutes = new Hono<AuthedEnv>()
     }
     return c.json({ id }, 201);
   })
+  .post('/services/:id/set-asides', manage, zValidator('json', newSetAside, invalidInput), async (c) => {
+    const db = c.var.db;
+    const serviceId = c.req.param('id');
+    const service = await db.select({ id: services.id }).from(services).where(eq(services.id, serviceId)).get();
+    if (!service) return fail(c, 404, 'not_found', 'Service not found.');
+    const input = c.req.valid('json');
+    const id = crypto.randomUUID();
+    try {
+      await db.batch([
+        db.insert(serviceSetAsides).values({ id, serviceId, ...input, createdAt: nowIso(), createdBy: c.var.user.id }),
+        auditInsert(db, { actorUserId: c.var.user.id, action: 'service.set_aside_add', entity: 'service', entityId: serviceId, after: input }),
+      ]);
+    } catch (err) {
+      if (isUniqueViolation(err)) return fail(c, 409, 'date_taken', 'A Set-aside already starts on that date.');
+      throw err;
+    }
+    return c.json({ id }, 201);
+  })
   .delete('/services/:id/prices/:priceId', manage, async (c) => {
     const db = c.var.db;
     const { id: serviceId, priceId } = c.req.param();
@@ -204,33 +226,6 @@ export const catalogueRoutes = new Hono<AuthedEnv>()
     await db.batch([
       db.update(promos).set(input).where(eq(promos.id, id)),
       auditInsert(db, { actorUserId: c.var.user.id, action: 'promo.update', entity: 'promo', entityId: id, before, after: input }),
-    ]);
-    return c.json({ ok: true });
-  })
-
-  // ---- Add-ons ----
-  .get('/addons', async (c) => {
-    return c.json({ addons: await c.var.db.select().from(addons).orderBy(asc(addons.name)) });
-  })
-  .post('/addons', manage, zValidator('json', addonFields, invalidInput), async (c) => {
-    const input = c.req.valid('json');
-    const db = c.var.db;
-    const id = crypto.randomUUID();
-    await db.batch([
-      db.insert(addons).values({ id, ...input, createdAt: nowIso() }),
-      auditInsert(db, { actorUserId: c.var.user.id, action: 'addon.create', entity: 'addon', entityId: id, after: input }),
-    ]);
-    return c.json({ id }, 201);
-  })
-  .put('/addons/:id', manage, zValidator('json', addonFields, invalidInput), async (c) => {
-    const db = c.var.db;
-    const id = c.req.param('id');
-    const before = await db.select().from(addons).where(eq(addons.id, id)).get();
-    if (!before) return fail(c, 404, 'not_found', 'Add-on not found.');
-    const input = c.req.valid('json');
-    await db.batch([
-      db.update(addons).set(input).where(eq(addons.id, id)),
-      auditInsert(db, { actorUserId: c.var.user.id, action: 'addon.update', entity: 'addon', entityId: id, before, after: input }),
     ]);
     return c.json({ ok: true });
   })

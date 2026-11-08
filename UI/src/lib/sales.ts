@@ -10,7 +10,6 @@ export type PriceChoice = {
   statutory: 'senior' | 'pwd' | null;
   /** The Promo picked, or null for none; left out, the server uses the best that applies. */
   promoId?: string | null;
-  addonIds: string[];
   complimentary: boolean;
   voucherSerial: string | null;
 };
@@ -19,10 +18,8 @@ export type Quote = {
   regularPrice: number;
   discount: { type: DiscountType; bp: number; amount: number; promoId: string | null; label: string };
   serviceAmount: number;
-  addonsTotal: number;
   amountDue: number;
   focKind: 'none' | 'prepaid' | 'real';
-  addons: { id: string; name: string; price: number }[];
   /** Every running Promo, with why it doesn't cover this Service (null if it does). */
   promos: { id: string; name: string; percentBp: number; problem: string | null }[];
   voucherBundle: VoucherBundle | null;
@@ -89,7 +86,7 @@ export type ClosePreview = {
   guests: number;
 };
 
-/** The server prices every change of discount or add-on, so the screen never disagrees with the record. */
+/** The server prices every change of discount, so the screen never disagrees with the record. */
 /** One quote per Service being checked out; a stay has several. */
 export const useQuotes = (choices: PriceChoice[]) =>
   useQueries({

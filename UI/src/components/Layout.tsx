@@ -7,7 +7,8 @@ import { ROLE_LABELS, useCurrentUser, useLogout } from '../lib/auth';
 import { useAttention } from '../lib/attention';
 
 /** Menu entries appear only for roles that hold the capability. */
-const NAV: { to: string; label: string; capability?: Capability; hideFor?: Role }[] = [
+const FRONT_DESK_ROLES: Role[] = ['receptionist', 'reliever'];
+const NAV: { to: string; label: string; capability?: Capability; hideFor?: Role[] }[] = [
   { to: '/', label: 'Dashboard', capability: 'reports.all' },
   { to: '/front-desk', label: 'Front Desk' },
   { to: '/guests', label: 'Guests', capability: 'bookings.manage' },
@@ -16,13 +17,13 @@ const NAV: { to: string; label: string; capability?: Capability; hideFor?: Role 
   { to: '/dtr', label: 'Time Records', capability: 'dtr.correct.therapist' },
   { to: '/payroll', label: 'Payroll', capability: 'payroll.therapist.generate' },
   // The Super Admin holds every capability but has no payslips of her own.
-  { to: '/my-pay', label: 'My Pay', capability: 'payroll.view_own', hideFor: 'super_admin' },
+  { to: '/my-pay', label: 'My Pay', capability: 'payroll.view_own', hideFor: ['super_admin'] },
   { to: '/inventory', label: 'Inventory', capability: 'inventory.stock_out' },
   { to: '/expenses', label: 'Expenses', capability: 'expenses.manage' },
   { to: '/reports', label: 'Reports', capability: 'reports.daily' },
   { to: '/finance', label: 'Finance', capability: 'reports.all' },
-  { to: '/price-list', label: 'Price List' },
-  { to: '/paper-sheet', label: 'Paper backup', capability: 'bookings.manage' },
+  { to: '/price-list', label: 'Price List', hideFor: FRONT_DESK_ROLES },
+  { to: '/paper-sheet', label: 'Paper backup', capability: 'bookings.manage', hideFor: FRONT_DESK_ROLES },
   { to: '/settings', label: 'Settings', capability: 'settings.manage' },
   { to: '/admin/go-live', label: 'Go-live', capability: 'settings.manage' },
   { to: '/admin/backfill', label: 'This year’s records', capability: 'settings.manage' },
@@ -63,7 +64,7 @@ export function Layout() {
           <BrandMark stacked />
         </div>
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3">
-          {NAV.filter((n) => (!n.capability || can(user.role, n.capability)) && n.hideFor !== user.role).map((n) => (
+          {NAV.filter((n) => (!n.capability || can(user.role, n.capability)) && !n.hideFor?.includes(user.role)).map((n) => (
             <NavLink
               key={n.to}
               to={n.to}

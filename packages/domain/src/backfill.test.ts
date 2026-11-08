@@ -71,7 +71,7 @@ const jan = grid({
 
 describe('Daily Summaries', () => {
   it('money received is the sheet’s NET SALES', () => {
-    expect(moneyReceived(day())).toBe(630_000);
+    expect(moneyReceived(day())).toBe(618_000);
   });
 
   it('flags days whose figures do not fit', () => {

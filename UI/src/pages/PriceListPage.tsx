@@ -1,5 +1,5 @@
 import { Alert, Badge, Card, td, th } from '../components/ui';
-import { useAddons, usePromos, useServices, type Service } from '../lib/catalogue';
+import { usePromos, useServices, type Service } from '../lib/catalogue';
 import { clock, duration, longDate, peso, percent } from '../lib/format';
 
 function ServiceTable({ title, services }: { title: string; services: Service[] }) {
@@ -46,7 +46,6 @@ function ServiceTable({ title, services }: { title: string; services: Service[] 
 export function PriceListPage() {
   const services = useServices();
   const promos = usePromos();
-  const addons = useAddons();
   const today = services.data?.today ?? '';
   const active = services.data?.services.filter((s) => s.active) ?? [];
   const name = (id: string) => services.data?.services.find((s) => s.id === id)?.name ?? id;
@@ -73,20 +72,6 @@ export function PriceListPage() {
 
       <ServiceTable title="Services" services={active.filter((s) => s.kind === 'single')} />
       <ServiceTable title="Combo rates" services={active.filter((s) => s.kind === 'combo')} />
-
-      <Card title="Add-ons">
-        <ul className="text-sm">
-          {addons.data?.addons
-            .filter((a) => a.active)
-            .map((a) => (
-              <li key={a.id} className="flex justify-between py-1">
-                <span>{a.name}</span>
-                <span className="font-semibold tabular-nums">{peso(a.price)}</span>
-              </li>
-            ))}
-        </ul>
-        <p className="mt-2 text-xs text-stone-500">Add-ons belong to the shop: no commission.</p>
-      </Card>
     </div>
   );
 }

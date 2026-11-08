@@ -15,6 +15,9 @@ export type Service = {
   voucherPrefix: string | null;
   active: boolean;
   sortOrder: number;
+  /** The Owner's Set-aside in force today; 0 for none. */
+  currentSetAside: number;
+  upcomingSetAsides: { id: string; amount: number; effectiveFrom: string }[];
   currentPrice: number | null;
   upcomingPrices: PriceEntry[];
   priceHistory: PriceEntry[];
@@ -32,7 +35,6 @@ export type Promo = {
   active: boolean;
 };
 
-export type Addon = { id: string; name: string; price: number; active: boolean };
 export type Room = { id: number; name: string; isFlex: boolean; active: boolean };
 export type Holiday = { date: string; name: string; type: 'regular' | 'special'; raisesCommission: boolean };
 
@@ -92,8 +94,6 @@ export const useServices = () =>
   useQuery({ queryKey: ['catalogue', 'services'], queryFn: () => api<{ today: string; services: Service[] }>('/catalogue/services') });
 export const usePromos = () =>
   useQuery({ queryKey: ['catalogue', 'promos'], queryFn: () => api<{ promos: Promo[] }>('/catalogue/promos') });
-export const useAddons = () =>
-  useQuery({ queryKey: ['catalogue', 'addons'], queryFn: () => api<{ addons: Addon[] }>('/catalogue/addons') });
 export const useRooms = () =>
   useQuery({ queryKey: ['catalogue', 'rooms'], queryFn: () => api<{ rooms: Room[] }>('/catalogue/rooms') });
 export const useHolidays = (year: string) =>

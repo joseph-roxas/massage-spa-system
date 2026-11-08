@@ -46,16 +46,16 @@ describe('reports', () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');
     const t = await therapist(admin);
-    // Thai ₱500 with oil, paid cash; Thai ₱500 Senior → ₱400 by GCash.
+    // Thai ₱500 paid cash; Thai ₱500 Senior → ₱400 by GCash.
     const b1 = await served(desk, t.id);
-    expect((await desk.post('/sales', { bookingId: b1, addonIds: ['extra-oil'], payments: [{ method: 'cash', amount: 55000 }] })).status).toBe(201);
+    expect((await desk.post('/sales', { bookingId: b1, payments: [{ method: 'cash', amount: 50000 }] })).status).toBe(201);
     const b2 = await served(desk, t.id);
     expect((await desk.post('/sales', { bookingId: b2, statutory: { kind: 'senior', idNumber: 'SC-1' }, payments: [{ method: 'gcash', amount: 40000, gcashRef: '123' }] })).status).toBe(201);
     await desk.post('/cash-outs', { category: 'petty_cash', amount: 10000, purpose: 'Rice' });
 
     const daily = (await json<{ report: Report }>(await report(desk, 'daily-sales'))).report;
     expect(daily.rows).toEqual([
-      expect.objectContaining({ date: today(), guests: 2, regular: 100000, discounts: 10000, services: 90000, addons: 5000, cash: 55000, gcash: 40000, cashOuts: 10000, commission: 30000 }),
+      expect.objectContaining({ date: today(), guests: 2, regular: 100000, discounts: 10000, services: 90000, setAside: 0, cash: 50000, gcash: 40000, cashOuts: 10000, commission: 30000 }),
     ]);
 
     const people = (await json<{ report: Report }>(await report(admin, 'therapist-sales'))).report;
@@ -63,9 +63,6 @@ describe('reports', () => {
 
     const focs = (await json<{ report: Report }>(await report(admin, 'foc'))).report;
     expect(focs.rows).toEqual([expect.objectContaining({ group: 'Senior Citizen (20%)', count: 1, discount: 10000, paid: 40000 })]);
-
-    const oil = (await json<{ report: Report }>(await report(admin, 'addons'))).report;
-    expect(oil.rows).toEqual([{ name: 'Extra oil', count: 1, revenue: 5000 }]);
 
     const times = (await json<{ report: Report }>(await report(admin, 'service-times'))).report;
     expect(times.totals.total).toBe(2);

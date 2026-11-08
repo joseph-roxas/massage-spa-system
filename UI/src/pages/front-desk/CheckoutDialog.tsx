@@ -3,7 +3,6 @@ import { Alert, Badge, Button, Checkbox, Field, Input, Select } from '../../comp
 import { GuestPicker, guestBody, type GuestChoice } from '../../components/GuestPicker';
 import { Modal } from '../../components/Modal';
 import { useCan } from '../../lib/auth';
-import { useAddons } from '../../lib/catalogue';
 import { longDate, peso, percent } from '../../lib/format';
 import { guestLabel, type Booking } from '../../lib/front-desk';
 import { STATUTORY_LABEL, useGuest, useGuestAction, visitsLabel } from '../../lib/guests';
@@ -16,8 +15,8 @@ import { usePayment } from './PaymentFields';
 type DiscountPick = 'none' | `promo:${string}` | 'senior' | 'pwd' | 'voucher' | 'complimentary';
 
 /** What the Receptionist chose for one Service of the stay. */
-type Line = { picked: DiscountPick | null; reason: string; serial: string; addonIds: string[] };
-const NEW_LINE: Line = { picked: null, reason: '', serial: '', addonIds: [] };
+type Line = { picked: DiscountPick | null; reason: string; serial: string };
+const NEW_LINE: Line = { picked: null, reason: '', serial: '' };
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
@@ -59,7 +58,7 @@ const promoIdOf = (pick: DiscountPick | null) => (pick === null ? undefined : pi
 // Look the serial up only once it could be one.
 const serialOf = (pick: DiscountPick | null, line: Line) => (pick === 'voucher' && line.serial.trim().length >= 3 ? line.serial.trim() : null);
 
-/** The Discount, Voucher and Add-ons of one Service, priced by its quote. */
+/** The Discount and Voucher of one Service, priced by its quote. */
 function LineEditor({
   stay,
   line,
@@ -79,13 +78,11 @@ function LineEditor({
   showTitle: boolean;
 }) {
   const canComp = useCan('sales.complimentary');
-  const addons = useAddons();
   const unused = useVouchers({ serviceId: stay.serviceId, status: 'unused' }, chosen === 'voucher');
   const autoPromo = chosen === null ? quote.data?.discount.promoId : null;
   const pick: DiscountPick = chosen ?? (autoPromo ? `promo:${autoPromo}` : 'none');
   const promoOptions = quote.data?.promos ?? [];
   const listId = `unused-vouchers-${stay.id}`;
-  const active = addons.data?.addons.filter((a) => a.active) ?? [];
 
   return (
     <div className="space-y-3">
@@ -133,19 +130,6 @@ function LineEditor({
           <Input required minLength={3} autoFocus value={line.reason} onChange={(e) => set({ ...line, reason: e.target.value })} />
         </Field>
       )}
-      {active.length > 0 && (
-        <fieldset className="space-y-2">
-          <legend className="mb-1 text-sm font-medium text-stone-700">Add-ons</legend>
-          {active.map((a) => (
-            <Checkbox
-              key={a.id}
-              label={`${a.name} (${peso(a.price)})`}
-              checked={line.addonIds.includes(a.id)}
-              onChange={(e) => set({ ...line, addonIds: e.target.checked ? [...line.addonIds, a.id] : line.addonIds.filter((x) => x !== a.id) })}
-            />
-          ))}
-        </fieldset>
-      )}
       {priced && (
         <div className="space-y-1 rounded-lg bg-stone-50 p-4">
           <Row label="Regular Price" value={peso(priced.regularPrice)} />
@@ -155,9 +139,6 @@ function LineEditor({
               value={`−${peso(priced.discount.amount)}`}
             />
           )}
-          {priced.addons.map((a) => (
-            <Row key={a.id} label={a.name} value={peso(a.price)} />
-          ))}
           <Row label={showTitle ? 'This service' : 'To pay'} value={peso(priced.amountDue)} strong />
         </div>
       )}
@@ -196,7 +177,6 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
       bookingId: b.id,
       statutory: statutoryOf(chosen),
       promoId: promoIdOf(chosen),
-      addonIds: lineOf(b.id).addonIds,
       complimentary: chosen === 'complimentary',
       voucherSerial: serialOf(chosen, lineOf(b.id)),
     };
@@ -244,7 +224,6 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
               bookingId: b.id,
               statutory: kind ? { kind, idNumber } : null,
               promoId: promoId === undefined ? (quotes[i]?.data?.discount.promoId ?? null) : promoId,
-              addonIds: lineOf(b.id).addonIds,
               complimentaryReason: chosen === 'complimentary' ? lineOf(b.id).reason : null,
               voucherSerial: choices[i]!.voucherSerial,
             };

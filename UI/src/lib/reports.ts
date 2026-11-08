@@ -8,7 +8,6 @@ export const REPORT_LABELS: Record<ReportName, { title: string; blurb: string }>
   guests: { title: 'Guests per day', blurb: 'Walk-ins, scheduled, no-shows, cancelled' },
   'service-times': { title: 'Services by time of day', blurb: 'Which services start at which hour' },
   foc: { title: 'Discounts & FOCs', blurb: 'Senior, PWD, promo, vouchers, complimentary' },
-  addons: { title: 'Add-ons', blurb: 'Extra oil and other add-ons sold' },
   payroll: { title: 'Payroll', blurb: 'Weekly pay, deductions and net' },
   inventory: { title: 'Inventory', blurb: 'Received, spent, taken out, on hand' },
   expenses: { title: 'Expenses', blurb: 'Spending by category' },

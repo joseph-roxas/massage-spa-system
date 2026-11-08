@@ -12,7 +12,6 @@ export const REPORTS = [
   'guests',
   'service-times',
   'foc',
-  'addons',
   'payroll',
   'inventory',
   'expenses',

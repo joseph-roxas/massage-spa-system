@@ -265,14 +265,14 @@ export const dashboardRoutes = new Hono<AuthedEnv>().get(
       const r = byDay.get(date) ?? {};
       return {
         date,
-        sales: money(r, 'services') + money(r, 'addons') + money(r, 'vouchers'),
+        sales: money(r, 'services') + money(r, 'vouchers'),
         expenses: money(r, 'commission') + money(r, 'cashOuts') + n(billed.find((b) => b.date === date)?.amount),
       };
     });
 
     const guests = daily.rows.reduce((s, r) => s + money(r, 'guests'), 0);
     const turnedAway = daily.rows.reduce((s, r) => s + money(r, 'rejects'), 0);
-    const earned = daily.rows.reduce((s, r) => s + money(r, 'services') + money(r, 'addons'), 0);
+    const earned = daily.rows.reduce((s, r) => s + money(r, 'services'), 0);
     const cashIn = daily.rows.reduce((s, r) => s + money(r, 'cash') + money(r, 'gcash'), 0);
     const discountRows = discounts.rows.map((r) => ({ label: String(r.group), amount: money(r, 'discount'), count: money(r, 'count') }));
     if (past.foc) discountRows.push({ label: 'FOC, from Daily Summaries', amount: past.foc, count: 0 });

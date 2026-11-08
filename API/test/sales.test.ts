@@ -7,7 +7,7 @@ async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-type Quote = { regularPrice: number; discount: { type: string; amount: number }; serviceAmount: number; addonsTotal: number; amountDue: number; focKind: string };
+type Quote = { regularPrice: number; discount: { type: string; amount: number }; serviceAmount: number; amountDue: number; focKind: string };
 type Preview = {
   blockers: { bookingId: string; problem: string }[];
   owed: { staffId: string; amount: number }[];
@@ -63,35 +63,44 @@ beforeEach(async () => {
 });
 
 describe('checkout', () => {
-  it('gives the largest Discount, adds Add-ons on top and pays Commission on the Regular Price', async () => {
+  it('takes the Owner’s Set-aside off before Commission, and keeps it in the sale', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const booking = await served(desk, t, 'aroma-90');
+    expect((await desk.post('/sales', { bookingId: booking, payments: cash(70000) })).status).toBe(201);
+    const { sales } = await json<{ sales: { bookingId: string; amountDue: number; setAside: number; commissionAmount: number }[] }>(await desk.get(`/sales?day=${today()}`));
+    expect(sales.find((s) => s.bookingId === booking)).toMatchObject({ amountDue: 70000, setAside: 5000, commissionAmount: 19500 });
+  });
+
+  it('gives the largest Discount and pays Commission on the Regular Price', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');
     const t = await therapist(admin);
     const booking = await served(desk, t);
 
-    const checkout = { bookingId: booking, statutory: { kind: 'senior', idNumber: 'SC-12345' }, addonIds: ['extra-oil'] };
-    const q = await json<Quote>(await desk.post('/sales/quote', { bookingId: booking, statutory: 'senior', addonIds: ['extra-oil'] }));
+    const checkout = { bookingId: booking, statutory: { kind: 'senior', idNumber: 'SC-12345' } };
+    const q = await json<Quote>(await desk.post('/sales/quote', { bookingId: booking, statutory: 'senior' }));
     // 20% Senior beats the 10% Happy Hours whenever both apply.
-    expect(q).toMatchObject({ regularPrice: 50000, discount: { type: 'senior', amount: 10000 }, serviceAmount: 40000, addonsTotal: 5000, amountDue: 45000 });
+    expect(q).toMatchObject({ regularPrice: 50000, discount: { type: 'senior', amount: 10000 }, serviceAmount: 40000, amountDue: 40000 });
 
     const res = await desk.post('/sales', {
       ...checkout,
       bookletInvoiceNo: '000123',
       payments: [
         { method: 'cash', amount: 20000 },
-        { method: 'gcash', amount: 25000, gcashRef: '1009 223 4456' },
+        { method: 'gcash', amount: 20000, gcashRef: '1009 223 4456' },
       ],
     });
     expect(res.status).toBe(201);
 
-    const { sales } = await json<{ sales: { bookingId: string; discountRef: string; commissionBp: number; commissionAmount: number; payments: unknown[]; addons: unknown[] }[] }>(
+    const { sales } = await json<{ sales: { bookingId: string; discountRef: string; commissionBp: number; commissionAmount: number; payments: unknown[] }[] }>(
       await desk.get(`/sales?day=${today()}`),
     );
     const sale = sales.find((s) => s.bookingId === booking)!;
     expect(sale.discountRef).toBe('SC-12345');
     expect(sale.commissionAmount).toBe((50000 * sale.commissionBp) / 10000);
     expect(sale.payments).toHaveLength(2);
-    expect(sale.addons).toHaveLength(1);
 
     // Once only.
     expect((await desk.post('/sales', { bookingId: booking, payments: cash(50000) })).status).toBe(409);
@@ -431,15 +440,15 @@ describe('vouchers', () => {
     expect((await sell(desk, 'swedish-60', 1, [six[0]!])).status).toBe(409); // already sold
 
     const t = await therapist(admin);
-    // The highest serial goes first: still a Prepaid FOC. Typed back loosely; Add-ons are still paid.
+    // The highest serial goes first: still a Prepaid FOC. Typed back loosely.
     const b1 = await served(desk, t);
     const q = await json<Quote & { voucherBundle: Bundle }>(
-      await desk.post('/sales/quote', { bookingId: b1, statutory: 'senior', addonIds: ['extra-oil'], voucherSerial: ' ntlsm0276 ' }),
+      await desk.post('/sales/quote', { bookingId: b1, statutory: 'senior', voucherSerial: ' ntlsm0276 ' }),
     );
-    expect(q).toMatchObject({ discount: { type: 'voucher', amount: 50000 }, serviceAmount: 0, amountDue: 5000, focKind: 'prepaid' });
+    expect(q).toMatchObject({ discount: { type: 'voucher', amount: 50000 }, serviceAmount: 0, amountDue: 0, focKind: 'prepaid' });
     expect(q.voucherBundle).toMatchObject({ buyerName: 'Ana Cruz', soldOn: today(), thisIsFree: false });
     expect(q.voucherBundle.vouchers).toHaveLength(6);
-    expect((await desk.post('/sales', { bookingId: b1, addonIds: ['extra-oil'], voucherSerial: 'ntl-sm 0276', payments: cash(5000) })).status).toBe(201);
+    expect((await desk.post('/sales', { bookingId: b1, voucherSerial: 'ntl-sm 0276', payments: [] })).status).toBe(201);
 
     // Single use.
     const b2 = await served(desk, t);

@@ -34,6 +34,8 @@ export const CAPABILITIES = [
   'royalty.manage',
   'reports.all',
   'reports.daily',
+  /** Add an On-call Therapist from the desk. */
+  'staff.add_on_call',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -49,10 +51,11 @@ const RECEPTIONIST: readonly Capability[] = [
   'cash_advance.therapist',
   'inventory.stock_out',
   'reports.daily',
+  'staff.add_on_call',
 ];
 
-/** The Receptionist's powers minus Payroll; a Reliever still records the Cash Handover. */
-const RELIEVER = RECEPTIONIST.filter((c) => c !== 'payroll.therapist.generate' && c !== 'payroll.view_own');
+/** The Receptionist's powers minus Payroll and adding staff; a Reliever still records the Cash Handover. */
+const RELIEVER = RECEPTIONIST.filter((c) => c !== 'payroll.therapist.generate' && c !== 'payroll.view_own' && c !== 'staff.add_on_call');
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   super_admin: new Set(CAPABILITIES),

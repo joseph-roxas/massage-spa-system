@@ -20,6 +20,7 @@ import { InventoryPage } from './pages/InventoryPage';
 import { ExpensesPage } from './pages/ExpensesPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { GoLivePage } from './pages/GoLivePage';
+import { CatchUpPage } from './pages/CatchUpPage';
 import { PaperSheetPage } from './pages/PaperSheetPage';
 import { PayslipPage } from './pages/payroll/PayslipPage';
 import { MyPayPage, MyPayslipPage } from './pages/MyPayPage';
@@ -105,6 +106,14 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="settings.manage">
             <BackfillPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/admin/catch-up',
+        element: (
+          <RequireCapability capability="settings.manage">
+            <CatchUpPage />
           </RequireCapability>
         ),
       },

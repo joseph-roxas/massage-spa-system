@@ -70,6 +70,8 @@ beforeEach(async () => {
     // These tests are about the sums, not the floor or the go-live week.
     env.DB.prepare(`UPDATE pay_rules SET value_json = '0' WHERE key = 'take_home_floor'`),
     env.DB.prepare(`UPDATE pay_rules SET value_json = '"2020-01-05"' WHERE key = 'go_live_date'`),
+    // These weeks are counted back from today; keep them ordinary.
+    env.DB.prepare(`DELETE FROM holidays WHERE date = '2026-11-02'`),
     env.DB.prepare(`DELETE FROM cash_transfers`),
     env.DB.prepare(`DELETE FROM cash_advances`),
     env.DB.prepare(`DELETE FROM cash_outs`),

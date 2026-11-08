@@ -1,6 +1,7 @@
 export * from './booking';
 export * from './business-day';
 export * from './calendar';
+export * from './catch-up';
 export * from './cash';
 export * from './catalogue';
 export * from './contributions';

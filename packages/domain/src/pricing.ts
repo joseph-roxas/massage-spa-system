@@ -27,10 +27,13 @@ export type QuoteInput = {
   complimentary?: boolean;
   /** The Guest is paying with a Voucher for this Service; `isFree` if this Redemption is a Real FOC. */
   voucher?: { serial: string; isFree: boolean } | null;
+  /** Everything added by Top-ups, at full price. */
+  topUpsTotal?: Centavos;
 };
 
 export type Quote = {
   regularPrice: Centavos;
+  topUpsTotal: Centavos;
   discount: { type: DiscountType; bp: number; amount: Centavos; promoId: string | null; label: string };
   /** What the Guest pays for the Service itself, after the Discount. */
   serviceAmount: Centavos;
@@ -46,9 +49,14 @@ const NONE = { type: 'none', bp: 0, promoId: null, label: 'No discount' } as con
  * Guest's legal entitlement); a picked Promo applies only if it covers the Service.
  * A Voucher or Complimentary Service covers the whole Service and excludes
  * every other Discount.
+ *
+ * Top-ups: a Statutory Discount and a Complimentary Service cover them too. A
+ * Promo or Voucher is for the original Service only, so the Guest pays them.
  */
 export function quoteSale(input: QuoteInput): Quote {
   const price = input.regularPrice;
+  const topUpsTotal = (input.topUpsTotal ?? 0) as Centavos;
+  const whole = (price + topUpsTotal) as Centavos;
 
   let best: Omit<Quote['discount'], 'amount'> = NONE;
   if (input.voucher) {
@@ -71,11 +79,12 @@ export function quoteSale(input: QuoteInput): Quote {
     }
   }
 
-  const covered = best.type === 'complimentary' || best.type === 'voucher';
-  const amount = covered ? price : percentOf(price, best.bp / 100);
-  const serviceAmount = (price - amount) as Centavos;
+  const amount =
+    best.type === 'complimentary' ? whole : best.type === 'voucher' ? price : percentOf(best.type === 'promo' ? price : whole, best.bp / 100);
+  const serviceAmount = (whole - amount) as Centavos;
   return {
     regularPrice: price,
+    topUpsTotal,
     discount: { ...best, amount },
     serviceAmount,
     amountDue: serviceAmount,

@@ -21,7 +21,7 @@ import {
   type PaymentLine,
   type Quote,
 } from '@spa/domain';
-import { bookings, commissionRates, holidays, PAYMENT_METHODS, payments, promos, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
+import { bookings, bookingTopUps, commissionRates, holidays, PAYMENT_METHODS, payments, promos, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
@@ -126,7 +126,7 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
     voucherBundle = await bundleOf(c, voucher!);
   }
   const day = booking.businessDay;
-  const [prices, setAsides, allPromos, therapist, holiday, rates] = await Promise.all([
+  const [prices, setAsides, allPromos, therapist, holiday, rates, topUps] = await Promise.all([
     db.select().from(servicePrices).where(eq(servicePrices.serviceId, booking.serviceId)),
     db.select().from(serviceSetAsides).where(eq(serviceSetAsides.serviceId, booking.serviceId)),
     db
@@ -137,7 +137,9 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
     db.select().from(staff).where(eq(staff.id, booking.therapistId)).get(),
     db.select().from(holidays).where(eq(holidays.date, day)).get(),
     db.select().from(commissionRates),
+    db.select({ s: sql<number>`coalesce(sum(${bookingTopUps.price}), 0)` }).from(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id)).get(),
   ]);
+  const topUpsTotal = Number(topUps?.s ?? 0) as Centavos;
   const regular = effectiveOn(prices, day);
   if (!regular) return fail(c, 409, 'no_price', 'This service has no price for that day. Ask the Super Admin to set one.');
   const setAside = effectiveOn(setAsides, day)?.amount ?? 0;
@@ -171,9 +173,10 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
       statutory: input.statutory,
       complimentary: input.complimentary,
       voucher: voucher && { serial: voucher.serial, isFree: voucherBundle!.thisIsFree },
+      topUpsTotal,
     }),
     setAside,
-    commission: commissionFor(regular.regularPrice as Centavos, rate, isHoliday, setAside),
+    commission: commissionFor((regular.regularPrice + topUpsTotal) as Centavos, rate, isHoliday, setAside),
     isHoliday,
     voucher,
     voucherBundle,
@@ -232,7 +235,8 @@ function saleStatements(c: Context<AuthedEnv>, input: CheckoutInput, priced: Pri
       businessDay: booking.businessDay,
       serviceId: booking.serviceId,
       therapistId: booking.therapistId!,
-      regularPrice: quote.regularPrice,
+      regularPrice: quote.regularPrice + quote.topUpsTotal,
+      topUpsTotal: quote.topUpsTotal,
       setAside: priced.setAside,
       discountType: quote.discount.type,
       discountRef,

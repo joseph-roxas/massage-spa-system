@@ -9,6 +9,7 @@ export * from './money';
 export * from './permissions';
 export * from './pricing';
 export * from './rotation';
+export * from './topups';
 export * from './staff';
 export * from './tax';
 export * from './vouchers';

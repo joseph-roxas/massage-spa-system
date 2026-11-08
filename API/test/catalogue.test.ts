@@ -24,7 +24,7 @@ describe('seeded catalogue', () => {
     const r = await loggedIn('receptionist');
     const { services } = await json<{ services: Service[] }>(await r.get('/catalogue/services'));
     const byCode = Object.fromEntries(services.map((s) => [s.code, s]));
-    expect(services).toHaveLength(19);
+    expect(services).toHaveLength(20);
     expect(byCode.FM60?.currentPrice).toBe(45000);
     expect(byCode.FM30?.currentPrice).toBe(25000);
     expect(byCode.VEN?.currentPrice).toBe(75000);

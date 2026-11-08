@@ -20,7 +20,10 @@ export type Booking = {
   serviceId: string;
   serviceCode: string;
   serviceName: string;
+  serviceKind: 'single' | 'combo';
   durationMin: number;
+  /** Minutes added by Top-ups, already in durationMin. */
+  topUpMin: number;
   scheduledAt: string | null;
   requestedTherapistId: string | null;
   requestedTherapistName: string | null;
@@ -96,6 +99,9 @@ export function useDeskAction() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['front-desk'] });
       qc.invalidateQueries({ queryKey: ['attendance'] });
+      // A Top-up or Service Change at checkout re-prices it.
+      qc.invalidateQueries({ queryKey: ['stay'] });
+      qc.invalidateQueries({ queryKey: ['quote'] });
     },
   });
 }

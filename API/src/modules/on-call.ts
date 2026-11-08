@@ -7,13 +7,13 @@ import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
-import { name } from '../lib/validation';
+import { personName } from '../lib/validation';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { hashPassword } from '../auth/password';
 
 const newOnCall = z.object({
-  firstName: name,
-  lastName: name,
+  firstName: personName,
+  lastName: personName,
   displayName: z.string().trim().max(40).optional(),
   pin: z.string().regex(/^\d{4}$/, 'The PIN must be exactly 4 digits.'),
 });

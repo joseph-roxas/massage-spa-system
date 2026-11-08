@@ -22,7 +22,7 @@ import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
-import { basisPoints, centavos, hhmm, isoDate, name, notInPast } from '../lib/validation';
+import { basisPoints, centavos, hhmm, isoDate, notInPast, personName } from '../lib/validation';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { hashPassword } from '../auth/password';
 
@@ -74,8 +74,8 @@ const optText = (max: number) =>
     .optional();
 
 const staffFields = z.object({
-  firstName: name,
-  lastName: name,
+  firstName: personName,
+  lastName: personName,
   middleName: optText(60),
   displayName: z.string().trim().min(1).max(40),
   // Personal record. ID numbers are kept as typed; a wrong length is only a warning on screen.

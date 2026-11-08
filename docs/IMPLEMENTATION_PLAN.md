@@ -157,8 +157,8 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 ## 5. Core business rules (all in `packages/domain`, all unit-tested)
 
 ### 5.1 Rotation
-- Rotation = clocked-in therapists for the Business Day, ordered by `clock_in`.
-- Next un-requested Guest → first therapist in Rotation who is free (not `in_service`) and has no scheduled Booking overlapping the service's duration.
+- Rotation = clocked-in therapists for the Business Day, ordered by `clock_in`. An LMT goes first until their first finished un-requested Service (§17, 15.2).
+- Next un-requested Guest → first therapist in Rotation who is free (not `in_service`) and whose Service would end by 30 minutes before any reservation naming them.
 - On **Done**, that therapist moves to the back.
 - A Requested Therapist serves the Guest out of turn **without** losing their Rotation place.
 - Receptionist may override the suggestion; override requires a reason and is audited.
@@ -172,11 +172,11 @@ Money columns are `INTEGER` centavos. Every table has `id`, `created_at`, `creat
 1. `regular_price` = Service price effective on the Business Day (snapshot on sale).
 2. Candidate discounts: Statutory (20%, requires ID number, Senior or PWD) and any active Promo matching service + start time + date.
 3. Apply **only the largest** single discount. Voucher Redemption and Complimentary Service set `amount_due = 0` and exclude other discounts.
-4. Add-ons added on top; never discounted, never commissioned.
+4. Add-ons were retired in Phase 15. Top-ups are added to the price (§17, 15.3).
 5. Payment after Done; Cash/GCash split allowed; GCash ref required; total paid must equal amount due.
 
 ### 5.4 Commission
-- `commission = regular_price × rate`, where rate = staff type's normal or holiday % (holiday if the Business Day is a Holiday with `raises_commission`).
+- `commission = (regular_price − owner's set-aside) × rate`, where rate = staff type's normal or holiday % (holiday if the Business Day is a Holiday with `raises_commission`).
 - Applies to every Service performed, including Prepaid and Real FOCs; based on the current Regular Price at redemption for Vouchers.
 - On-call therapists: same rule, paid at Day Close via Cash-out; no Government Deductions, no CA.
 
@@ -387,11 +387,11 @@ Suggested order is linear; phases 8–9 can run in parallel with 6–7.
 - **Domain for approval email** (see §12.3): without it, approvals work in-app only.
 - **Happy Hours after 2026-11-30:** the promo simply stops applying; a replacement promo is a settings change, not code.
 
-## 14. Status and handoff (as of 2026-11-05)
+## 14. Status and handoff (as of 2026-11-08)
 
 ### 14.0 Pick up here
 
-- **Current work is §16 (Phase 14, branch `cr-3`): 14.1–14.8 built; next is the owner's review, merge and deploy.** Phases 12 and 13 are merged to `main`.
+- **Current work is §17 (Phase 15, branch `cr-4`): built and pushed; next is the owner's merge and deploy, before the Front Desk opens on 2026-11-09. Start there.** Phases 12, 13 and 14 are merged to `main`. The notes below are older and kept for history.
 - **Phase 12 is done and waiting to be merged.** It is on branch `cr-1` (pushed), in [PR #1](https://github.com/joseph-roxas/massage-spa-system/pull/1) to `main`.
   - The PR has 9 commits: docs `607562c`, slices 12.1–12.7 ending `c9788df`, then the Day Close fix `d0d4f7a` (§14.2, "Fix after 12.7").
   - The PR description is written; it still says 95 API tests, but there are now 96, and it doesn't mention the Day Close fix yet.
@@ -696,3 +696,77 @@ Grilled with the owner on 2026-11-06 (five rounds). Vocabulary is in `GLOSSARY.m
 4. Also: unused Voucher liability, month-end profit forecast, average sale per Guest, Day Close cash variance.
 5. Insights only; detail stays in Reports. Reuse the hand-rolled SVG in `UI/src/pages/reports/Charts.tsx`; no chart library.
 6. **As built**: `GET /dashboard?month=` in `API/src/modules/dashboard.ts`, built on the Reports queries and `statementFor`; forecasts and the Consumables rule are in `packages/domain/src/dashboard.ts`. No migration. `/` shows the Dashboard to whoever holds `reports.all`; everyone else, and any `/?…` link, goes to `/front-desk`. Cash out is the Income Statement's costs with live pay replaced by Payrolls actually released, plus On-call Commission and Cash Advances. Government remittance is both shares for active enrolled staff. Consumables are priced at each Item's average purchase price, and a baseline needs a whole calendar month after Go-live. The charts are in `UI/src/pages/dashboard/Charts.tsx`.
+
+
+## 17. Phase 15: owner's fourth batch of change requests (branch `cr-4`)
+
+Grilled with the owner on 2026-11-08 (three rounds), then adjusted while the owner tested. Vocabulary is in `GLOSSARY.md` (new: Owner's Set-aside, Top-up, Service Change, Therapist Change, Reserved, Grace Period, Catch-up Day; Add-on is gone; Go-live now means 2026-11-02). ADR 0009 covers the Nov 2–8 entry. Migrations 0030–0032. **Next migration is 0033.**
+
+**Status (2026-11-08):** all of this is pushed to `cr-4` at `a6c5da6`, on top of the contact number fix `5d43917`. Not merged, not deployed. 447 tests pass (240 domain, 207 API); typecheck, lint and build pass. Merging or Deploy all runs migrations 0029–0032 on production.
+
+**Pick up here, in order:**
+
+1. Owner opens the PR from `cr-4` to `main`, checks CI, merges. Must be live before the Front Desk opens at 2pm on 2026-11-09. Then `/api/v1/health` should report `0032_catch_up_week`.
+2. Check production for test sales dated Nov 2–8 and void them: they would show in the Nov 2–8 entry and count in its totals, with no Remove link.
+3. On 2026-11-09, **before the first Guest**: Cash → Count sales cash in the shop. Counted earlier, it lands on Nov 8 and that day's entered cash is added on top.
+4. Payroll → Cash Advances: the Receptionist's opening balance, with this week's payroll taking the repayment.
+5. Go-live → Nov 2–8 entry, each day from the paper records.
+6. From 2026-11-09, generate Payroll: Therapists week of Nov 2, Receptionist week of Nov 1 (Sunday–Saturday, so Nov 8 falls in their next week). Compare with the manual computation.
+7. Finish testing the data migration locally, then upload the workbooks to production. The local database was reset on 2026-11-08 to a fresh install with only the Super Admin login.
+
+**15.1 Commission and Oil** (migration 0030)
+
+1. **Owner's Set-aside**: ₱50 from 2026-11-02 on ARO, HOIL and HSTN, not C3–C5. Commission = (Regular Price − Set-aside) × rate, on Holidays, FOCs and discounted sales too. ARO pays 195 Regular / 260 LMT, or 325 / 390 on a raised Holiday.
+2. Bookkeeping only: it stays in Sales, Royalty Gross Sales and Sales Cash. The workbook shows ₱40 through September and ₱50 from October, which is why it is dated like prices.
+3. **Oil** is no longer added to money received. Jan–Oct falls by ₱4,340; Royalty is unchanged, since it never counted Oil. Daily sales shows an Owner's Set-aside column for information.
+4. **Add-ons retired**: Extra oil off, gone from checkout, reports, Settings and the Price List. `addons` and `sale_addons` tables stay.
+5. **As built**: `service_set_asides` table (dated), `sales.set_aside` snapshot, `commissionFor(price, rate, holiday, setAside)`. Settings → Services has a Set-aside button.
+
+**15.2 Rotation, reservations, No-show** (no migration)
+
+1. Any LMT goes ahead of everyone from clock-in, at any hour, until they finish their first un-requested Service; several LMTs go in clock-in order. After that turn a later clock-in joins at the back. The shop's 3pm LMT start has no system effect.
+2. Only a Scheduled Booking naming a Therapist holds anyone. From 30 minutes before, the board tags them Reserved and they stop being Next.
+3. **The rule**: a Service with a held Therapist must be due to end by 30 minutes before the reservation. A 1-hour walk-in an hour before is denied; a 30-minute one is allowed. It applies to Rotation (skipped, place kept), named walk-ins, Top-ups, Service Changes, Added Services and Therapist Changes. Hard denial, no override. Clock seconds are ignored.
+4. Moving, cancelling or changing the Therapist on a named reservation needs a reason and "The guest asked for this"; the Super Admin needs only the reason. New Move button on the Front Desk.
+5. **No-show**: a Scheduled Booking not marked Arrived closes itself 15 minutes after its time. Rotation place unchanged. Manual No-show is hidden on named reservations.
+6. **As built**: `computeRotation` takes `isLmt`. `closeMissedBookings()` and `holdSpan()` in `lib/front-desk.ts`, run lazily from `frontDeskState`. `reservedClash()` in `modules/bookings.ts`.
+
+**15.3 Changes during a Service** (migration 0031)
+
+1. **Top-up**: singles only, 30-minute steps, repeatable, same Booking and sale, no extra Rotation cost, no second Set-aside.
+2. **Price**: Foot and Back at either length use the 30-minute price in Settings (₱250), and each full extra hour costs the 1-hour price (₱450), however it was added: 2 hours of Foot is ₱900. Other 1-hour Services are half their Regular Price. 1.5-hour Services take a chosen 30-minute head, back or foot massage at its price. Head Massage is an inactive Service (`head-30`, ₱250) so its price is editable.
+3. **Discounts**: Senior/PWD on the whole bill; Happy Hours and Voucher on the original Service only; Complimentary covers all. Commission on full prices less the Set-aside.
+4. **Service Change**: during service or before payment, reason required, full price of the new Service only, counted from the original start, clears Top-ups. A warning if the new Service is shorter than the time used.
+5. **Therapist Change**: during service, reason required, new Therapist must be free. Clock runs on, whole Commission to the new one. The replaced Therapist keeps their old place, passed only by named Guests. The new one loses a place when done unless the Guest named them.
+6. **As built**: `booking_top_ups`, `therapist_changes`, `sales.top_ups_total`; `sales.regular_price` includes Top-ups. `modules/service-changes.ts`, `lib/top-ups.ts`, `packages/domain/src/topups.ts`.
+
+**15.4 Booking and the room card** (added while testing, no migration)
+
+1. **How long** on the booking form: the menu time by default, or up to 3 hours longer in 30-minute steps, charged as Top-ups. Not on Combos, and never shorter than the menu.
+2. **Room card**: Add time, Service, Therapist, Done · name, with the Therapist's name as the largest line. Done asks for confirmation. Service asks one question: change to a different service, or add another after this. With a service already following, it goes straight to change.
+3. **Added Services** can be any Service. A non-foot Service after the Room 8 recliner resets that Room as a floor bed, with a note to the desk.
+4. **Starts by itself**: at time up, if the same Therapist does the next one, the first closes and the next starts from the moment the first ended. `startFollowingServices()` runs lazily from `frontDeskState`, so up to about 15 seconds late on screen. A different Therapist still waits for the desk.
+
+**15.5 Reports and menu** (no migration)
+
+1. Receptionist: From/To dates defaulting to today. Reliever stays on today only, without the new reports, because the login may be used by a Therapist.
+2. **Therapist Sales** (`therapist-detail`): one line per Service, pick one or All, subtotals per Therapist. **Therapist Changes** (`therapist-changes`): when, Service, replaced, new, minutes served, reason.
+3. Price List and Paper backup hidden for Receptionist and Reliever; the Super Admin keeps them.
+
+**15.6 Nov 2–8 entry** (migration 0032, ADR 0009)
+
+1. Super Admin page at `/admin/catch-up`, one tab per day: time records with a Relief Shift tick, sales lines (time, Service, Therapist, Discount, Payment), Expenses, Cash Advances. Sales are priced by the same code as checkout. No Top-up field; a change that week is entered as the final Service and Therapist.
+2. `go_live_date` is now 2026-11-02, so Commission before Go-live no longer applies to any week; its code and box remain, unused. Nov 2 is a special Holiday that raises Commission (50/60) and pays the Receptionist the special-day premium.
+3. Days close with no cash count. On-call Commission counts as already paid. Cash Advances don't touch Sales Cash. `sales.catch_up` marks these Sales; only those can be removed on the page.
+
+**15.7 Small additions** (no migration)
+
+1. A rejected save names the fields ("Please check: Hire date, Email."). The Staff form also turns them red. Date boxes refuse five-digit years.
+2. First names and surnames are saved with each word capitalized, on the Staff form and for on-call staff. Middle name and Shown as stay as typed.
+3. The Receptionist can add an On-call Therapist from the Front Desk (+ On-call): name and PIN, always at the Regular rate. Not the Reliever login.
+
+**Checked by automated tests only, not yet by hand:** the Reliever's menu, submitting a Therapist Change or Service Change, the Combo room card, the automatic start of an Added Service, Therapist Sales with subtotals, Expenses and Cash Advances on the Nov 2–8 page, and generating Payroll from that page.
+
+**Known small things:** pressing Esc on Add time or Change service during checkout also closes checkout. A Guest who runs over shows the next service already counting down.
+
+**Worth confirming with the owner:** a Guest asking for longer upfront pays the same as one who extends. An extra hour of foot or back on a 1.5-hour Service costs ₱450, not ₱500.

@@ -20,10 +20,11 @@ export function Button({
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+/** `invalid` turns the label and its box red, after the API has rejected the field. */
+export function Field({ label, hint, invalid, children }: { label: string; hint?: string; invalid?: boolean; children: ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium text-stone-700">{label}</span>
+    <label className={`block ${invalid ? '[&_input]:border-red-500 [&_input]:ring-2 [&_input]:ring-red-500/20 [&_select]:border-red-500 [&_select]:ring-2 [&_select]:ring-red-500/20' : ''}`}>
+      <span className={`mb-1 block text-sm font-medium ${invalid ? 'text-red-700' : 'text-stone-700'}`}>{label}</span>
       {children}
       {hint && <span className="mt-1 block text-xs text-stone-500">{hint}</span>}
     </label>
@@ -34,7 +35,8 @@ const CONTROL =
   'h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm text-stone-900 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20';
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={CONTROL} {...props} />;
+  // Without a maximum, a date box takes a year of six digits.
+  return <input className={CONTROL} {...(props.type === 'date' ? { max: '9999-12-31' } : {})} {...props} />;
 }
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {

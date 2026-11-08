@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { certificateStatus, DEFAULT_CONTRIBUTION_RATES, govIdWarning, monthlyContributions, type ContributionRates, type GovId } from '@spa/domain';
 import { Alert, Badge, Button, Card, Checkbox, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
 import { usePayRules, useSave, useStaff, type Certificate, type Qualification, type StaffMember } from '../../lib/catalogue';
-import { api } from '../../lib/api';
+import { api, invalidFields } from '../../lib/api';
 import { longDate, parsePesos, peso, pesosText, todayManila } from '../../lib/format';
 
 type Role = 'regular' | 'lmt' | 'receptionist' | 'reliever';
@@ -188,20 +188,22 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
     save.mutate(body, { onSuccess: onDone });
   }
 
+  const bad = invalidFields(save.error);
+
   return (
     <FormPanel onSubmit={submit}>
       {(error || save.error) && <Alert>{error ?? save.error?.message}</Alert>}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Field label="Surname">
+        <Field label="Surname" invalid={bad.has('lastName')}>
           <Input required value={d.lastName} onChange={(e) => set('lastName', e.target.value)} />
         </Field>
-        <Field label="First name">
+        <Field label="First name" invalid={bad.has('firstName')}>
           <Input required value={d.firstName} onChange={(e) => set('firstName', e.target.value)} />
         </Field>
-        <Field label="Middle name">
+        <Field label="Middle name" invalid={bad.has('middleName')}>
           <Input value={d.middleName} onChange={(e) => set('middleName', e.target.value)} />
         </Field>
-        <Field label="Shown as" hint="On the Clock-in Screen and Rotation">
+        <Field label="Shown as" invalid={bad.has('displayName')} hint="On the Clock-in Screen and Rotation">
           <Input value={d.displayName} placeholder={d.firstName} onChange={(e) => set('displayName', e.target.value)} />
         </Field>
       </div>
@@ -231,7 +233,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
           </Field>
         )}
         {!isReceptionist && !isReliever && (
-          <Field label="Qualification" hint={d.role === 'lmt' ? 'An LMT must be DOH-licensed' : undefined}>
+          <Field label="Qualification" invalid={bad.has('qualification')} hint={d.role === 'lmt' ? 'An LMT must be DOH-licensed' : undefined}>
             <Select value={d.qualification} onChange={(e) => set('qualification', e.target.value as Qualification | '')}>
               <option value="">—</option>
               {Object.entries(QUALIFICATION_LABEL).map(([k, label]) => (
@@ -243,7 +245,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
           </Field>
         )}
         {!isReliever && (
-          <Field label="Hire date">
+          <Field label="Hire date" invalid={bad.has('hireDate')}>
             <Input type="date" required value={d.hireDate} onChange={(e) => set('hireDate', e.target.value)} />
           </Field>
         )}
@@ -253,20 +255,20 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
       <>
       <h4 className="pt-2 text-sm font-semibold text-stone-700">Personal record</h4>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Field label="Gender">
+        <Field label="Gender" invalid={bad.has('gender')}>
           <Select required value={d.gender} onChange={(e) => set('gender', e.target.value as Draft['gender'])}>
             <option value="">Choose…</option>
             <option value="female">Female</option>
             <option value="male">Male</option>
           </Select>
         </Field>
-        <Field label="Birthdate">
+        <Field label="Birthdate" invalid={bad.has('birthdate')}>
           <Input type="date" required max={todayManila()} value={d.birthdate} onChange={(e) => set('birthdate', e.target.value)} />
         </Field>
-        <Field label="Birthplace">
+        <Field label="Birthplace" invalid={bad.has('birthplace')}>
           <Input value={d.birthplace} onChange={(e) => set('birthplace', e.target.value)} />
         </Field>
-        <Field label="Civil status">
+        <Field label="Civil status" invalid={bad.has('civilStatus')}>
           <Select value={d.civilStatus ?? ''} onChange={(e) => set('civilStatus', e.target.value as Draft['civilStatus'])}>
             <option value="">—</option>
             <option value="single">Single</option>
@@ -275,14 +277,14 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
             <option value="separated">Separated</option>
           </Select>
         </Field>
-        <Field label="Religion">
+        <Field label="Religion" invalid={bad.has('religion')}>
           <Input value={d.religion} onChange={(e) => set('religion', e.target.value)} />
         </Field>
-        <Field label="Email">
+        <Field label="Email" invalid={bad.has('email')}>
           <Input type="email" value={d.email} onChange={(e) => set('email', e.target.value)} />
         </Field>
         <div className="col-span-2">
-          <Field label="Address">
+          <Field label="Address" invalid={bad.has('address')}>
             <Input value={d.address} onChange={(e) => set('address', e.target.value)} />
           </Field>
         </div>
@@ -291,7 +293,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
       <h4 className="pt-2 text-sm font-semibold text-stone-700">Government IDs</h4>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {GOV_FIELDS.map(([id, key, label]) => (
-          <Field key={key} label={label} hint={govIdWarning(id, d[key]) ?? undefined}>
+          <Field key={key} label={label} invalid={bad.has(key)} hint={govIdWarning(id, d[key]) ?? undefined}>
             <Input value={d[key]} onChange={(e) => set(key, e.target.value)} />
           </Field>
         ))}
@@ -300,12 +302,12 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
       <h4 className="pt-2 text-sm font-semibold text-stone-700">Pay</h4>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {isReceptionist && (
-          <Field label="Daily rate (₱)">
+          <Field label="Daily rate (₱)" invalid={bad.has('dailyRate')}>
             <Input inputMode="decimal" required value={d.dailyRate} onChange={(e) => set('dailyRate', e.target.value)} />
           </Field>
         )}
         {isReceptionist && (
-          <Field label="Login account" hint="Lets her see her own payslips under My Pay">
+          <Field label="Login account" invalid={bad.has('userId')} hint="Lets her see her own payslips under My Pay">
             <Select value={d.userId} onChange={(e) => set('userId', e.target.value)}>
               <option value="">Not linked</option>
               {logins.data?.users
@@ -325,20 +327,20 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
         )}
         {!(d.isOnCall && !isReceptionist) && !d.notEnrolled && (
           <div className="col-span-2">
-            <Field label="Monthly salary basis for SSS, PhilHealth, Pag-IBIG (₱)" hint={basisHint(d, rates)}>
+            <Field label="Monthly salary basis for SSS, PhilHealth, Pag-IBIG (₱)" invalid={bad.has('contributionBase')} hint={basisHint(d, rates)}>
               <Input inputMode="decimal" value={d.contributionBase} onChange={(e) => set('contributionBase', e.target.value)} placeholder="E.g. 8000" />
             </Field>
           </div>
         )}
         {!(d.isOnCall && !isReceptionist) && !d.notEnrolled && d.contributionBase.trim() === '' && (
           <>
-            <Field label="SSS / week (₱)" hint={member ? 'Fixed amount, without a salary basis' : 'Blank = default'}>
+            <Field label="SSS / week (₱)" invalid={bad.has('govSss')} hint={member ? 'Fixed amount, without a salary basis' : 'Blank = default'}>
               <Input inputMode="decimal" value={d.govSss} onChange={(e) => set('govSss', e.target.value)} />
             </Field>
-            <Field label="PhilHealth / week (₱)">
+            <Field label="PhilHealth / week (₱)" invalid={bad.has('govPhic')}>
               <Input inputMode="decimal" value={d.govPhic} onChange={(e) => set('govPhic', e.target.value)} />
             </Field>
-            <Field label="Pag-IBIG / week (₱)">
+            <Field label="Pag-IBIG / week (₱)" invalid={bad.has('govPagibig')}>
               <Input inputMode="decimal" value={d.govPagibig} onChange={(e) => set('govPagibig', e.target.value)} />
             </Field>
           </>

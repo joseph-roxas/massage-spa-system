@@ -1,5 +1,20 @@
 import type { IsoDate } from './calendar';
 
+const ROMAN_SUFFIX = /^(?:ii|iii|iv|v|vi)$/i;
+
+/**
+ * A person's name as it is kept: each word capitalized, whatever was typed.
+ * "DELA CRUZ" and "dela cruz" both become "Dela Cruz". Hyphens and apostrophes
+ * start a new word, and a suffix like III stays in capitals.
+ */
+export function properName(value: string): string {
+  return value
+    .trim()
+    .split(/\s+/)
+    .map((word, i) => (i > 0 && ROMAN_SUFFIX.test(word) ? word.toUpperCase() : word.toLocaleLowerCase().replace(/(^|[-'’])(\p{L})/gu, (_, before: string, letter: string) => before + letter.toLocaleUpperCase())))
+    .join(' ');
+}
+
 /** Digits on a valid government ID number. TIN is 9, or 12 with a branch code. */
 export const GOV_ID_DIGITS = { sss: [10], phic: [12], pagibig: [12], tin: [9, 12] } as const;
 export type GovId = keyof typeof GOV_ID_DIGITS;

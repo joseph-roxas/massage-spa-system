@@ -26,6 +26,19 @@ describe('adding an On-call Therapist from the desk', () => {
     expect((await desk.post('/on-call-therapists', { ...body('Other'), pin: '12' })).status).toBe(400);
   });
 
+  it('saves first name and surname capitalized, on the Staff form too', async () => {
+    const desk = await loggedIn('receptionist');
+    const admin = await loggedIn('super_admin');
+    const { id } = await json<{ id: string }>(await desk.post('/on-call-therapists', { firstName: 'JUANA', lastName: 'dela cruz', pin: '1234' }));
+    const created = await admin.post('/settings/staff', { firstName: 'mARIA', lastName: 'TORRES', displayName: 'MARIA T', gender: 'female', birthdate: '1995-05-01', hireDate: '2026-01-05', kind: 'receptionist', dailyRate: 69200 });
+    const staffId = (await json<{ id: string }>(created)).id;
+    expect((await admin.send('PATCH', `/settings/staff/${staffId}`, { lastName: 'SANTOS-REYES' })).status).toBe(200);
+    const { staff } = await json<{ staff: { id: string; firstName: string; lastName: string; displayName: string }[] }>(await admin.get('/settings/staff'));
+    expect(staff.find((s) => s.id === id)).toMatchObject({ firstName: 'Juana', lastName: 'Dela Cruz', displayName: 'Juana' });
+    // Shown as stays exactly as typed.
+    expect(staff.find((s) => s.id === staffId)).toMatchObject({ firstName: 'Maria', lastName: 'Santos-Reyes', displayName: 'MARIA T' });
+  });
+
   it('cannot make someone an LMT', async () => {
     const desk = await loggedIn('receptionist');
     const res = await desk.post('/on-call-therapists', { ...body('Licensed'), therapistClass: 'lmt', qualification: 'doh' });

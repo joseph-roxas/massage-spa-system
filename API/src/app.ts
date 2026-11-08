@@ -10,6 +10,7 @@ import { catalogueRoutes } from './modules/catalogue';
 import { staffRoutes } from './modules/staff';
 import { attendanceRoutes } from './modules/attendance';
 import { bookingRoutes } from './modules/bookings';
+import { serviceChangeRoutes } from './modules/service-changes';
 import { salesRoutes } from './modules/sales';
 import { dayRoutes } from './modules/days';
 import { voucherRoutes } from './modules/vouchers';
@@ -58,6 +59,7 @@ export function createApp(deps: AppDeps = {}) {
     .route('/settings', staffRoutes)
     .route('/', attendanceRoutes)
     .route('/', bookingRoutes)
+    .route('/', serviceChangeRoutes)
     .route('/sales', salesRoutes)
     .route('/', dayRoutes)
     .route('/', voucherRoutes)

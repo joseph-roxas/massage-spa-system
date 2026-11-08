@@ -26,8 +26,10 @@ export const sales = sqliteTable(
     therapistId: text('therapist_id')
       .notNull()
       .references(() => staff.id),
-    /** Centavos, before any Discount. */
+    /** Centavos, before any Discount, Top-ups included. */
     regularPrice: integer('regular_price').notNull(),
+    /** The part of the Regular Price that came from Top-ups. */
+    topUpsTotal: integer('top_ups_total').notNull().default(0),
     /** Centavos of the Regular Price that are the owner's before Commission. Part of the sale. */
     setAside: integer('set_aside').notNull().default(0),
     discountType: text('discount_type', { enum: DISCOUNT_TYPES }).notNull(),

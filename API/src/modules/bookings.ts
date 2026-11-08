@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { addMinutes, businessDayOf, clock, GRACE_PERIOD_MIN, isBirthday, overlaps, reservationHold, RESERVED_LEAD_MIN, roomFits, serviceSpanFrom, stayOf, suggestRoom, suggestTherapist, toManila, type Span } from '@spa/domain';
-import { bookings, businessDays, FLEX_MODES, payments, rejects, rooms, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
+import { bookings, bookingTopUps, businessDays, FLEX_MODES, payments, rejects, rooms, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays } from '../lib/business-days';
@@ -93,7 +93,7 @@ async function requestClash(c: Context<AuthedEnv>, therapistId: string, span: Sp
 const manilaClock = (iso: string) => clock(toManila(new Date(iso)).time);
 
 /** Why `therapistId` can't give a Service over `span`: an earlier reservation comes first. Null if they can. */
-async function reservedClash(c: Context<AuthedEnv>, therapistId: string, span: Span, selfId?: string) {
+export async function reservedClash(c: Context<AuthedEnv>, therapistId: string, span: Span, selfId?: string) {
   const now = nowIso();
   const others = (await activeBookingsFor(c.var.db, therapistId)).filter((b) => b.id !== selfId && isNamedReservation(b));
   const hit = others.find((b) => overlaps(holdSpan(b, now)!, span));
@@ -124,8 +124,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const now = nowIso();
     const day = businessDayOf(new Date(now));
     const state = await frontDeskState(c.var.db, day, now);
-    const [svc, people, daySales, dayRow, unclosed, takings, voucherTakings, turnedAway] = await Promise.all([
-      c.var.db.select({ id: services.id, code: services.code, name: services.name }).from(services),
+    const [svc, people, daySales, dayRow, unclosed, takings, voucherTakings, turnedAway, topUps] = await Promise.all([
+      c.var.db.select({ id: services.id, code: services.code, name: services.name, kind: services.kind }).from(services),
       c.var.db.select({ id: staff.id, displayName: staff.displayName, birthdate: staff.birthdate, active: staff.active }).from(staff),
       c.var.db
         .select({ id: sales.id, bookingId: sales.bookingId, amountDue: sales.amountDue, discountType: sales.discountType })
@@ -146,6 +146,12 @@ export const bookingRoutes = new Hono<AuthedEnv>()
         .where(and(eq(voucherPayments.businessDay, day), eq(voucherSales.status, 'paid')))
         .get(),
       c.var.db.select({ n: sql<number>`count(*)` }).from(rejects).where(eq(rejects.businessDay, day)).get(),
+      c.var.db
+        .select({ bookingId: bookingTopUps.bookingId, minutes: sql<number>`sum(${bookingTopUps.minutes})` })
+        .from(bookingTopUps)
+        .innerJoin(bookings, eq(bookings.id, bookingTopUps.bookingId))
+        .where(eq(bookings.businessDay, day))
+        .groupBy(bookingTopUps.bookingId),
     ]);
     const svcById = new Map(svc.map((s) => [s.id, s]));
     const guestIds = [...new Set(state.dayBookings.map((b) => b.guestId).filter((g): g is string => !!g))];
@@ -156,6 +162,8 @@ export const bookingRoutes = new Hono<AuthedEnv>()
         ...b,
         serviceCode: svcById.get(b.serviceId)?.code ?? '',
         serviceName: svcById.get(b.serviceId)?.name ?? '',
+        serviceKind: svcById.get(b.serviceId)?.kind ?? 'single',
+        topUpMin: Number(topUps.find((t) => t.bookingId === b.id)?.minutes ?? 0),
         therapistName: nameOf(b.therapistId),
         requestedTherapistName: nameOf(b.requestedTherapistId),
         endsAt: b.startedAt ? addMinutes(b.startedAt, b.durationMin) : null,
@@ -524,6 +532,7 @@ export const bookingRoutes = new Hono<AuthedEnv>()
         status: b.status,
         serviceId: b.serviceId,
         serviceName: svc.find((s) => s.id === b.serviceId)?.name ?? b.serviceId,
+        durationMin: b.durationMin,
         therapistName: people.find((p) => p.id === b.therapistId)?.displayName ?? null,
         startedAt: b.startedAt,
         paid: paidIds.has(b.id),

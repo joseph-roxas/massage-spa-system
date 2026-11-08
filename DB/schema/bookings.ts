@@ -12,6 +12,7 @@ export const BOOKING_KINDS = ['walk_in', 'scheduled'] as const;
  */
 export const BOOKING_STATUSES = ['scheduled', 'waiting', 'in_service', 'done', 'cancelled', 'no_show'] as const;
 export const FLEX_MODES = ['floor', 'recliner'] as const;
+export const TOP_UP_PARTS = ['head', 'back', 'foot'] as const;
 
 /** One Guest receiving one Service. A group of two is two Bookings. */
 export const bookings = sqliteTable(
@@ -57,4 +58,45 @@ export const bookings = sqliteTable(
     uniqueIndex('bookings_one_per_room').on(t.roomId).where(sql`status = 'in_service'`),
     uniqueIndex('bookings_one_per_therapist').on(t.therapistId).where(sql`status = 'in_service'`),
   ],
+);
+
+/** One 30-minute Top-up on a Booking; its Booking's duration already includes it. */
+export const bookingTopUps = sqliteTable(
+  'booking_top_ups',
+  {
+    id: text('id').primaryKey(),
+    bookingId: text('booking_id')
+      .notNull()
+      .references(() => bookings.id),
+    minutes: integer('minutes').notNull(),
+    /** Centavos, as priced when added. */
+    price: integer('price').notNull(),
+    /** The massage chosen on a 1.5-hour Service. */
+    part: text('part', { enum: TOP_UP_PARTS }),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by').references(() => users.id),
+  },
+  (t) => [index('booking_top_ups_booking_idx').on(t.bookingId)],
+);
+
+/** A Therapist Change: who took over a Service under way, and why. */
+export const therapistChanges = sqliteTable(
+  'therapist_changes',
+  {
+    id: text('id').primaryKey(),
+    bookingId: text('booking_id')
+      .notNull()
+      .references(() => bookings.id),
+    fromTherapistId: text('from_therapist_id')
+      .notNull()
+      .references(() => staff.id),
+    toTherapistId: text('to_therapist_id')
+      .notNull()
+      .references(() => staff.id),
+    minutesServed: integer('minutes_served').notNull(),
+    reason: text('reason').notNull(),
+    changedAt: text('changed_at').notNull(),
+    changedBy: text('changed_by').references(() => users.id),
+  },
+  (t) => [index('therapist_changes_booking_idx').on(t.bookingId)],
 );

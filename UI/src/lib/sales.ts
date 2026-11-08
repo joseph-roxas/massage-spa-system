@@ -16,6 +16,7 @@ export type PriceChoice = {
 
 export type Quote = {
   regularPrice: number;
+  topUpsTotal: number;
   discount: { type: DiscountType; bp: number; amount: number; promoId: string | null; label: string };
   serviceAmount: number;
   amountDue: number;
@@ -98,7 +99,7 @@ export const useQuotes = (choices: PriceChoice[]) =>
     })),
   });
 
-export type StayBooking = { id: string; status: string; serviceId: string; serviceName: string; therapistName: string | null; startedAt: string | null; paid: boolean };
+export type StayBooking = { id: string; status: string; serviceId: string; serviceName: string; durationMin: number; therapistName: string | null; startedAt: string | null; paid: boolean };
 
 /** A Booking and its Added Services, checked out together. */
 export const useStay = (bookingId: string) =>

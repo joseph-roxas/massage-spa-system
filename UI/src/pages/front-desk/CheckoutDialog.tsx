@@ -3,6 +3,7 @@ import { Alert, Badge, Button, Checkbox, Field, Input, Select } from '../../comp
 import { GuestPicker, guestBody, type GuestChoice } from '../../components/GuestPicker';
 import { Modal } from '../../components/Modal';
 import { useCan } from '../../lib/auth';
+import { useServices } from '../../lib/catalogue';
 import { longDate, peso, percent } from '../../lib/format';
 import { guestLabel, type Booking } from '../../lib/front-desk';
 import { STATUTORY_LABEL, useGuest, useGuestAction, visitsLabel } from '../../lib/guests';
@@ -10,6 +11,7 @@ import { useDayAction, useQuotes, useStay, type PriceChoice, type Quote, type St
 import { useVouchers, type VoucherBundle } from '../../lib/vouchers';
 import { toManila } from '@spa/domain';
 import { usePayment } from './PaymentFields';
+import { ChangeServiceDialog, ServiceTopUpDialog } from './ServiceChangeDialogs';
 
 /** A Discount dropdown value: `promo:<id>` for a Promo. */
 type DiscountPick = 'none' | `promo:${string}` | 'senior' | 'pwd' | 'voucher' | 'complimentary';
@@ -67,6 +69,7 @@ function LineEditor({
   quote,
   priced,
   showTitle,
+  onChange,
 }: {
   stay: StayBooking;
   line: Line;
@@ -76,8 +79,10 @@ function LineEditor({
   /** The quote, unless a Voucher is chosen but not found yet. */
   priced: Quote | undefined;
   showTitle: boolean;
+  onChange: (what: 'top-up' | 'service') => void;
 }) {
   const canComp = useCan('sales.complimentary');
+  const isCombo = useServices().data?.services.find((s) => s.id === stay.serviceId)?.kind === 'combo';
   const unused = useVouchers({ serviceId: stay.serviceId, status: 'unused' }, chosen === 'voucher');
   const autoPromo = chosen === null ? quote.data?.discount.promoId : null;
   const pick: DiscountPick = chosen ?? (autoPromo ? `promo:${autoPromo}` : 'none');
@@ -92,6 +97,16 @@ function LineEditor({
         </p>
       )}
       {quote.error && <Alert>{quote.error.message}</Alert>}
+      <div className="flex gap-4 text-sm">
+        {!isCombo && (
+          <button type="button" className="text-teal-800 underline" onClick={() => onChange('top-up')}>
+            Add time
+          </button>
+        )}
+        <button type="button" className="text-teal-800 underline" onClick={() => onChange('service')}>
+          Change service
+        </button>
+      </div>
       <Field label="Discount" hint="One discount per service. Greyed-out Promos don't apply to this service.">
         <Select value={pick} onChange={(e) => set({ ...line, picked: e.target.value as DiscountPick })}>
           <option value="none">No discount</option>
@@ -133,6 +148,7 @@ function LineEditor({
       {priced && (
         <div className="space-y-1 rounded-lg bg-stone-50 p-4">
           <Row label="Regular Price" value={peso(priced.regularPrice)} />
+          {priced.topUpsTotal > 0 && <Row label="Added time" value={peso(priced.topUpsTotal)} />}
           {priced.discount.type !== 'none' && (
             <Row
               label={`${priced.discount.label}${priced.discount.type === 'complimentary' || priced.discount.type === 'voucher' ? '' : ` (${percent(priced.discount.bp)})`}`}
@@ -165,6 +181,7 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
   const [saveId, setSaveId] = useState(true);
   const [invoiceNo, setInvoiceNo] = useState('');
   const [linking, setLinking] = useState(false);
+  const [changing, setChanging] = useState<{ id: string; what: 'top-up' | 'service' } | null>(null);
   const [link, setLink] = useState<GuestChoice>({ guestId: null, guestName: booking.guestName ?? '', guestPhone: '', saveGuest: false });
   const guestAction = useGuestAction();
   const saved = useGuest(booking.guestId).data?.guest;
@@ -236,82 +253,88 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
     );
   }
 
+  const changingLine = owing.find((b) => b.id === changing?.id);
   const several = owing.length > 1;
 
   return (
-    <Modal title={`Checkout · ${guestLabel(booking)}`} onClose={onClose}>
-      <form onSubmit={submit} className="space-y-5">
-        <p className="text-sm text-stone-600">
-          {several ? `${owing.length} services` : `${booking.serviceName} with ${booking.therapistName}`}
-          {saved && (
-            <>
-              {' · '}
-              {saved.isRegular && <Badge tone="teal">Regular</Badge>} {visitsLabel(saved)}
-              {saved.statutoryType && ` · ${STATUTORY_LABEL[saved.statutoryType]} ID on file`}
-            </>
+    <>
+      <Modal title={`Checkout · ${guestLabel(booking)}`} onClose={onClose}>
+        <form onSubmit={submit} className="space-y-5">
+          <p className="text-sm text-stone-600">
+            {several ? `${owing.length} services` : `${booking.serviceName} with ${booking.therapistName}`}
+            {saved && (
+              <>
+                {' · '}
+                {saved.isRegular && <Badge tone="teal">Regular</Badge>} {visitsLabel(saved)}
+                {saved.statutoryType && ` · ${STATUTORY_LABEL[saved.statutoryType]} ID on file`}
+              </>
+            )}
+          </p>
+          {(save.error || stay.error) && <Alert>{(save.error ?? stay.error)?.message}</Alert>}
+          {unfinished.length > 0 && (
+            <Alert tone="info">
+              {unfinished.map((b) => b.serviceName).join(', ')} {unfinished.length === 1 ? 'is' : 'are'} still going. The whole stay is checked out together once it ends.
+            </Alert>
           )}
-        </p>
-        {(save.error || stay.error) && <Alert>{(save.error ?? stay.error)?.message}</Alert>}
-        {unfinished.length > 0 && (
-          <Alert tone="info">
-            {unfinished.map((b) => b.serviceName).join(', ')} {unfinished.length === 1 ? 'is' : 'are'} still going. The whole stay is checked out together once it ends.
-          </Alert>
-        )}
-        {!booking.guestId &&
-          (linking ? (
-            <GuestPicker value={link} onChange={setLink} />
-          ) : (
-            <button type="button" className="text-sm text-teal-800 underline" onClick={() => setLinking(true)}>
-              Link a Guest Record (to count the visit or keep an SC/PWD ID)
-            </button>
-          ))}
+          {!booking.guestId &&
+            (linking ? (
+              <GuestPicker value={link} onChange={setLink} />
+            ) : (
+              <button type="button" className="text-sm text-teal-800 underline" onClick={() => setLinking(true)}>
+                Link a Guest Record (to count the visit or keep an SC/PWD ID)
+              </button>
+            ))}
 
-        {unfinished.length === 0 &&
-          owing.map((b, i) => (
-            <LineEditor
-              key={b.id}
-              stay={b}
-              line={lineOf(b.id)}
-              set={(l) => setLines((all) => ({ ...all, [b.id]: l }))}
-              chosen={chosenOf(b.id)}
-              quote={{ data: quotes[i]?.data, error: quotes[i]?.error ?? null }}
-              priced={priced[i]}
-              showTitle={several}
+          {unfinished.length === 0 &&
+            owing.map((b, i) => (
+              <LineEditor
+                key={b.id}
+                stay={b}
+                line={lineOf(b.id)}
+                set={(l) => setLines((all) => ({ ...all, [b.id]: l }))}
+                chosen={chosenOf(b.id)}
+                quote={{ data: quotes[i]?.data, error: quotes[i]?.error ?? null }}
+                priced={priced[i]}
+                showTitle={several}
+                onChange={(what) => setChanging({ id: b.id, what })}
+              />
+            ))}
+
+          {statutory && unfinished.length === 0 && (
+            <Field label={`${STATUTORY_LABEL[statutory]} ID number`} hint={several ? 'Used for every service with this discount' : undefined}>
+              <Input required minLength={3} value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
+            </Field>
+          )}
+          {canSaveId && unfinished.length === 0 && (
+            <Checkbox
+              label={savedId === null && !saved?.statutoryIdNo ? 'Save this ID to the Guest Record' : 'Replace the ID saved on the Guest Record'}
+              checked={saveId}
+              onChange={(e) => setSaveId(e.target.checked)}
             />
-          ))}
+          )}
 
-        {statutory && unfinished.length === 0 && (
-          <Field label={`${STATUTORY_LABEL[statutory]} ID number`} hint={several ? 'Used for every service with this discount' : undefined}>
-            <Input required minLength={3} value={idNumber} onChange={(e) => setIdNumber(e.target.value)} />
+          {several && ready && (
+            <div className="rounded-lg bg-teal-50 p-4">
+              <Row label="To pay for the stay" value={peso(due)} strong />
+            </div>
+          )}
+
+          {ready && pay.fields}
+
+          <Field label="Booklet invoice no. (optional)">
+            <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
           </Field>
-        )}
-        {canSaveId && unfinished.length === 0 && (
-          <Checkbox
-            label={savedId === null && !saved?.statutoryIdNo ? 'Save this ID to the Guest Record' : 'Replace the ID saved on the Guest Record'}
-            checked={saveId}
-            onChange={(e) => setSaveId(e.target.checked)}
-          />
-        )}
 
-        {several && ready && (
-          <div className="rounded-lg bg-teal-50 p-4">
-            <Row label="To pay for the stay" value={peso(due)} strong />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>Not yet</Button>
+            <Button type="submit" disabled={!ready || save.isPending || guestAction.isPending || pay.invalid}>
+              {due === 0 ? 'Record' : `Paid ${peso(due)}`}
+            </Button>
           </div>
-        )}
-
-        {ready && pay.fields}
-
-        <Field label="Booklet invoice no. (optional)">
-          <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
-        </Field>
-
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Not yet</Button>
-          <Button type="submit" disabled={!ready || save.isPending || guestAction.isPending || pay.invalid}>
-            {due === 0 ? 'Record' : `Paid ${peso(due)}`}
-          </Button>
-        </div>
-      </form>
-    </Modal>
+        </form>
+      </Modal>
+      {changingLine && changing?.what === 'top-up' && <ServiceTopUpDialog booking={changingLine} onClose={() => setChanging(null)} />}
+      {changingLine && changing?.what === 'service' && <ChangeServiceDialog booking={changingLine} onClose={() => setChanging(null)} />}
+    </>
   );
 }

@@ -14,6 +14,7 @@ import { CashOutDialog, DayCloseDialog, EarlyCloseDialog } from './front-desk/Da
 import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 import { NewBookingDialog } from './front-desk/NewBookingDialog';
 import { ReservationDialog, type ReservationChange } from './front-desk/ReservationDialog';
+import { ChangeServiceDialog, ChangeTherapistDialog, ServiceTopUpDialog } from './front-desk/ServiceChangeDialogs';
 import { StartDialog } from './front-desk/StartDialog';
 import { TurnedAwayDialog } from './front-desk/TurnedAwayDialog';
 
@@ -31,12 +32,17 @@ function minutesLeft(endsAt: string, now: number): number {
   return Math.round((new Date(endsAt).getTime() - now) / 60_000);
 }
 
+const tileButton = 'truncate rounded border border-teal-700 px-1 py-1 text-xs font-medium text-teal-800 hover:bg-white';
+
+type RoomAction = 'top-up' | 'service' | 'therapist';
+
 function RoomTile({
   room,
   now,
   next,
   onDone,
   onAdd,
+  onChange,
 }: {
   room: Board['rooms'][number];
   now: number;
@@ -44,6 +50,7 @@ function RoomTile({
   next: Booking | undefined;
   onDone: (b: Booking) => void;
   onAdd: (b: Booking) => void;
+  onChange: (b: Booking, what: RoomAction) => void;
 }) {
   const b = room.booking;
   if (!room.active) {
@@ -74,16 +81,30 @@ function RoomTile({
       <p className="mt-1 truncate">
         {guestLabel(b)} {b.guestIsRegular && <Badge tone="teal">Regular</Badge>}
       </p>
-      <p className="truncate text-xs text-stone-600">{b.serviceCode}</p>
+      <p className="truncate text-xs text-stone-600">
+        {b.serviceCode}
+        {b.topUpMin > 0 && ` + ${duration(b.topUpMin)}`}
+      </p>
       {next && <p className="truncate text-xs font-medium text-teal-800">then {next.serviceCode}{next.therapistId !== b.therapistId ? ` · ${next.therapistName}` : ''}</p>}
       <p className="mt-1 text-xs font-medium tabular-nums">{left === null ? '' : left > 0 ? `${left} min left` : 'Time is up'}</p>
-      <div className="mt-2 flex flex-wrap justify-end gap-1">
+      <div className="mt-2 grid grid-cols-2 gap-1">
+        {b.serviceKind === 'single' && (
+          <button type="button" className={tileButton} onClick={() => onChange(b, 'top-up')}>
+            + Time
+          </button>
+        )}
         {!next && (
-          <button type="button" title="Add a service" className="rounded border border-teal-700 px-2 py-1 text-xs font-medium text-teal-800 hover:bg-white" onClick={() => onAdd(b)}>
+          <button type="button" title="Add a service" className={tileButton} onClick={() => onAdd(b)}>
             + Service
           </button>
         )}
-        <button type="button" className="max-w-full truncate rounded bg-teal-700 px-2 py-1 text-xs font-medium text-white hover:bg-teal-800" onClick={() => onDone(b)}>
+        <button type="button" className={tileButton} onClick={() => onChange(b, 'service')}>
+          Service…
+        </button>
+        <button type="button" className={tileButton} onClick={() => onChange(b, 'therapist')}>
+          Therapist…
+        </button>
+        <button type="button" className="col-span-2 truncate rounded bg-teal-700 px-2 py-1 text-xs font-medium text-white hover:bg-teal-800" onClick={() => onDone(b)}>
           Done · {b.therapistName}
         </button>
       </div>
@@ -292,6 +313,7 @@ function FrontDeskBoard() {
   const [paying, setPaying] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
   const [finishing, setFinishing] = useState<string | null>(null);
+  const [roomAction, setRoomAction] = useState<{ id: string; what: RoomAction } | null>(null);
   const [changing, setChanging] = useState<{ id: string; mode: ReservationChange } | null>(null);
   const [dayDialog, setDayDialog] = useState<DayDialog>(null);
   const [turningAway, setTurningAway] = useState(false);
@@ -321,6 +343,7 @@ function FrontDeskBoard() {
   const addingBooking = board.bookings.find((b) => b.id === adding);
   const finishingBooking = board.bookings.find((b) => b.id === finishing && b.status === 'in_service');
   const changingBooking = board.bookings.find((b) => b.id === changing?.id);
+  const actedOn = board.bookings.find((b) => b.id === roomAction?.id && b.status === 'in_service');
   const nextAfter = (b: Booking) => board.bookings.find((x) => x.parentBookingId === b.id && x.status === 'waiting');
   // Done hands straight over to checkout, since the guest pays on the way out; an Added Service starts instead.
   const markDone = (b: Booking) =>
@@ -366,7 +389,7 @@ function FrontDeskBoard() {
         <div className="space-y-6">
           <section aria-label="Rooms" className="grid grid-cols-4 gap-3">
             {board.rooms.map((r) => (
-              <RoomTile key={r.id} room={r} now={now} next={r.booking ? nextAfter(r.booking) : undefined} onDone={(b) => setFinishing(b.id)} onAdd={(b) => setAdding(b.id)} />
+              <RoomTile key={r.id} room={r} now={now} next={r.booking ? nextAfter(r.booking) : undefined} onDone={(b) => setFinishing(b.id)} onAdd={(b) => setAdding(b.id)} onChange={(b, what) => setRoomAction({ id: b.id, what })} />
             ))}
           </section>
 
@@ -430,6 +453,9 @@ function FrontDeskBoard() {
       {startingBooking && <StartDialog booking={startingBooking} board={board} onClose={() => setStarting(null)} />}
       {payingBooking && <CheckoutDialog booking={payingBooking} onClose={() => setPaying(null)} />}
       {addingBooking && <AddServiceDialog booking={addingBooking} onClose={() => setAdding(null)} />}
+      {actedOn && roomAction?.what === 'top-up' && <ServiceTopUpDialog booking={actedOn} onClose={() => setRoomAction(null)} />}
+      {actedOn && roomAction?.what === 'service' && <ChangeServiceDialog booking={actedOn} onClose={() => setRoomAction(null)} />}
+      {actedOn && roomAction?.what === 'therapist' && <ChangeTherapistDialog booking={actedOn} currentName={actedOn.therapistName} board={board} onClose={() => setRoomAction(null)} />}
       {changingBooking && changing && <ReservationDialog booking={changingBooking} mode={changing.mode} onClose={() => setChanging(null)} />}
       {finishingBooking && (
         <Modal title="Finish this service?" onClose={() => setFinishing(null)}>

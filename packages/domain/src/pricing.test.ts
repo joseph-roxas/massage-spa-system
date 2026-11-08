@@ -67,6 +67,26 @@ describe('quoteSale', () => {
     expect(quoteSale(swedish({ statutory: 'pwd' }))).toMatchObject({ serviceAmount: pesos(400), amountDue: pesos(400) });
   });
 
+  describe('with Top-ups', () => {
+    const topped = (extra: Partial<QuoteInput>) => quoteSale(swedish({ topUpsTotal: pesos(250), ...extra }));
+
+    it('takes Senior/PWD off the whole bill', () => {
+      expect(topped({ statutory: 'senior' })).toMatchObject({ discount: { amount: pesos(150) }, amountDue: pesos(600) });
+    });
+
+    it('takes a Promo off the original Service only', () => {
+      expect(topped({ promos: [{ ...happyHours, percentBp: 1000 }] })).toMatchObject({ discount: { type: 'promo', amount: pesos(50) }, amountDue: pesos(700) });
+    });
+
+    it('has the Guest pay Top-ups on a Voucher', () => {
+      expect(topped({ promos: [], voucher: { serial: 'X', isFree: false } })).toMatchObject({ discount: { amount: pesos(500) }, amountDue: pesos(250), focKind: 'prepaid' });
+    });
+
+    it('covers everything when Complimentary', () => {
+      expect(topped({ complimentary: true })).toMatchObject({ discount: { amount: pesos(750) }, amountDue: 0 });
+    });
+  });
+
   it('makes a Complimentary Service a Real FOC', () => {
     const q = quoteSale(swedish({ complimentary: true, statutory: 'senior' }));
     expect(q.discount).toMatchObject({ type: 'complimentary', amount: pesos(500) });

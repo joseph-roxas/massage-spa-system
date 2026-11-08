@@ -5,13 +5,14 @@ import { and, asc, eq, gte, isNotNull, lte, ne, notInArray, sql } from 'drizzle-
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import {
   businessDayOf,
-  can,
-  DAILY_REPORTS,
+  choosesReportDates,
   FOC_LABELS,
   focGroup,
   REPORTS,
+  reportsFor,
   serviceTimes,
   totalsOf,
+  withSubtotals,
   type Column,
   type FocGroup,
   type Report,
@@ -32,6 +33,7 @@ import {
   staff,
   stockIns,
   stockOuts,
+  therapistChanges,
   voucherPayments,
   voucherSales,
   dailySummaries,
@@ -43,7 +45,7 @@ import { isoDate } from '../lib/validation';
 import { requireAuth } from '../auth/middleware';
 
 type Db = DrizzleD1Database;
-type Range = { from: string; to: string };
+type Range = { from: string; to: string; therapist?: string };
 
 const CASH_OUT_LABELS: Record<string, string> = { relief_pay: 'Relief pay', petty_cash: 'Petty cash', laundry: 'Laundry', supplies: 'Supplies', food: 'Food / rice', transport: 'Transport', other: 'Other' };
 
@@ -211,6 +213,78 @@ export async function therapistSales(db: Db, r: Range): Promise<Report> {
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => b.commission - a.commission);
   return { title: 'Sales per therapist', columns, rows, totals: totalsOf(columns, rows), note: 'Requested = served a Guest who asked for them. Commission is on the Regular Price less any Owner’s Set-aside, FOCs included.' };
+}
+
+const whenLabel = (iso: string) => new Date(iso).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/** Every Service a Therapist was paid for, one line each. */
+async function therapistDetail(db: Db, r: Range): Promise<Report> {
+  const inRange = and(eq(sales.status, 'paid'), gte(sales.businessDay, r.from), lte(sales.businessDay, r.to), r.therapist ? eq(sales.therapistId, r.therapist) : undefined);
+  const [lines, people, changes] = await Promise.all([
+    db
+      .select({
+        bookingId: sales.bookingId,
+        name: staff.displayName,
+        startedAt: bookings.startedAt,
+        service: services.name,
+        regular: sales.regularPrice,
+        topUps: sales.topUpsTotal,
+        setAside: sales.setAside,
+        commission: sales.commissionAmount,
+      })
+      .from(sales)
+      .innerJoin(bookings, eq(bookings.id, sales.bookingId))
+      .innerJoin(services, eq(services.id, sales.serviceId))
+      .innerJoin(staff, eq(staff.id, sales.therapistId))
+      .where(inRange)
+      .orderBy(asc(staff.displayName), asc(bookings.startedAt)),
+    db.select({ id: staff.id, name: staff.displayName }).from(staff),
+    db
+      .select({ bookingId: therapistChanges.bookingId, from: therapistChanges.fromTherapistId, reason: therapistChanges.reason })
+      .from(therapistChanges)
+      .innerJoin(bookings, eq(bookings.id, therapistChanges.bookingId))
+      .where(and(gte(bookings.businessDay, r.from), lte(bookings.businessDay, r.to)))
+      .orderBy(asc(therapistChanges.changedAt)),
+  ]);
+  const columns = [
+    col('name', 'Therapist'),
+    col('when', 'Date and time'),
+    col('service', 'Service'),
+    col('regular', 'Regular Price', 'money'),
+    col('setAside', 'Owner’s Set-aside', 'money'),
+    col('commission', 'Commission', 'money'),
+    col('note', 'Note'),
+  ];
+  const rows: Row[] = lines.map((x) => {
+    const change = changes.filter((c) => c.bookingId === x.bookingId).at(-1);
+    const notes = [x.topUps > 0 ? `Includes added time ₱${x.topUps / 100}` : null, change ? `Took over from ${people.find((p) => p.id === change.from)?.name ?? 'another therapist'}: ${change.reason}` : null].filter(Boolean);
+    return { name: x.name, when: x.startedAt ? whenLabel(x.startedAt) : null, service: x.service, regular: x.regular, setAside: x.setAside, commission: x.commission, note: notes.join(' · ') || null };
+  });
+  return {
+    title: 'Therapist Sales',
+    columns,
+    rows: withSubtotals(columns, rows, 'name'),
+    totals: totalsOf(columns, rows),
+    note: 'Commission is on the Regular Price less the Owner’s Set-aside, at the rate for that day. It is the same whatever the Guest paid.',
+  };
+}
+
+/** Who took over a Service under way, and why. */
+async function therapistChangesReport(db: Db, r: Range): Promise<Report> {
+  const [rows0, people] = await Promise.all([
+    db
+      .select({ changedAt: therapistChanges.changedAt, service: services.name, from: therapistChanges.fromTherapistId, to: therapistChanges.toTherapistId, minutes: therapistChanges.minutesServed, reason: therapistChanges.reason })
+      .from(therapistChanges)
+      .innerJoin(bookings, eq(bookings.id, therapistChanges.bookingId))
+      .innerJoin(services, eq(services.id, bookings.serviceId))
+      .where(and(gte(bookings.businessDay, r.from), lte(bookings.businessDay, r.to)))
+      .orderBy(asc(therapistChanges.changedAt)),
+    db.select({ id: staff.id, name: staff.displayName }).from(staff),
+  ]);
+  const nameOf = (id: string) => people.find((p) => p.id === id)?.name ?? id;
+  const columns = [col('when', 'Date and time'), col('service', 'Service'), col('replaced', 'Replaced'), col('now', 'Taken over by'), col('minutes', 'Minutes served', 'int'), col('reason', 'Reason')];
+  const rows = rows0.map((x) => ({ when: whenLabel(x.changedAt), service: x.service, replaced: nameOf(x.from), now: nameOf(x.to), minutes: x.minutes, reason: x.reason }));
+  return { title: 'Therapist Changes', columns, rows, note: 'The replaced Therapist earns nothing for that Service and keeps their place in the Rotation.' };
 }
 
 async function guests(db: Db, r: Range): Promise<Report> {
@@ -405,6 +479,8 @@ async function expenseReport(db: Db, r: Range): Promise<Report> {
 const BUILDERS: Record<ReportName, (db: Db, r: Range) => Promise<Report>> = {
   'daily-sales': dailySales,
   'therapist-sales': therapistSales,
+  'therapist-detail': therapistDetail,
+  'therapist-changes': therapistChangesReport,
   guests,
   'service-times': serviceTimesReport,
   foc,
@@ -414,7 +490,7 @@ const BUILDERS: Record<ReportName, (db: Db, r: Range) => Promise<Report>> = {
 };
 
 const query = z
-  .object({ from: isoDate, to: isoDate })
+  .object({ from: isoDate, to: isoDate, therapist: z.string().min(1).optional() })
   .refine((q) => q.from <= q.to, 'The start date must be on or before the end date.')
   .refine((q) => (Date.parse(q.to) - Date.parse(q.from)) / 86_400_000 <= 366, 'Choose at most a year at a time.');
 
@@ -425,8 +501,8 @@ export const reportRoutes = new Hono<AuthedEnv>()
     if (!REPORTS.includes(name)) return fail(c, 404, 'not_found', 'No such report.');
     const role = c.var.user.role;
     const range = c.req.valid('query');
-    if (!can(role, 'reports.all')) {
-      if (!can(role, 'reports.daily') || !DAILY_REPORTS.includes(name)) return fail(c, 403, 'forbidden', 'You do not have access to this report.');
+    if (!reportsFor(role).includes(name)) return fail(c, 403, 'forbidden', 'You do not have access to this report.');
+    if (!choosesReportDates(role)) {
       const today = businessDayOf(new Date());
       if (range.from !== today || range.to !== today) return fail(c, 403, 'today_only', 'You can see today’s figures only.');
     }

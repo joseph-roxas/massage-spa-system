@@ -1,4 +1,5 @@
 import { toManila } from './calendar';
+import type { Role } from './permissions';
 
 /** Every report is a table: typed columns and rows keyed by column. */
 export type ColumnType = 'text' | 'int' | 'money' | 'date';
@@ -9,6 +10,8 @@ export type Report = { title: string; columns: Column[]; rows: Row[]; totals?: R
 export const REPORTS = [
   'daily-sales',
   'therapist-sales',
+  'therapist-detail',
+  'therapist-changes',
   'guests',
   'service-times',
   'foc',
@@ -18,8 +21,18 @@ export const REPORTS = [
 ] as const;
 export type ReportName = (typeof REPORTS)[number];
 
-/** What the Receptionist may run: today's operational figures only. */
+/** What a Reliever may run, for today only. */
 export const DAILY_REPORTS: readonly ReportName[] = ['daily-sales', 'guests'];
+
+/** What the Receptionist may run, for any dates. */
+export const RECEPTIONIST_REPORTS: readonly ReportName[] = [...DAILY_REPORTS, 'therapist-detail', 'therapist-changes'];
+
+export function reportsFor(role: Role): readonly ReportName[] {
+  return role === 'super_admin' ? REPORTS : role === 'receptionist' ? RECEPTIONIST_REPORTS : DAILY_REPORTS;
+}
+
+/** The shared Reliever Login may be used by a Therapist, so it stays on today's figures. */
+export const choosesReportDates = (role: Role) => role !== 'reliever';
 
 /** Sums the money and count columns of `rows`. */
 export function totalsOf(columns: readonly Column[], rows: readonly Row[], label = 'Total'): Row {
@@ -29,6 +42,14 @@ export function totalsOf(columns: readonly Column[], rows: readonly Row[], label
     else out[c.key] = i === 0 ? label : null;
   });
   return out;
+}
+
+/** `rows`, already grouped by `groupKey`, with a marked subtotal after each group. One group needs none. */
+export function withSubtotals(columns: readonly Column[], rows: readonly Row[], groupKey: string): Row[] {
+  const groups = new Map<unknown, Row[]>();
+  for (const r of rows) groups.set(r[groupKey], [...(groups.get(r[groupKey]) ?? []), r]);
+  if (groups.size < 2) return [...rows];
+  return [...groups.values()].flatMap((group) => [...group, { ...totalsOf(columns, group, 'Subtotal'), rowKind: 'subtotal' }]);
 }
 
 /** The Manila hour (0–23) a Service started. */

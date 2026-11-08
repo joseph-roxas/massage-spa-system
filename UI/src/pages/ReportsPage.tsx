@@ -1,7 +1,8 @@
 import { useSearchParams } from 'react-router';
-import { businessDayOf, DAILY_REPORTS, monthRange, payWeekOf, previousMonth, REPORTS, type Column, type Report, type ReportName, type Row } from '@spa/domain';
-import { Alert, Button, Card, Field, Input, td, th } from '../components/ui';
-import { useCan } from '../lib/auth';
+import { businessDayOf, choosesReportDates, monthRange, payWeekOf, previousMonth, reportsFor, type Column, type Report, type ReportName, type Row } from '@spa/domain';
+import { Alert, Button, Card, Field, Input, Select, td, th } from '../components/ui';
+import { useClockStaff } from '../lib/attendance';
+import { useCan, useCurrentUser } from '../lib/auth';
 import { longDate, peso } from '../lib/format';
 import { download, REPORT_LABELS, useReport } from '../lib/reports';
 import { DailyBars, Heatmap, RankedBars } from './reports/Charts';
@@ -42,7 +43,7 @@ function ReportTable({ report }: { report: Report }) {
         </thead>
         <tbody className="divide-y divide-stone-100">
           {report.rows.map((r, i) => (
-            <tr key={i}>
+            <tr key={i} className={r.rowKind === 'subtotal' ? 'bg-stone-50 font-semibold' : ''}>
               {report.columns.map((c) => (
                 <td key={c.key} className={`${td} whitespace-nowrap ${num(c) ? 'text-right tabular-nums' : ''}`}>
                   {cell(c, r[c.key])}
@@ -85,13 +86,18 @@ function Chart({ name, report }: { name: ReportName; report: Report }) {
 export function ReportsPage() {
   const all = useCan('reports.all');
   const today = businessDayOf(new Date());
-  const allowed = all ? REPORTS : DAILY_REPORTS;
+  const { data: me } = useCurrentUser();
+  const allowed = me ? reportsFor(me.role) : [];
+  const canPickDates = !!me && choosesReportDates(me.role);
   const [params, setParams] = useSearchParams();
-  const name = (allowed.includes(params.get('r') as ReportName) ? params.get('r') : allowed[0]) as ReportName;
-  const from = all ? (params.get('from') ?? `${today.slice(0, 7)}-01`) : today;
-  const to = all ? (params.get('to') ?? today) : today;
-  const set = (patch: Record<string, string>) => setParams({ r: name, from, to, ...patch });
-  const { data, error, isFetching } = useReport(name, from, to);
+  const name = (allowed.includes(params.get('r') as ReportName) ? params.get('r') : (allowed[0] ?? 'daily-sales')) as ReportName;
+  // The owner starts on the month, the desk on today.
+  const from = canPickDates ? (params.get('from') ?? (all ? `${today.slice(0, 7)}-01` : today)) : today;
+  const to = canPickDates ? (params.get('to') ?? today) : today;
+  const therapist = params.get('therapist') ?? '';
+  const set = (patch: Record<string, string>) => setParams({ r: name, from, to, therapist, ...patch });
+  const { data, error, isFetching } = useReport(name, from, to, name === 'therapist-detail' ? therapist : '');
+  const staff = useClockStaff();
   const report = data?.report;
 
   return (
@@ -110,11 +116,11 @@ export function ReportsPage() {
               <span className={`block text-xs ${r === name ? 'text-teal-50' : 'text-stone-500'}`}>{REPORT_LABELS[r].blurb}</span>
             </button>
           ))}
-          {!all && <p className="px-3 pt-2 text-xs text-stone-500">Today’s figures. The owner sees all reports.</p>}
+          {!canPickDates && <p className="px-3 pt-2 text-xs text-stone-500">Today’s figures. The owner sees all reports.</p>}
         </nav>
 
         <div className="min-w-0 space-y-4">
-          {all && (
+          {canPickDates && (
             <div className="flex flex-wrap items-end gap-3">
               <Field label="From">
                 <Input type="date" value={from} max={to} onChange={(e) => e.target.value && set({ from: e.target.value })} />
@@ -122,6 +128,20 @@ export function ReportsPage() {
               <Field label="To">
                 <Input type="date" value={to} min={from} onChange={(e) => e.target.value && set({ to: e.target.value })} />
               </Field>
+              {name === 'therapist-detail' && (
+                <Field label="Therapist">
+                  <Select value={therapist} onChange={(e) => set({ therapist: e.target.value })}>
+                    <option value="">All therapists</option>
+                    {staff.data?.staff
+                      .filter((s) => s.kind === 'therapist')
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.displayName}
+                        </option>
+                      ))}
+                  </Select>
+                </Field>
+              )}
               <div className="flex flex-wrap gap-1 pb-0.5">
                 {presets(today).map(([label, f, t]) => (
                   <button

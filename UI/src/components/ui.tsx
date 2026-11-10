@@ -5,6 +5,8 @@ const BUTTON_VARIANTS = {
   primary: 'bg-teal-700 text-white hover:bg-teal-800 disabled:bg-teal-700/50',
   secondary: 'border border-stone-300 bg-white text-stone-800 hover:bg-stone-100 disabled:opacity-50',
   danger: 'border border-red-300 bg-white text-red-700 hover:bg-red-50 disabled:opacity-50',
+  /** Solid red, for the one action that must not be missed: closing the day. */
+  alarm: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-600/50',
 } as const;
 
 export function Button({

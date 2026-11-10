@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { businessDayOf, certificateStatus, previousQuarter, quarterOf } from '@spa/domain';
-import { cashTransfers, certificates, expenses, staff, takeoutRequests, turnovers } from '@spa/db';
+import { bookings, cashTransfers, certificates, expenses, staff, takeoutRequests, turnovers } from '@spa/db';
 import { dtrToReviewCount } from './attendance';
 import { handoverState } from '../lib/sales-cash';
 import type { AuthedEnv } from '../env';
@@ -26,7 +26,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAuth, requireCapability('settings.manage'), async (c) => {
   const db = c.var.db;
   const today = businessDayOf(new Date());
-  const [requests, shortfalls, handovers, people, certs, drafts, tax, dtrToReview, cash] = await Promise.all([
+  const [requests, shortfalls, handovers, people, certs, drafts, tax, dtrToReview, cash, late] = await Promise.all([
     db.select({ id: takeoutRequests.id, level: takeoutRequests.level }).from(takeoutRequests).where(isNull(takeoutRequests.resolvedAt)),
     db
       .select({ id: turnovers.id })
@@ -39,6 +39,7 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
     quarterStatus(db, previousQuarter(quarterOf(today))),
     dtrToReviewCount(db),
     handoverState(db, today),
+    db.select({ n: sql<number>`count(*)` }).from(bookings).where(and(eq(bookings.enteredLate, true), isNull(bookings.lateCheckedAt))).get(),
   ]);
 
   const items: AttentionItem[] = [];
@@ -137,6 +138,10 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
   const pending = Number(drafts?.n ?? 0);
   if (dtrToReview) {
     items.push({ key: 'dtr-review', tone: 'normal', title: `${plural(dtrToReview, 'time record')} to review`, detail: 'Added by hand, corrected, or never clocked out', link: '/dtr?tab=review' });
+  }
+  const lateEntries = Number(late?.n ?? 0);
+  if (lateEntries) {
+    items.push({ key: 'late-entries', tone: 'normal', title: `${plural(lateEntries, 'guest')} entered late`, detail: 'Recorded after the Therapist started; check the times', link: '/' });
   }
   if (pending) items.push({ key: 'expense-drafts', tone: 'normal', title: `${plural(pending, 'expense')} to confirm`, detail: 'Royalty, employer contributions and recurring bills', link: '/expenses' });
 

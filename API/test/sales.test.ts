@@ -270,8 +270,10 @@ describe('Day Close', () => {
     expect(preview.blockers).toEqual([]);
     expect(preview.totals).toMatchObject({ cashIn: 50000, cashOut: 15000, expectedCash: 35000 });
 
-    // Logging out with the day open is blocked for the Receptionist.
+    // Logging out with the day open warns the Receptionist, who may still log out anyway.
     expect((await desk.post('/auth/logout')).status).toBe(409);
+    const leaving = await loggedIn('receptionist');
+    expect((await leaving.post('/auth/logout', { force: true })).status).toBe(200);
 
     const closed = await json<{ expectedCash: number; variance: number }>(await desk.post(`/days/${day}/close`, { countedCash: 34000, note: 'Short 10' }));
     expect(closed).toMatchObject({ expectedCash: 35000, variance: -1000 });
@@ -550,6 +552,12 @@ describe('vouchers', () => {
     expect((await admin.post(`/vouchers/${torn.id}/void`, { reason: 'Torn card' })).status).toBe(200);
     const { vouchers } = await json<{ vouchers: unknown[] }>(await desk.get('/vouchers?serviceId=aroma-90&status=in_shop'));
     expect(vouchers).toHaveLength(49);
+    // The list filters by Service and by the owner's status groups.
+    const shown = async (query: string) => (await json<{ vouchers: { status: string }[] }>(await desk.get(`/vouchers?serviceId=aroma-90&${query}`))).vouchers;
+    expect(await shown('show=unsold')).toHaveLength(49);
+    expect(await shown('show=voided')).toHaveLength(1);
+    expect(await shown('show=sold')).toHaveLength(0);
+    expect((await desk.get('/vouchers?show=nonsense')).status).toBe(400);
   });
 
   it('lets only the Super Admin count cards at go-live, by card number, never the same card twice', async () => {

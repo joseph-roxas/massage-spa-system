@@ -299,3 +299,73 @@ describe('booking lifecycle', () => {
     expect((await client().get('/health')).status).toBe(200);
   });
 });
+
+describe('Late Entry', () => {
+  const minsAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+  /** A Therapist whose time record starts `m` minutes ago, as if they clocked in before the desk was there. */
+  async function clockedInAgo(admin: Client, m: number): Promise<string> {
+    const name = `L${++n}`;
+    const { id } = await json<{ id: string }>(
+      await admin.post('/settings/staff', { ...PERSON, firstName: name, lastName: 'Test', displayName: name, kind: 'therapist', therapistClass: 'regular' }),
+    );
+    expect((await admin.post('/dtr', { staffId: id, clockIn: minsAgo(m), clockOut: null, reason: 'Clocked in on paper' })).status).toBe(201);
+    return id;
+  }
+  const late = (therapistId: string, roomId: number, startedAt: string, finishedAt: string | null) => ({
+    serviceId: 'swedish-60',
+    guestName: 'Paper guest',
+    therapistId,
+    roomId,
+    startedAt,
+    finishedAt,
+  });
+
+  it('records a guest served before the desk arrived, with the real times, marked for the owner', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await clockedInAgo(admin, 50);
+
+    const res = await desk.post('/bookings/late', late(t, 3, minsAgo(40), minsAgo(10)));
+    expect(res.status).toBe(201);
+    const { id } = await json<{ id: string }>(res);
+    const row = await env.DB.prepare(`SELECT status, entered_late, started_at, done_at, therapist_id FROM bookings WHERE id = ?`).bind(id).first<Record<string, unknown>>();
+    expect(row).toMatchObject({ status: 'done', entered_late: 1, therapist_id: t });
+
+    // It took the Therapist's Rotation turn, and waits for checkout like any finished Service.
+    const b = await board(desk);
+    expect(b.bookings.find((x) => x.id === id)).toMatchObject({ status: 'done' });
+
+    // The owner sees it until it is checked.
+    expect((await desk.get('/bookings/late')).status).toBe(403);
+    const list = await json<{ entries: { id: string }[] }>(await admin.get('/bookings/late'));
+    expect(list.entries.map((e) => e.id)).toContain(id);
+    const attention = await json<{ items: { key: string }[] }>(await admin.get('/attention'));
+    expect(attention.items.map((i) => i.key)).toContain('late-entries');
+    expect((await admin.post('/bookings/late/checked', { ids: [id] })).status).toBe(200);
+    expect((await json<{ entries: { id: string }[] }>(await admin.get('/bookings/late'))).entries.map((e) => e.id)).not.toContain(id);
+  });
+
+  it('refuses a time the Therapist was not clocked in, or was already with a guest, or the room was in use', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await clockedInAgo(admin, 50);
+    const other = await clockedInAgo(admin, 50);
+
+    const before = await desk.post('/bookings/late', late(t, 4, minsAgo(55), minsAgo(5)));
+    expect(before.status).toBe(409);
+    expect((await json<{ error: string }>(before)).error).toBe('not_clocked_in');
+    expect((await desk.post('/bookings/late', late(t, 4, new Date(Date.now() + 600_000).toISOString(), null))).status).toBe(400);
+
+    expect((await desk.post('/bookings/late', late(t, 4, minsAgo(45), minsAgo(20)))).status).toBe(201);
+    const busy = await desk.post('/bookings/late', late(t, 5, minsAgo(30), minsAgo(5)));
+    expect((await json<{ error: string }>(busy)).error).toBe('therapist_busy');
+    const taken = await desk.post('/bookings/late', late(other, 4, minsAgo(30), minsAgo(5)));
+    expect((await json<{ error: string }>(taken)).error).toBe('room_taken');
+
+    // Still under way: no finish time, so it is in service now.
+    const now = await desk.post('/bookings/late', late(other, 5, minsAgo(15), null));
+    expect(now.status).toBe(201);
+    const { id } = await json<{ id: string }>(now);
+    expect((await board(desk)).bookings.find((x) => x.id === id)).toMatchObject({ status: 'in_service', therapistId: other, roomId: 5 });
+  });
+});

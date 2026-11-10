@@ -111,7 +111,10 @@ describe('DTR corrections', () => {
     const { id: entryId } = await json<{ id: string }>(created);
 
     // Overlaps and backwards times are refused.
-    expect((await desk.post('/dtr', { staffId: id, clockIn: hoursAgo(3), clockOut: hoursAgo(2), reason: 'Again' })).status).toBe(400);
+    const clash = await desk.post('/dtr', { staffId: id, clockIn: hoursAgo(3), clockOut: hoursAgo(2), reason: 'Again' });
+    expect(clash.status).toBe(400);
+    // The message names the entry it runs into and the day it is filed under.
+    expect((await json<{ message: string }>(clash)).message).toMatch(/^This overlaps another entry for the same person: .+ to .+, filed under [A-Z][a-z]{2} \d{1,2}\. Open that day/);
     expect((await desk.send('PATCH', `/dtr/${entryId}`, { clockIn, clockOut: hoursAgo(6), reason: 'Oops' })).status).toBe(400);
     expect((await desk.send('PATCH', `/dtr/${entryId}`, { clockIn, clockOut: new Date(Date.now() + 3_600_000).toISOString(), reason: 'Future' })).status).toBe(400);
 
@@ -258,5 +261,74 @@ describe('DTR batch entry and DTR Review', () => {
     expect((await owner.send('PATCH', `/dtr/${d19!.id}`, { ...fixed, reason: 'Arrived 14:05' })).status).toBe(200);
     expect((await mine()).map((e) => e.id)).toEqual([open!.id]);
     await owner.send('PATCH', `/dtr/${open!.id}`, { ...shift(daysAgo(18)), reason: 'Closing old entry' });
+  });
+});
+
+describe('Auto Clock-out', () => {
+  const dayBefore = () => {
+    const d = new Date(`${businessDayOf(new Date())}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  };
+  const openEntry = async (staffId: string, day: string, clockIn: string) => {
+    const id = crypto.randomUUID();
+    await env.DB.prepare(`INSERT INTO dtr (id, staff_id, business_day, clock_in, source, created_at) VALUES (?, ?, ?, ?, 'pin', ?)`)
+      .bind(id, staffId, day, clockIn, new Date().toISOString())
+      .run();
+    return id;
+  };
+  const row = (id: string) =>
+    env.DB.prepare(`SELECT clock_out, auto_clock_out, reviewed_at FROM dtr WHERE id = ?`).bind(id).first<{ clock_out: string | null; auto_clock_out: number; reviewed_at: string | null }>();
+
+  it('clocks out anyone left in from an earlier day, at 11:00pm when the day was never closed', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await addStaff(admin);
+    const day = dayBefore();
+    const id = await openEntry(t, day, manilaInstant(day, '14:00').toISOString());
+
+    // Seeing the Clock-in Screen ends it; the person is no longer shown as in, and can clock in today.
+    const { staff } = await json<{ staff: { id: string; clockedInAt: string | null }[] }>(await desk.get('/clock/staff'));
+    expect(staff.find((s) => s.id === t)?.clockedInAt).toBeNull();
+    expect(await row(id)).toMatchObject({ clock_out: manilaInstant(day, '23:00').toISOString(), auto_clock_out: 1, reviewed_at: null });
+    expect((await desk.post('/clock/punch', { staffId: t, pin: '1234', action: 'in' })).status).toBe(200);
+
+    // It waits on the DTR Review.
+    const review = await json<{ entries: { id: string; autoClockOut: boolean }[] }>(await admin.get('/dtr/review'));
+    expect(review.entries.find((e) => e.id === id)).toMatchObject({ autoClockOut: true });
+  });
+
+  it('uses the Day Close time when that day was closed', async () => {
+    const admin = await loggedIn('super_admin');
+    const t = await addStaff(admin);
+    const day = dayBefore();
+    const closedAt = manilaInstant(day, '23:20').toISOString();
+    await env.DB.prepare(`INSERT OR REPLACE INTO business_days (date, opened_at, closed_at) VALUES (?, ?, ?)`).bind(day, manilaInstant(day, '14:00').toISOString(), closedAt).run();
+    const id = await openEntry(t, day, manilaInstant(day, '15:00').toISOString());
+    await admin.get('/clock/staff');
+    expect(await row(id)).toMatchObject({ clock_out: closedAt, auto_clock_out: 1 });
+  });
+
+  it('clocks out everyone still in when the day is closed, and lists them first', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const a = await addStaff(admin);
+    const b = await addStaff(admin);
+    const today = businessDayOf(new Date());
+    await env.DB.prepare(`INSERT OR IGNORE INTO business_days (date, opened_at) VALUES (?, ?)`).bind(today, new Date().toISOString()).run();
+    await desk.post('/clock/punch', { staffId: a, pin: '1234', action: 'in' });
+    await desk.post('/clock/punch', { staffId: b, pin: '1234', action: 'in' });
+    await desk.post('/clock/punch', { staffId: b, pin: '1234', action: 'out' });
+
+    const preview = await json<{ stillIn: { staffId: string }[]; totals: { expectedCash: number } }>(await desk.get(`/days/${today}/close-preview`));
+    expect(preview.stillIn.map((s) => s.staffId)).toContain(a);
+    expect(preview.stillIn.map((s) => s.staffId)).not.toContain(b);
+
+    const closed = await desk.post(`/days/${today}/close`, { countedCash: preview.totals.expectedCash });
+    expect(closed.status).toBe(200);
+    const { staff } = await json<{ staff: { id: string; clockedInAt: string | null }[] }>(await desk.get('/clock/staff'));
+    expect(staff.find((s) => s.id === a)?.clockedInAt).toBeNull();
+    const entry = await env.DB.prepare(`SELECT auto_clock_out FROM dtr WHERE staff_id = ?`).bind(a).first<{ auto_clock_out: number }>();
+    expect(entry?.auto_clock_out).toBe(1);
   });
 });

@@ -85,3 +85,13 @@ export function bundleUse<V extends { redeemedAt: string | null }>(qtyPaid: numb
   const unused = vouchers.filter((v) => !v.redeemedAt);
   return [...used.map((v, i) => ({ ...v, free: i >= qtyPaid })), ...unused.map((v) => ({ ...v, free: false }))];
 }
+
+/** How the voucher list is filtered by status: the owner's words for which cards to show. */
+export const VOUCHER_LIST_FILTERS = {
+  unsold: { label: 'Unsold', statuses: ['in_shop'] },
+  sold: { label: 'Sold (all)', statuses: ['unused', 'redeemed', 'used_before_golive'] },
+  sold_unused: { label: 'Sold, unused', statuses: ['unused'] },
+  used: { label: 'Used', statuses: ['redeemed', 'used_before_golive'] },
+  voided: { label: 'Cancelled', statuses: ['voided'] },
+} as const;
+export type VoucherListFilter = keyof typeof VOUCHER_LIST_FILTERS;

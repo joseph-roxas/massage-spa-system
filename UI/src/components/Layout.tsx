@@ -110,16 +110,21 @@ export function Layout() {
             <div className="mt-3 rounded-md bg-amber-50 p-2 text-xs text-amber-900">
               <p>{logout.error.message}</p>
               {dayOpen && (
-                <button
-                  type="button"
-                  className="mt-1 font-medium underline"
-                  onClick={() => {
-                    logout.reset();
-                    navigate('/?close=1');
-                  }}
-                >
-                  Go to Day Close
-                </button>
+                <div className="mt-2 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    className="font-medium underline"
+                    onClick={() => {
+                      logout.reset();
+                      navigate('/?close=1');
+                    }}
+                  >
+                    Go to Day Close
+                  </button>
+                  <button type="button" className="font-medium text-red-700 underline" onClick={() => logout.mutate(true)}>
+                    Log out anyway
+                  </button>
+                </div>
               )}
             </div>
           )}

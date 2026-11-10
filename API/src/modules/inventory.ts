@@ -7,6 +7,7 @@ import {
   businessDayOf,
   can,
   isLowStock,
+  matchOpeningRows,
   poCan,
   receiveProblem,
   receiveTurnoverProblem,
@@ -415,6 +416,68 @@ export const inventoryRoutes = new Hono<AuthedEnv>()
         ]),
       ]);
       return c.json({ ok: true });
+    },
+  )
+
+  /**
+   * The Opening Count from an uploaded file: lines matched to the catalog by name, new Items created,
+   * all or nothing. Refused with every problem named if any line can't be placed.
+   */
+  .put(
+    '/inventory/opening/import',
+    requireCapability('inventory.po.approve'),
+    zValidator(
+      'json',
+      z.object({
+        date: isoDate,
+        location: z.enum(STOCK_LOCATIONS),
+        rows: z
+          .array(
+            z.object({
+              line: z.number().int().min(1),
+              name: z.string().trim().min(1).max(80),
+              qty: z.number().int().min(0).max(100_000),
+              unit: z.string().trim().min(1).max(30).optional(),
+              kind: z.enum(ITEM_KINDS).optional(),
+            }),
+          )
+          .min(1)
+          .max(300),
+      }),
+      invalidInput,
+    ),
+    async (c) => {
+      const db = c.var.db;
+      const { date, location, rows } = c.req.valid('json');
+      const catalog = await db.select({ id: items.id, name: items.name, unit: items.unit }).from(items);
+      const matches = matchOpeningRows(rows, catalog);
+      const problems = matches.filter((m) => m.status === 'problem');
+      if (problems.length) {
+        const shown = problems.slice(0, 5).map((p) => `line ${p.line}: ${p.message}`);
+        return fail(c, 400, 'bad_rows', `Nothing was saved. ${shown.join(' ')}${problems.length > 5 ? ` And ${problems.length - 5} more.` : ''}`);
+      }
+      const now = nowIso();
+      const counts: { itemId: string; qty: number }[] = [];
+      const created: { id: string; name: string; unit: string; kind: (typeof ITEM_KINDS)[number] }[] = [];
+      for (const m of matches) {
+        if (m.status === 'matched') counts.push({ itemId: m.itemId, qty: m.qty });
+        else if (m.status === 'new') {
+          const id = crypto.randomUUID();
+          created.push({ id, name: m.name, unit: m.unit, kind: m.kind });
+          counts.push({ itemId: id, qty: m.qty });
+        }
+      }
+      await db.batch([
+        auditInsert(db, { actorUserId: c.var.user.id, action: 'inventory.opening_import', entity: 'inventory', entityId: date, after: { location, counts, created } }),
+        ...created.map((i) => db.insert(items).values({ ...i, reorderLevel: 0, createdAt: now })),
+        ...counts.flatMap((x) => [
+          db.delete(stockIns).where(and(eq(stockIns.itemId, x.itemId), eq(stockIns.kind, 'opening'), eq(stockIns.location, location))),
+          ...(x.qty > 0
+            ? [db.insert(stockIns).values({ id: crypto.randomUUID(), itemId: x.itemId, kind: 'opening', location, qty: x.qty, purchaseDate: date, createdAt: now, receivedBy: c.var.user.id })]
+            : []),
+        ]),
+      ]);
+      return c.json({ counted: counts.length, created: created.length });
     },
   )
 

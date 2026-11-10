@@ -8,6 +8,7 @@ import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays, requireOpenDay } from '../lib/business-days';
 import { pettyCashNow, salesCashAtStartOf } from '../lib/sales-cash';
+import { autoClockOutWrites, stillClockedIn } from '../lib/auto-clock-out';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
 import { isoDate } from '../lib/validation';
@@ -92,7 +93,9 @@ async function closingState(c: Context<AuthedEnv>, day: string) {
     { carriedIn, transfersOut: Number(moved?.s ?? 0) },
   );
   const vouchersSold = voucherPays.reduce((s, p) => s + p.amount, 0) as Centavos;
-  return { row, blockers, owed, totals, vouchersSold, cashOuts: dayCashOuts, guests: paidSales.length };
+  // Everyone still clocked in gets an Auto Clock-out at the close time.
+  const stillIn = await stillClockedIn(db, day);
+  return { row, blockers, owed, totals, vouchersSold, cashOuts: dayCashOuts, guests: paidSales.length, stillIn };
 }
 
 export const dayRoutes = new Hono<AuthedEnv>()
@@ -160,8 +163,16 @@ export const dayRoutes = new Hono<AuthedEnv>()
             createdBy: c.var.user.id,
           }),
         ),
+        ...state.stillIn.flatMap((e) => autoClockOutWrites(db, c.var.user.id, e.id, now, 'Clocked out at Day Close')),
       ]);
-      return c.json({ ok: true, ...state.totals, countedCash: input.countedCash, variance: variance as Centavos, onCallPaid: state.owed });
+      return c.json({
+        ok: true,
+        ...state.totals,
+        countedCash: input.countedCash,
+        variance: variance as Centavos,
+        onCallPaid: state.owed,
+        clockedOut: state.stillIn.map((e) => e.displayName),
+      });
     },
   )
 

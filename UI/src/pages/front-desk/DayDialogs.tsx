@@ -129,6 +129,8 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
   const save = useDayAction();
   const [counted, setCounted] = useState('');
   const [note, setNote] = useState('');
+  // Closing locks the day, so the form asks once more before it goes through.
+  const [confirming, setConfirming] = useState(false);
   const p = preview.data;
   const countedCash = parsePesos(counted);
   const variance = p && countedCash !== null ? countedCash - p.totals.expectedCash : null;
@@ -140,6 +142,10 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
 
   function submit(e: FormEvent) {
     e.preventDefault();
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
     save.mutate({ path: `/days/${date}/close`, body: { countedCash, note: note || undefined } }, { onSuccess: onClose });
   }
 
@@ -233,10 +239,28 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
             </Field>
           </div>
           <p className="text-xs text-stone-500">After closing, this day’s sales are locked. Only the owner can reopen it.</p>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>Not yet</Button>
-            <Button type="submit" disabled={countedCash === null || save.isPending}>Close the day</Button>
-          </div>
+          {confirming ? (
+            <div className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+              <p className="font-semibold">Close the Business Day of {longDate(date)} now?</p>
+              <p>Its sales will be locked.</p>
+              {p.stillIn.length > 0 ? (
+                <p>
+                  Still clocked in, and clocked out now: <span className="font-medium">{p.stillIn.map((s) => s.displayName).join(', ')}</span>.
+                </p>
+              ) : (
+                <p>Nobody is still clocked in.</p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="secondary" onClick={() => setConfirming(false)}>Go back</Button>
+                <Button type="submit" variant="alarm" autoFocus disabled={save.isPending}>Yes, close the day</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={onClose}>Not yet</Button>
+              <Button type="submit" variant="alarm" disabled={countedCash === null}>Close the day</Button>
+            </div>
+          )}
         </form>
       )}
     </Modal>

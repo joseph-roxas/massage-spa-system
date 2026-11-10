@@ -210,7 +210,7 @@ function DayBar({ board, open }: { board: Board; open: (d: DayDialog) => void })
         <Alert key={date}>
           <span className="flex items-center justify-between gap-4">
             <span>The Business Day of {longDate(date)} was never closed. Close it before taking new guests.</span>
-            <Button className="h-8 px-3" onClick={() => open({ close: date })}>Close it now</Button>
+            <Button variant="alarm" className="h-8 px-3" onClick={() => open({ close: date })}>Close it now</Button>
           </span>
         </Alert>
       ))}
@@ -244,7 +244,7 @@ function DayBar({ board, open }: { board: Board; open: (d: DayDialog) => void })
             {!d?.earlyCloseStatus && (
               <Button variant="secondary" className="h-8 px-3" onClick={() => open('early-close')}>Early Close</Button>
             )}
-            {d && <Button className="h-8 px-3" onClick={() => open({ close: d.date })}>Close the day</Button>}
+            {d && <Button variant="alarm" className="h-8 px-3" onClick={() => open({ close: d.date })}>Close the day</Button>}
           </>
         )}
         {isAdmin && d?.earlyCloseStatus === 'recorded' && (
@@ -422,6 +422,11 @@ function FrontDeskBoard() {
                     </span>
                     <span className="flex-1">
                       {guestLabel(b)} · {b.serviceName}
+                      {b.enteredLate && (
+                        <span className="ml-2">
+                          <Badge tone="amber">Entered late {manilaTime(b.createdAt)}</Badge>
+                        </span>
+                      )}
                     </span>
                     <span className="text-stone-600">
                       {b.therapistName}

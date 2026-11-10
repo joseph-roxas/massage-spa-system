@@ -232,6 +232,20 @@
       "when": 1794140635067,
       "tag": "0032_catch_up_week",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1794296758224,
+      "tag": "0033_auto_clock_out",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1794297330863,
+      "tag": "0034_late_entry",
+      "breakpoints": true
     }
   ]
 }

@@ -165,8 +165,15 @@ function ReviewRow({ entry: e, picked, onPick, act }: { entry: ReviewEntry; pick
             <Badge tone="amber">{e.source === 'manual' ? 'Added by hand' : 'Corrected'}</Badge>
             <span className="ml-2 text-xs text-stone-500">{e.correctionReason}</span>
           </>
+        ) : e.autoClockOut ? (
+          <span className="text-xs text-stone-500">Forgot to clock out; check the time out</span>
         ) : (
           <span className="text-xs text-stone-500">Never clocked out</span>
+        )}
+        {e.autoClockOut && (
+          <span className="ml-2">
+            <Badge tone="amber">Auto clock-out</Badge>
+          </span>
         )}
       </td>
       <td className={`${td} whitespace-nowrap text-right`}>
@@ -349,8 +356,13 @@ function EntryRow({ entry, day }: { entry: DtrEntry; day: string }) {
             <Badge tone="amber">{entry.source === 'manual' ? 'Added by hand' : 'Corrected'}</Badge>
             <span className="ml-2 text-xs text-stone-500">{entry.correctionReason}</span>
           </span>
-        ) : (
+        ) : entry.autoClockOut ? null : (
           <Badge>PIN</Badge>
+        )}
+        {entry.autoClockOut && (
+          <span className="ml-2">
+            <Badge tone="amber">Auto clock-out</Badge>
+          </span>
         )}
       </td>
       <td className={`${td} whitespace-nowrap text-right`}>

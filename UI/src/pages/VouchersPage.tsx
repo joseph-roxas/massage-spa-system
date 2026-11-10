@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react';
-import { businessDayOf, toManila } from '@spa/domain';
+import { businessDayOf, toManila, VOUCHER_LIST_FILTERS, type VoucherListFilter } from '@spa/domain';
 import { Alert, Badge, Button, Card, Checkbox, Field, FormPanel, Input, Select, td, th } from '../components/ui';
 import { useCan } from '../lib/auth';
 import { useServices } from '../lib/catalogue';
 import { longDate, peso, todayManila } from '../lib/format';
 import { useDayAction } from '../lib/sales';
-import { useEndorsements, useVouchers, useVoucherSales, VOUCHER_STATUS_LABELS, type VoucherStatus } from '../lib/vouchers';
+import { useEndorsements, useVouchers, useVoucherSales, VOUCHER_STATUS_LABELS } from '../lib/vouchers';
 import { SellVouchersDialog } from './front-desk/SellVouchersDialog';
 
 const STATUS_TONE = { in_shop: 'amber', unused: 'teal', redeemed: 'stone', used_before_golive: 'stone', voided: 'red' } as const;
@@ -352,8 +352,10 @@ export function VouchersPage() {
   const [selling, setSelling] = useState(false);
   const [panel, setPanel] = useState<'endorse' | 'count' | null>(null);
   const [q, setQ] = useState('');
-  const [status, setStatus] = useState<VoucherStatus | ''>('');
-  const list = useVouchers({ q, status });
+  const [show, setShow] = useState<VoucherListFilter | ''>('');
+  const [serviceId, setServiceId] = useState('');
+  const voucherServices = useVoucherServices();
+  const list = useVouchers({ q, show, serviceId });
   const rows = list.data?.vouchers ?? [];
 
   return (
@@ -377,13 +379,21 @@ export function VouchersPage() {
       <SalesHistory />
 
       <Card title="Look up a card">
-        <div className="mb-4 grid grid-cols-[1fr_12rem] gap-3">
+        <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_14rem_12rem]">
           <Input placeholder="Serial number, e.g. NTLSM0271" value={q} onChange={(e) => setQ(e.target.value)} />
-          <Select value={status} onChange={(e) => setStatus(e.target.value as VoucherStatus | '')}>
+          <Select aria-label="Service" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+            <option value="">Any service</option>
+            {voucherServices.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
+          <Select aria-label="Status" value={show} onChange={(e) => setShow(e.target.value as VoucherListFilter | '')}>
             <option value="">Any status</option>
-            {Object.entries(VOUCHER_STATUS_LABELS).map(([k, label]) => (
+            {Object.entries(VOUCHER_LIST_FILTERS).map(([k, f]) => (
               <option key={k} value={k}>
-                {label}
+                {f.label}
               </option>
             ))}
           </Select>

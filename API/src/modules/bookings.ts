@@ -1,9 +1,9 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { addMinutes, businessDayOf, clock, flexModeFor, GRACE_PERIOD_MIN, TOP_UP_PARTS, TOP_UP_STEP_MIN, topUpStepPrices, isBirthday, overlaps, reservationHold, RESERVED_LEAD_MIN, roomFits, serviceSpanFrom, stayOf, suggestRoom, suggestTherapist, toManila, type Span } from '@spa/domain';
-import { bookings, bookingTopUps, businessDays, FLEX_MODES, payments, rejects, rooms, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
+import { bookings, bookingTopUps, businessDays, dtr, FLEX_MODES, payments, rejects, rooms, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays } from '../lib/business-days';
@@ -43,6 +43,21 @@ const newBooking = z.discriminatedUnion('kind', [
   bookingFields.extend({ kind: z.literal('walk_in'), ...extraTime }),
   bookingFields.extend({ kind: z.literal('scheduled'), scheduledAt: instant, ...extraTime }),
 ]);
+
+/**
+ * A Late Entry: a walk-in the Therapist served before the desk was there to record it, entered with its real times.
+ * Without `finishedAt` it is still under way.
+ */
+const lateBooking = bookingFields.omit({ requestedTherapistId: true }).extend({
+  ...extraTime,
+  therapistId: z.string().min(1),
+  /** The Guest asked for this Therapist, so the Service costs them no Rotation place. */
+  requested: z.boolean().default(false),
+  roomId: z.number().int(),
+  flexMode: z.enum(FLEX_MODES).nullable().default(null),
+  startedAt: instant,
+  finishedAt: instant.nullable().default(null),
+});
 
 const editBooking = bookingFields.partial().extend({
   scheduledAt: instant.optional(),
@@ -252,6 +267,119 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const statements = [...(guest.insert ? [guest.insert] : []), db.insert(bookings).values(row), ...(topUps.length ? [db.insert(bookingTopUps).values(topUps)] : [])];
     await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
     return c.json({ id, guestId: guest.guestId }, 201);
+  })
+
+  .post('/bookings/late', zValidator('json', lateBooking, invalidInput), async (c) => {
+    const input = c.req.valid('json');
+    const db = c.var.db;
+    const now = nowIso();
+    const today = businessDayOf(new Date(now));
+    if (input.startedAt > now) return fail(c, 400, 'in_future', 'The start time cannot be later than now.');
+    if (businessDayOf(new Date(input.startedAt)) !== today) return fail(c, 400, 'not_today', 'A late entry must be from today’s Business Day.');
+    if (input.finishedAt && (input.finishedAt <= input.startedAt || input.finishedAt > now)) {
+      return fail(c, 400, 'bad_finish', 'The finish time must be after the start and not later than now.');
+    }
+    const service = await db.select().from(services).where(eq(services.id, input.serviceId)).get();
+    if (!service || !service.active) return fail(c, 400, 'unknown_service', 'Pick a service that is offered.');
+    const extra = input.extraSteps > 0 ? await priceTopUp(db, service, today, input.topUpPart) : null;
+    if (extra && 'problem' in extra) return fail(c, extra.problem.status, extra.problem.code, extra.problem.message);
+    const durationMin = service.durationMin + input.extraSteps * TOP_UP_STEP_MIN;
+    const span = { start: input.startedAt, end: input.finishedAt ?? addMinutes(input.startedAt, durationMin) };
+
+    const [therapist, room, shifts, dayBookings] = await Promise.all([
+      db.select().from(staff).where(eq(staff.id, input.therapistId)).get(),
+      db.select().from(rooms).where(eq(rooms.id, input.roomId)).get(),
+      db.select().from(dtr).where(and(eq(dtr.staffId, input.therapistId), eq(dtr.businessDay, today))),
+      db.select().from(bookings).where(and(eq(bookings.businessDay, today), inArray(bookings.status, ['in_service', 'done']), isNotNull(bookings.startedAt))),
+    ]);
+    if (!therapist || therapist.kind !== 'therapist') return fail(c, 400, 'unknown_therapist', 'Pick the therapist who served the guest.');
+    // Their time record must already cover the start; the desk adds a missing one first (it goes on the DTR Review).
+    const onDuty = shifts.some((e) => !e.isRelief && e.clockIn <= input.startedAt && (!e.clockOut || e.clockOut > input.startedAt));
+    if (!onDuty) {
+      return fail(c, 409, 'not_clocked_in', `${therapist.displayName} was not clocked in at that time. Add their time record first under Time Records, then enter this guest.`);
+    }
+    if (!room || !roomFits(room, service, input.flexMode)) {
+      return fail(c, 400, 'room_unsuitable', room?.isFlex ? 'The recliner is for foot services only.' : 'Pick a room that is in use.');
+    }
+    const spanOf = (b: BookingRow) => ({ start: b.startedAt!, end: b.doneAt ?? addMinutes(b.startedAt!, b.durationMin) });
+    const busy = (b: BookingRow) => overlaps(spanOf(b), span);
+    if (dayBookings.some((b) => b.therapistId === input.therapistId && busy(b))) {
+      return fail(c, 409, 'therapist_busy', `${therapist.displayName} is recorded with another guest at that time.`);
+    }
+    if (dayBookings.some((b) => b.roomId === input.roomId && busy(b))) return fail(c, 409, 'room_taken', `${room.name} is recorded as in use at that time.`);
+
+    const blocked = await openDayFor(c, today);
+    if (blocked) return blocked;
+    const guest = await resolveGuest(db, { guestId: input.guestId, saveGuest: input.saveGuest, name: input.guestName ?? null, phone: input.guestPhone ?? null }, c.var.user.id);
+    if (!guest.ok) return fail(c, 400, 'unknown_guest', guest.problem);
+    const id = crypto.randomUUID();
+    const row = {
+      id,
+      businessDay: today,
+      kind: 'walk_in' as const,
+      status: input.finishedAt ? ('done' as const) : ('in_service' as const),
+      guestId: guest.guestId,
+      guestName: guest.name,
+      guestPhone: guest.phone,
+      serviceId: service.id,
+      durationMin,
+      requestedTherapistId: input.requested ? input.therapistId : null,
+      therapistId: input.therapistId,
+      roomId: room.id,
+      flexMode: room.isFlex ? input.flexMode : null,
+      notes: input.notes ?? null,
+      startedAt: input.startedAt,
+      doneAt: input.finishedAt,
+      enteredLate: true,
+      createdAt: now,
+      createdBy: c.var.user.id,
+    };
+    const topUps = extra
+      ? topUpStepPrices(input.extraSteps, extra.price, extra.hourPrice).map((price) => ({ id: crypto.randomUUID(), bookingId: id, minutes: TOP_UP_STEP_MIN, price, part: extra.part, createdAt: now, createdBy: c.var.user.id }))
+      : [];
+    const statements = [
+      ...(guest.insert ? [guest.insert] : []),
+      db.insert(bookings).values(row),
+      ...(topUps.length ? [db.insert(bookingTopUps).values(topUps)] : []),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.late_entry', entity: 'booking', entityId: id, after: { startedAt: input.startedAt, finishedAt: input.finishedAt, therapistId: input.therapistId, roomId: room.id } }),
+    ];
+    try {
+      await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
+    } catch (err) {
+      // Still under way while the Therapist or Room is already in service with someone else.
+      if (isUniqueViolation(err)) return fail(c, 409, 'double_booked', 'That room or therapist is with another guest right now.');
+      throw err;
+    }
+    return c.json({ id, guestId: guest.guestId }, 201);
+  })
+
+  /** Late Entries the Super Admin has not checked yet, newest first. */
+  .get('/bookings/late', requireCapability('settings.manage'), async (c) => {
+    const rows = await c.var.db
+      .select({
+        id: bookings.id,
+        businessDay: bookings.businessDay,
+        guestName: bookings.guestName,
+        serviceName: services.name,
+        therapistName: staff.displayName,
+        startedAt: bookings.startedAt,
+        doneAt: bookings.doneAt,
+        status: bookings.status,
+        createdAt: bookings.createdAt,
+      })
+      .from(bookings)
+      .innerJoin(services, eq(services.id, bookings.serviceId))
+      .leftJoin(staff, eq(staff.id, bookings.therapistId))
+      .where(and(eq(bookings.enteredLate, true), isNull(bookings.lateCheckedAt)))
+      .orderBy(desc(bookings.createdAt))
+      .limit(200);
+    return c.json({ entries: rows });
+  })
+
+  .post('/bookings/late/checked', requireCapability('settings.manage'), zValidator('json', z.object({ ids: z.array(z.string().min(1)).min(1).max(200) }), invalidInput), async (c) => {
+    const { ids } = c.req.valid('json');
+    await c.var.db.update(bookings).set({ lateCheckedAt: nowIso() }).where(and(inArray(bookings.id, ids), eq(bookings.enteredLate, true)));
+    return c.json({ ok: true });
   })
 
   .patch('/bookings/:id', zValidator('json', editBooking, invalidInput), async (c) => {

@@ -839,3 +839,14 @@ Grilled with the owner on 2026-11-10 (two rounds). Vocabulary is in `GLOSSARY.md
 1. Inventory -> Catalog -> Upload opening count: pick Shop or Storage, one .xlsx each, columns Item, Quantity, Unit, Kind; Unit and Kind needed only for new Items. Template to download.
 2. Preview before saving: names matched ignoring case, matches and new Items shown apart; new Items created on save.
 3. Saved as an Opening Count dated the upload day, through the existing `/inventory/opening` logic: no Turnover, Receiving or Expense. Uploading again replaces that place's count for the Items in the file.
+
+**16.8 After the first push** (no migration; asked by the owner the same day)
+
+1. **Sales per therapist** charts and ranks Therapists by sales at Regular Price, not Commission, which would always put LMTs first for the same work.
+2. **Therapist Sales** has a Guest column (Walk-in guest when no name was taken).
+3. **Correct sales** (Super Admin, `/admin/correct-sales`): pick a Business Day, see its finished Services and Day Close.
+   - *Correct start time*: moves a finished Service to when it really started, same length, same Business Day. A Sale with no Discount or a Promo is priced again by the checkout rules, so a Happy Hours missed because the time was wrong now applies; the difference comes off its cash payment (else the first). On a closed day, its expected cash and variance follow; what was counted stays. Commission doesn't change. Audit log `booking.correct_start`. API `POST /sales/correct-start`, `GET /sales/day-detail`.
+   - *Correct count*: the cash really counted at a past Day Close; the variance follows and Sales Cash runs on from it. Audit log `day.counted_corrected`. API `POST /days/:date/counted`.
+   - Why not reopen the day instead: an earlier open day blocks new walk-ins until it is closed again, so correcting a past day during opening hours would stop the desk.
+4. **Cash Handover counts, not assumes.** The amount box starts empty, so the Receptionist types what she actually counted out. Handing over less than the Sales Cash that should be in the shop needs a reason, on screen and in the API (`note_required`), so a gap like Nov 9's is explained when it happens. The owner still confirms what they received separately.
+5. **Nov 9** (once this is live): record the cash handed to the owner as a Cash Handover with its real amount, confirm receipt, then use Correct start time on the guest who missed Happy Hours. Whatever the Front Desk then shows as left from Nov 9 should be in the drawer; if it isn't, ask where it went.

@@ -211,7 +211,8 @@ export async function therapistSales(db: Db, r: Range): Promise<Report> {
       };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
-    .sort((a, b) => b.commission - a.commission);
+    // By sales, not Commission: an LMT's higher rate would put them first for the same work.
+    .sort((a, b) => b.regular - a.regular);
   return { title: 'Sales per therapist', columns, rows, totals: totalsOf(columns, rows), note: 'Requested = served a Guest who asked for them. Commission is on the Regular Price less any Owner’s Set-aside, FOCs included.' };
 }
 
@@ -226,6 +227,7 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
         bookingId: sales.bookingId,
         name: staff.displayName,
         startedAt: bookings.startedAt,
+        guest: bookings.guestName,
         enteredLate: bookings.enteredLate,
         enteredAt: bookings.createdAt,
         service: services.name,
@@ -251,6 +253,7 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
   const columns = [
     col('name', 'Therapist'),
     col('when', 'Date and time'),
+    col('guest', 'Guest'),
     col('service', 'Service'),
     col('regular', 'Regular Price', 'money'),
     col('setAside', 'Owner’s Set-aside', 'money'),
@@ -260,7 +263,7 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
   const rows: Row[] = lines.map((x) => {
     const change = changes.filter((c) => c.bookingId === x.bookingId).at(-1);
     const notes = [x.enteredLate ? `Entered late, at ${whenLabel(x.enteredAt)}` : null, x.topUps > 0 ? `Includes added time ₱${x.topUps / 100}` : null, change ? `Took over from ${people.find((p) => p.id === change.from)?.name ?? 'another therapist'}: ${change.reason}` : null].filter(Boolean);
-    return { name: x.name, when: x.startedAt ? whenLabel(x.startedAt) : null, service: x.service, regular: x.regular, setAside: x.setAside, commission: x.commission, note: notes.join(' · ') || null };
+    return { name: x.name, when: x.startedAt ? whenLabel(x.startedAt) : null, guest: x.guest || 'Walk-in guest', service: x.service, regular: x.regular, setAside: x.setAside, commission: x.commission, note: notes.join(' · ') || null };
   });
   return {
     title: 'Therapist Sales',

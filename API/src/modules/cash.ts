@@ -95,6 +95,10 @@ export const cashRoutes = new Hono<AuthedEnv>()
     if (input.amount > now.amount) {
       return fail(c, 409, 'more_than_in_shop', `Only ${(now.amount / 100).toFixed(2)} of sales cash should be in the shop. Check the count, or close the day first.`);
     }
+    // Handing over less than the shop should hold needs a reason, so a gap is explained when it happens.
+    if (input.amount < now.amount && !input.note) {
+      return fail(c, 400, 'note_required', `That is ${((now.amount - input.amount) / 100).toFixed(2)} less than the sales cash that should be in the shop. Say why in the note.`);
+    }
     const id = crypto.randomUUID();
     await db.insert(cashTransfers).values({ id, kind: 'handover', amount: input.amount, businessDay: now.day, note: input.note || null, createdAt: nowIso(), createdBy: c.var.user.id });
     return c.json({ id }, 201);

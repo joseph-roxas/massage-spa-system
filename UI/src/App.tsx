@@ -21,6 +21,7 @@ import { ExpensesPage } from './pages/ExpensesPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { GoLivePage } from './pages/GoLivePage';
 import { CatchUpPage } from './pages/CatchUpPage';
+import { CorrectSalesPage } from './pages/CorrectSalesPage';
 import { PaperSheetPage } from './pages/PaperSheetPage';
 import { PayslipPage } from './pages/payroll/PayslipPage';
 import { MyPayPage, MyPayslipPage } from './pages/MyPayPage';
@@ -106,6 +107,14 @@ const router = createBrowserRouter([
         element: (
           <RequireCapability capability="settings.manage">
             <BackfillPage />
+          </RequireCapability>
+        ),
+      },
+      {
+        path: '/admin/correct-sales',
+        element: (
+          <RequireCapability capability="day.reopen">
+            <CorrectSalesPage />
           </RequireCapability>
         ),
       },

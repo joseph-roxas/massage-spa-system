@@ -615,6 +615,10 @@ describe('Sales Cash, petty cash and handovers', () => {
     expect((await json<Summary>(await desk.get('/cash/summary'))).salesCash).toBe(550000);
 
     expect((await desk.post('/cash/handovers', { amount: 600000 })).status).toBe(409); // more than in the shop
+    // Less than the shop should hold needs a reason.
+    const short = await desk.post('/cash/handovers', { amount: 500000 });
+    expect(short.status).toBe(400);
+    expect((await json<{ message: string }>(short)).message).toContain('500.00 less');
     const { id } = await json<{ id: string }>(await desk.post('/cash/handovers', { amount: 550000 }));
     let s = await json<Summary>(await desk.get('/cash/summary'));
     expect(s.salesCash).toBe(0);
@@ -636,5 +640,47 @@ describe('Sales Cash, petty cash and handovers', () => {
     // Day Close counts everything in the shop: the opening count, today's cash, less the handover.
     const p = await json<Preview>(await desk.get(`/days/${today()}/close-preview`));
     expect(p.totals).toMatchObject({ carriedIn: 500000, cashIn: 50000, transfersOut: 550000, expectedCash: 0 });
+  });
+});
+
+describe('Correcting a start time', () => {
+  it('re-prices a sale on a closed day into Happy Hours, and the Day Close follows', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    // A past, closed day with one Swedish (1hr) recorded at 7:00pm at full price, though it really started at 3:00pm.
+    const d = new Date(`${today()}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 3);
+    const day = d.toISOString().slice(0, 10);
+    const at = (hhmm: string) => new Date(`${day}T${hhmm}:00+08:00`).toISOString();
+    const [bookingId, saleId] = [crypto.randomUUID(), crypto.randomUUID()];
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR REPLACE INTO business_days (date, opened_at, closed_at, expected_cash, expected_gcash, counted_cash, variance) VALUES (?, ?, ?, 50000, 0, 50000, 0)`).bind(day, at('14:00'), at('23:30')),
+      env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, service_id, duration_min, therapist_id, room_id, started_at, done_at, created_at) VALUES (?, ?, 'walk_in', 'done', 'swedish-60', 60, ?, 1, ?, ?, ?)`).bind(bookingId, day, t, at('19:00'), at('20:00'), at('19:00')),
+      env.DB.prepare(`INSERT INTO sales (id, booking_id, business_day, service_id, therapist_id, regular_price, discount_type, service_amount, amount_due, commission_bp, commission_amount, created_at) VALUES (?, ?, ?, 'swedish-60', ?, 50000, 'none', 50000, 50000, 3000, 15000, ?)`).bind(saleId, bookingId, day, t, at('20:00')),
+      env.DB.prepare(`INSERT INTO payments (id, sale_id, business_day, method, amount, created_at) VALUES (?, ?, ?, 'cash', 50000, ?)`).bind(crypto.randomUUID(), saleId, day, at('20:00')),
+    ]);
+    const body = { bookingId, startedAt: at('15:00'), reason: 'Entered late; really started at 3pm' };
+
+    expect((await desk.post('/sales/correct-start', body)).status).toBe(403);
+    expect((await admin.post('/sales/correct-start', { ...body, startedAt: at('05:00') })).status).toBe(400);
+    expect((await admin.post('/sales/correct-start', body)).status).toBe(200);
+
+    const sale = await env.DB.prepare(`SELECT discount_type, amount_due, commission_amount FROM sales WHERE id = ?`).bind(saleId).first();
+    expect(sale).toEqual({ discount_type: 'promo', amount_due: 45000, commission_amount: 15000 });
+    const pay = await env.DB.prepare(`SELECT amount FROM payments WHERE sale_id = ?`).bind(saleId).first<{ amount: number }>();
+    expect(pay?.amount).toBe(45000);
+    const b = await env.DB.prepare(`SELECT started_at, done_at FROM bookings WHERE id = ?`).bind(bookingId).first();
+    expect(b).toEqual({ started_at: at('15:00'), done_at: at('16:00') });
+    // The day still shows what was counted; it now expected ₱50 less, so it reads ₱50 over until the count is corrected.
+    type Detail = { day: { expectedCash: number; countedCash: number; variance: number }; services: { bookingId: string; startedAt: string; sale: { amountDue: number } | null }[] };
+    let detail = await (await admin.get(`/sales/day-detail?day=${day}`)).json<Detail>();
+    expect(detail.day).toMatchObject({ expectedCash: 45000, countedCash: 50000, variance: 5000 });
+    expect(detail.services.find((s) => s.bookingId === bookingId)).toMatchObject({ startedAt: at('15:00'), sale: { amountDue: 45000 } });
+
+    expect((await desk.post(`/days/${day}/counted`, { countedCash: 45000, reason: 'Recount' })).status).toBe(403);
+    expect((await admin.post(`/days/${day}/counted`, { countedCash: 45000, reason: 'What was really in the drawer' })).status).toBe(200);
+    detail = await (await admin.get(`/sales/day-detail?day=${day}`)).json<Detail>();
+    expect(detail.day).toMatchObject({ countedCash: 45000, variance: 0 });
   });
 });

@@ -74,9 +74,11 @@ export function HandoverDialog({ onClose }: { onClose: () => void }) {
   const summary = useCashSummary();
   const save = useCashAction();
   const inShop = summary.data?.salesCash ?? 0;
-  const [amount, setAmount] = useState(() => pesosText(inShop));
+  // Left empty on purpose: she types what she actually counted out, not what the system expects.
+  const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const centavos = parsePesos(amount);
+  const short = centavos !== null && centavos < inShop ? inShop - centavos : 0;
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -88,20 +90,26 @@ export function HandoverDialog({ onClose }: { onClose: () => void }) {
       <form onSubmit={submit} className="space-y-4">
         {save.error && <Alert>{save.error.message}</Alert>}
         <p className="text-sm text-stone-600">
-          Sales cash that should be in the shop: <span className="font-semibold">{peso(inShop)}</span>. Hand over all of it; petty cash stays.
+          Sales cash that should be in the shop: <span className="font-semibold">{peso(inShop)}</span>. Count the cash you are handing over and type that amount;
+          petty cash stays.
         </p>
         <div className="grid grid-cols-[10rem_1fr] gap-3">
-          <Field label="Amount handed (₱)">
+          <Field label="Amount counted out (₱)" hint={short ? `${peso(short)} less than expected` : undefined}>
             <Input required autoFocus inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </Field>
-          <Field label="Note (optional)">
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="E.g. given to Marites" />
+          <Field label={short ? 'Why is it less?' : 'Note (optional)'}>
+            <Input required={short > 0} value={note} onChange={(e) => setNote(e.target.value)} placeholder={short ? 'E.g. kept for laundry, or short' : 'E.g. given to Marites'} />
           </Field>
         </div>
+        {short > 0 && (
+          <Alert>
+            You are handing over {peso(short)} less than the system expects. Say where the rest is: still in the drawer, paid out for something, or missing.
+          </Alert>
+        )}
         <p className="text-xs text-stone-500">It shows as “Waiting for owner” until the owner confirms receipt.</p>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={!centavos || save.isPending}>Record handover</Button>
+          <Button type="submit" disabled={!centavos || (short > 0 && note.trim().length < 3) || save.isPending}>Record handover</Button>
         </div>
       </form>
     </Modal>

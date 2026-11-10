@@ -12,6 +12,7 @@ import { nowIso } from '../lib/time';
 import { isoDate } from '../lib/validation';
 import { requireSessionOrDevice } from '../auth/device';
 import { requireAuth, requireCapability } from '../auth/middleware';
+import { clockOutForgotten } from '../lib/auto-clock-out';
 import { verifyPassword } from '../auth/password';
 
 const MAX_PIN_ATTEMPTS = 5;
@@ -51,8 +52,8 @@ const batchBody = z.object({
     .max(14),
 });
 
-/** Entries for the DTR Review: added by hand, corrected, or never clocked out on an earlier day. */
-const flagged = (today: string) => or(eq(dtr.source, 'manual'), isNotNull(dtr.correctedAt), and(isNull(dtr.clockOut), lt(dtr.businessDay, today)));
+/** Entries for the DTR Review: added by hand, corrected, ended by an Auto Clock-out, or never clocked out on an earlier day. */
+const flagged = (today: string) => or(eq(dtr.source, 'manual'), isNotNull(dtr.correctedAt), eq(dtr.autoClockOut, true), and(isNull(dtr.clockOut), lt(dtr.businessDay, today)));
 const needsReview = (today: string) => and(isNull(dtr.reviewedAt), flagged(today));
 
 export async function dtrToReviewCount(db: AuthedEnv['Variables']['db']): Promise<number> {
@@ -92,6 +93,16 @@ async function payrollLocked(c: Context<AuthedEnv>, staffId: string, kind: 'ther
 /** An Outside Reliever's time is always a Relief Shift; a Therapist's when marked so; the Receptionist's never. */
 const reliefFor = (kind: 'therapist' | 'receptionist' | 'reliever', marked: boolean | undefined) => kind === 'reliever' || (kind === 'therapist' && !!marked);
 
+const whenLabel = (iso: string) =>
+  new Date(iso).toLocaleString('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const dayLabel = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString('en-PH', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+
+/** Names the entry a change runs into, so it can be found on its own day. */
+export function overlapMessage(e: { businessDay: string; clockIn: string; clockOut: string | null }): string {
+  const span = `${whenLabel(e.clockIn)} to ${e.clockOut ? whenLabel(e.clockOut) : 'now (never clocked out)'}`;
+  return `This overlaps another entry for the same person: ${span}, filed under ${dayLabel(e.businessDay)}. Open that day to correct or remove it.`;
+}
+
 /** Problems with a proposed entry, checked against the person's other entries. */
 async function entryProblem(
   c: Context<AuthedEnv>,
@@ -113,9 +124,8 @@ async function entryProblem(
       .where(and(eq(dtr.staffId, staffId), gte(dtr.clockIn, from), lte(dtr.clockIn, to)))
   ).filter((e) => e.id !== excludeId);
   const end = clockOut ?? '9999';
-  for (const e of others) {
-    if (clockIn < (e.clockOut ?? '9999') && e.clockIn < end) return 'This overlaps another entry for the same person.';
-  }
+  const clash = others.find((e) => clockIn < (e.clockOut ?? '9999') && e.clockIn < end);
+  if (clash) return overlapMessage(clash);
   if (clockOut === null) {
     const open = await c.var.db
       .select({ id: dtr.id })
@@ -138,6 +148,8 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
   // ---- Clock-in Screen (logged in, or on the Front-desk Device) ----
   .get('/clock/staff', async (c) => {
     const db = c.var.db;
+    // Last night's forgotten clock-outs end before anyone sees who is in (Auto Clock-out).
+    await clockOutForgotten(db);
     const day = businessDayOf(new Date());
     const [people, open, holiday] = await Promise.all([
       db
@@ -191,6 +203,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         : fail(c, 401, 'wrong_pin', `Wrong PIN. ${MAX_PIN_ATTEMPTS - failed} tries left.`);
     }
 
+    await clockOutForgotten(db);
     const open = await db
       .select()
       .from(dtr)
@@ -257,6 +270,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         correctedBy: dtr.correctedBy,
         correctionReason: dtr.correctionReason,
         isRelief: dtr.isRelief,
+        autoClockOut: dtr.autoClockOut,
         reviewedAt: dtr.reviewedAt,
         reviewedBy: dtr.reviewedBy,
       })
@@ -373,6 +387,7 @@ export const attendanceRoutes = new Hono<AuthedEnv>()
         correctedAt: dtr.correctedAt,
         correctionReason: dtr.correctionReason,
         isRelief: dtr.isRelief,
+        autoClockOut: dtr.autoClockOut,
         reviewedAt: dtr.reviewedAt,
       })
       .from(dtr)

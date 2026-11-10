@@ -1,3 +1,4 @@
+import type { VoucherListFilter } from '@spa/domain';
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 import type { PaymentLine } from './sales';
@@ -73,13 +74,14 @@ export type VoucherBundle = {
   thisIsFree: boolean;
 };
 
-export const useVouchers = (filter: { q?: string; status?: VoucherStatus | ''; serviceId?: string }, enabled = true) =>
+export const useVouchers = (filter: { q?: string; status?: VoucherStatus | ''; show?: VoucherListFilter | ''; serviceId?: string }, enabled = true) =>
   useQuery({
     queryKey: ['vouchers', filter],
     queryFn: () => {
       const params = new URLSearchParams();
       if (filter.q?.trim()) params.set('q', filter.q.trim());
       if (filter.status) params.set('status', filter.status);
+      if (filter.show) params.set('show', filter.show);
       if (filter.serviceId) params.set('serviceId', filter.serviceId);
       return api<{ vouchers: Voucher[] }>(`/vouchers?${params}`);
     },

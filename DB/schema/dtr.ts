@@ -27,6 +27,8 @@ export const dtr = sqliteTable(
     isRelief: integer('is_relief', { mode: 'boolean' }).notNull().default(false),
     /** An Outside Reliever's relief time paid in cash when the Receptionist returned. */
     reliefPaidAt: text('relief_paid_at'),
+    /** Clocked out by the system, at Day Close or the next morning, not by a punch; always on the DTR Review. */
+    autoClockOut: integer('auto_clock_out', { mode: 'boolean' }).notNull().default(false),
     /** The Super Admin's DTR Review tick; cleared whenever the entry changes again. */
     reviewedAt: text('reviewed_at'),
     reviewedBy: text('reviewed_by'),

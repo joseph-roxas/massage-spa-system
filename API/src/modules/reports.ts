@@ -226,6 +226,8 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
         bookingId: sales.bookingId,
         name: staff.displayName,
         startedAt: bookings.startedAt,
+        enteredLate: bookings.enteredLate,
+        enteredAt: bookings.createdAt,
         service: services.name,
         regular: sales.regularPrice,
         topUps: sales.topUpsTotal,
@@ -257,7 +259,7 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
   ];
   const rows: Row[] = lines.map((x) => {
     const change = changes.filter((c) => c.bookingId === x.bookingId).at(-1);
-    const notes = [x.topUps > 0 ? `Includes added time ₱${x.topUps / 100}` : null, change ? `Took over from ${people.find((p) => p.id === change.from)?.name ?? 'another therapist'}: ${change.reason}` : null].filter(Boolean);
+    const notes = [x.enteredLate ? `Entered late, at ${whenLabel(x.enteredAt)}` : null, x.topUps > 0 ? `Includes added time ₱${x.topUps / 100}` : null, change ? `Took over from ${people.find((p) => p.id === change.from)?.name ?? 'another therapist'}: ${change.reason}` : null].filter(Boolean);
     return { name: x.name, when: x.startedAt ? whenLabel(x.startedAt) : null, service: x.service, regular: x.regular, setAside: x.setAside, commission: x.commission, note: notes.join(' · ') || null };
   });
   return {

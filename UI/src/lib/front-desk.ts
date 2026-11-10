@@ -27,6 +27,8 @@ export type Booking = {
   scheduledAt: string | null;
   requestedTherapistId: string | null;
   requestedTherapistName: string | null;
+  /** A Late Entry: recorded after it started; createdAt is when. */
+  enteredLate: boolean;
   therapistId: string | null;
   therapistName: string | null;
   roomId: number | null;

@@ -4,8 +4,9 @@ compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
 # 01:00 Manila daily: recurring Expense drafts and the monthly Royalty draft (both idempotent).
+# 06:00 Manila daily: Auto Clock-out for anyone still clocked in from the day before.
 [triggers]
-crons = ["0 17 * * *"]
+crons = ["0 17 * * *", "0 22 * * *"]
 
 # The database_id placeholder is replaced in CI from the D1_DATABASE_ID
 # repository variable; locally any value works.

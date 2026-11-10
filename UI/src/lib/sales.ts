@@ -85,6 +85,8 @@ export type ClosePreview = {
   vouchersSold: number;
   cashOuts: CashOut[];
   guests: number;
+  /** Everyone still clocked in, whom closing clocks out at the close time. */
+  stillIn: { id: string; staffId: string; displayName: string; clockIn: string }[];
 };
 
 /** The server prices every change of discount, so the screen never disagrees with the record. */

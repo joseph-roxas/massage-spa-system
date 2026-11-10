@@ -23,3 +23,4 @@ export * from './guests';
 export * from './backfill';
 export * from './branding';
 export * from './dashboard';
+export * from './opening-count';

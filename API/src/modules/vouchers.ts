@@ -3,6 +3,8 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, between, desc, eq, gte, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
 import {
+  VOUCHER_LIST_FILTERS,
+  type VoucherListFilter,
   bundleUse,
   businessDayOf,
   cardSerial,
@@ -275,11 +277,17 @@ export const voucherRoutes = new Hono<AuthedEnv>()
     '/vouchers',
     zValidator(
       'query',
-      z.object({ q: z.string().trim().max(40).optional(), status: z.enum(VOUCHER_STATUSES).optional(), serviceId: z.string().min(1).optional() }),
+      z.object({
+        q: z.string().trim().max(40).optional(),
+        status: z.enum(VOUCHER_STATUSES).optional(),
+        /** A group of statuses, e.g. every sold card whether used or not. */
+        show: z.enum(Object.keys(VOUCHER_LIST_FILTERS) as [VoucherListFilter, ...VoucherListFilter[]]).optional(),
+        serviceId: z.string().min(1).optional(),
+      }),
       invalidInput,
     ),
     async (c) => {
-      const { q, status, serviceId } = c.req.valid('query');
+      const { q, status, show, serviceId } = c.req.valid('query');
       const rows = await c.var.db
         .select({ voucher: vouchers, serviceName: services.name, buyerName: voucherSales.buyerName, soldOn: voucherSales.businessDay })
         .from(vouchers)
@@ -289,6 +297,7 @@ export const voucherRoutes = new Hono<AuthedEnv>()
           and(
             q ? like(sql`replace(${vouchers.serial}, '-', '')`, `%${compactSerial(q)}%`) : undefined,
             status ? eq(vouchers.status, status) : undefined,
+            show ? inArray(vouchers.status, [...VOUCHER_LIST_FILTERS[show].statuses]) : undefined,
             serviceId ? eq(vouchers.serviceId, serviceId) : undefined,
           ),
         )

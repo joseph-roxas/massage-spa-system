@@ -36,10 +36,12 @@ const authed = new Hono<AuthedEnv>()
   .use(requireAuth)
   .get('/me', (c) => c.json({ user: c.var.user }))
   .post('/logout', async (c) => {
-    // The Receptionist (and a Reliever) may not leave a Business Day open; the Super Admin may.
-    if (c.var.user.role === 'receptionist' || c.var.user.role === 'reliever') {
+    // The Receptionist (and a Reliever) is warned about an open Business Day, but may log out anyway,
+    // e.g. when a Reliever takes over for the rest of the day. The Super Admin is never asked.
+    const body = (await c.req.json().catch(() => ({}))) as { force?: unknown };
+    if ((c.var.user.role === 'receptionist' || c.var.user.role === 'reliever') && body.force !== true) {
       const [open] = await openDays(c.var.db);
-      if (open) return fail(c, 409, 'day_open', `Close the Business Day of ${open.date} before logging out.`);
+      if (open) return fail(c, 409, 'day_open', `The Business Day of ${open.date} is not closed yet. Close it first, or log out anyway if someone else will close it.`);
     }
     await endSession(c);
     return c.json({ ok: true });

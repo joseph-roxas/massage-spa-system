@@ -46,6 +46,10 @@ export const bookings = sqliteTable(
     startedAt: text('started_at'),
     doneAt: text('done_at'),
     cancelReason: text('cancel_reason'),
+    /** A Late Entry: recorded by the desk after it started, with its real times; createdAt is when it was entered. */
+    enteredLate: integer('entered_late', { mode: 'boolean' }).notNull().default(false),
+    /** When the Super Admin checked a Late Entry; until then it is on Needs Attention. */
+    lateCheckedAt: text('late_checked_at'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by').references(() => users.id),
   },

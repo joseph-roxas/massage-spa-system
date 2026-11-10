@@ -47,6 +47,8 @@ export type DtrEntry = {
   lockedAs?: 'corrected' | 'checked' | null;
   /** A Relief Shift: front-desk time paid at the Minimum Wage Rate. */
   isRelief?: boolean;
+  /** Clocked out by the system at Day Close or the next morning. */
+  autoClockOut?: boolean;
 };
 
 export const useClockStaff = () =>

@@ -189,6 +189,34 @@ describe('Storage, Turnovers and Shop Stock', () => {
     expect((await item(desk, 'dish-soap')).shop).toBe(2);
   });
 
+  it('takes an Opening Count from an uploaded file, adding new Items, all or nothing', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const stone = `Hot stone ${crypto.randomUUID().slice(0, 4)}`;
+    const upload = (rows: unknown[]) => ({ date: today(), location: 'shop', rows });
+
+    expect((await desk.send('PUT', '/inventory/opening/import', upload([{ line: 2, name: 'tissue', qty: 1 }]))).status).toBe(403);
+    // A new name with no Unit or Kind stops the whole file.
+    const refused = await admin.send('PUT', '/inventory/opening/import', upload([{ line: 2, name: 'TISSUE', qty: 12 }, { line: 3, name: stone, qty: 5 }]));
+    expect(refused.status).toBe(400);
+    expect((await json<{ message: string }>(refused)).message).toContain('line 3');
+    expect((await item(desk, 'tissue')).shop).not.toBe(12);
+
+    const ok = await admin.send(
+      'PUT',
+      '/inventory/opening/import',
+      upload([
+        { line: 2, name: 'TISSUE', qty: 12 },
+        { line: 3, name: stone, qty: 5, unit: 'pc', kind: 'reusable' },
+      ]),
+    );
+    expect(ok.status).toBe(200);
+    expect(await json(ok)).toEqual({ counted: 2, created: 1 });
+    expect((await item(desk, 'tissue')).shop).toBe(12);
+    const { items } = await json<{ items: Item[] }>(await desk.get('/inventory/items'));
+    expect(items.find((i) => i.name === stone)).toMatchObject({ shop: 5, kind: 'reusable' });
+  });
+
   it('lets only the Super Admin add and edit Items', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');

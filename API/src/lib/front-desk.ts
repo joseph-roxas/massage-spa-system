@@ -2,6 +2,7 @@ import { and, eq, inArray, isNotNull, lte, or } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import { addMinutes, businessDayOf, computeRotation, GRACE_PERIOD_MIN, nextInRotation, RESERVED_LEAD_MIN, type ServiceTurn, type Span } from '@spa/domain';
 import { bookings, dtr, rooms, staff } from '@spa/db';
+import { clockOutForgotten } from './auto-clock-out';
 import { auditInsert } from './audit';
 
 export type BookingRow = typeof bookings.$inferSelect;
@@ -81,6 +82,7 @@ export function holdSpan(b: BookingRow, now: string): Span | null {
 export async function frontDeskState(db: DrizzleD1Database, day: string, now: string) {
   await closeMissedBookings(db, now);
   await startFollowingServices(db, now);
+  await clockOutForgotten(db, new Date(now));
   const [therapists, entries, dayBookings, allRooms] = await Promise.all([
     db
       .select({ id: staff.id, displayName: staff.displayName, therapistClass: staff.therapistClass, isOnCall: staff.isOnCall })

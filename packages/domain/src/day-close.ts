@@ -1,5 +1,6 @@
 import type { Centavos } from './money';
 import type { PaymentMethod } from './pricing';
+import { manilaInstant } from './business-day';
 
 /** Closing the shop before this is an Early Close. */
 export const SHOP_CLOSING_TIME = '23:00';
@@ -54,4 +55,13 @@ export function onCallOwed(
   return [...owed]
     .filter(([, amount]) => amount > 0)
     .map(([staffId, amount]) => ({ staffId, amount: amount as Centavos }));
+}
+
+/**
+ * When an Auto Clock-out ends a time record left open overnight: at its Business Day's Day Close,
+ * or at closing time (11:00pm) if the day was never closed, but never before the clock-in itself.
+ */
+export function autoClockOutAt(entry: { businessDay: string; clockIn: string }, closedAt: string | null): string {
+  const target = closedAt ?? manilaInstant(entry.businessDay, SHOP_CLOSING_TIME).toISOString();
+  return target > entry.clockIn ? target : entry.clockIn;
 }

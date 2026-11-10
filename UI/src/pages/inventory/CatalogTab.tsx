@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { Alert, Badge, Button, Card, Checkbox, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
 import { todayManila } from '../../lib/format';
+import { useCan } from '../../lib/auth';
+import { OpeningUpload } from './OpeningUpload';
 import { ITEM_KIND_LABELS, itemLabel, useInventoryAction, useItems, useVendors, type Item, type ItemKind, type Vendor } from '../../lib/inventory';
 
 function ItemForm({ item, onDone }: { item?: Item; onDone: () => void }) {
@@ -134,6 +136,8 @@ export function CatalogTab() {
   const [editItem, setEditItem] = useState<Item | 'new' | null>(null);
   const [editVendor, setEditVendor] = useState<Vendor | 'new' | null>(null);
   const [counting, setCounting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const canCount = useCan('inventory.po.approve');
 
   return (
     <div className="space-y-6">
@@ -142,6 +146,9 @@ export function CatalogTab() {
         actions={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setCounting(true)}>Opening count</Button>
+            {canCount && (
+              <Button variant="secondary" onClick={() => setUploading(true)}>Upload opening count</Button>
+            )}
             <Button onClick={() => setEditItem('new')}>Add item</Button>
           </div>
         }
@@ -149,6 +156,11 @@ export function CatalogTab() {
         {counting && (
           <div className="mb-4">
             <OpeningCount items={items.data?.items ?? []} onDone={() => setCounting(false)} />
+          </div>
+        )}
+        {uploading && (
+          <div className="mb-4">
+            <OpeningUpload items={items.data?.items ?? []} onDone={() => setUploading(false)} />
           </div>
         )}
         {editItem === 'new' && (

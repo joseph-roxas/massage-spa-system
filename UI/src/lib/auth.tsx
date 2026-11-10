@@ -48,9 +48,10 @@ export function useLogin() {
 export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
+    /** `force` logs out even with the Business Day still open. */
+    mutationFn: async (force: boolean | void) => {
       try {
-        await api('/auth/logout', { body: {} });
+        await api('/auth/logout', { body: force === true ? { force: true } : {} });
       } catch (e) {
         // Already logged out is still logged out; anything else (e.g. an open Business Day) is shown.
         if (!(e instanceof ApiError && e.status === 401)) throw e;

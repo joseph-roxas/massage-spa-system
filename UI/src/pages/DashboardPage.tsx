@@ -5,6 +5,7 @@ import { useDashboard, type Dashboard } from '../lib/dashboard';
 import { longDate, percent, peso, todayManila } from '../lib/format';
 import { Columns, monthName, Ranking, SalesExpensesChart } from './dashboard/Charts';
 import { NeedsAttention } from './front-desk/CashDialogs';
+import { LateEntries } from './dashboard/LateEntries';
 
 function previousMonth(month: string) {
   const [y, m] = month.split('-').map(Number) as [number, number];
@@ -213,6 +214,7 @@ export function DashboardPage() {
         </div>
       </div>
       <NeedsAttention enabled />
+      <LateEntries />
       {error && <Alert>{error.message}</Alert>}
       {isPending && <p className="text-sm text-stone-500">Loading…</p>}
       {data && <Body d={data} />}

@@ -73,7 +73,7 @@ function Chart({ name, report }: { name: ReportName; report: Report }) {
     case 'daily-sales':
       return <DailyBars report={report} valueKey="services" label="Services paid" />;
     case 'therapist-sales':
-      return <RankedBars report={report} labelKey="name" valueKey="commission" label="Commission per therapist" />;
+      return <RankedBars report={report} labelKey="name" valueKey="regular" label="Sales per therapist (Regular Price)" />;
     case 'service-times':
       return <Heatmap report={report} />;
     case 'expenses':

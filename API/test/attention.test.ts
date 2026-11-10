@@ -38,7 +38,7 @@ describe('Needs attention', () => {
     await admin.post(`/settings/staff/${ana}/certificates`, { type: 'nc2', expiresOn: inDays(400) });
     await desk.post('/inventory/takeout-requests', { itemId: 'tissue', qty: 5, level: 'out' });
     await admin.post('/cash/opening', { amount: 100000 });
-    await desk.post('/cash/handovers', { amount: 50000 });
+    await desk.post('/cash/handovers', { amount: 50000, note: 'Rest kept for laundry' });
 
     const { items } = await json<{ items: Item[] }>(await admin.get('/attention'));
     const keys = items.map((i) => i.key);

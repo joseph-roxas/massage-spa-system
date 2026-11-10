@@ -60,6 +60,9 @@ describe('reports', () => {
 
     const people = (await json<{ report: Report }>(await report(admin, 'therapist-sales'))).report;
     expect(people.rows.find((r) => r.name === t.name)).toMatchObject({ days: 1, services: 2, regular: 100000, paid: 90000, commission: 30000, focs: 0 });
+    // Ranked by sales at Regular Price, not Commission, so an LMT's higher rate doesn't lift them.
+    const regulars = people.rows.map((r) => Number(r.regular));
+    expect(regulars).toEqual([...regulars].sort((x, y) => y - x));
 
     const focs = (await json<{ report: Report }>(await report(admin, 'foc'))).report;
     expect(focs.rows).toEqual([expect.objectContaining({ group: 'Senior Citizen (20%)', count: 1, discount: 10000, paid: 40000 })]);

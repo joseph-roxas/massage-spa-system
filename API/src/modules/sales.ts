@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import {
+  businessDayOf,
   can,
   commissionFor,
   commissionRateOn,
@@ -21,7 +22,7 @@ import {
   type PaymentLine,
   type Quote,
 } from '@spa/domain';
-import { bookings, bookingTopUps, commissionRates, holidays, PAYMENT_METHODS, payments, promos, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
+import { bookings, bookingTopUps, businessDays, commissionRates, holidays, PAYMENT_METHODS, payments, promos, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
@@ -95,10 +96,13 @@ type Priced = {
   promoChoices: { id: string; name: string; percentBp: number; problem: string | null }[];
 };
 
-/** Prices a finished Booking from the catalogue in force on its Business Day. */
-async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced | Response> {
+/**
+ * Prices a finished Booking from the catalogue in force on its Business Day.
+ * A start-time correction passes the Booking as corrected and the Sale it is re-pricing.
+ */
+async function price(c: Context<AuthedEnv>, input: PriceInput, correcting?: { booking: typeof bookings.$inferSelect; saleId: string }): Promise<Priced | Response> {
   const db = c.var.db;
-  const booking = await db.select().from(bookings).where(eq(bookings.id, input.bookingId)).get();
+  const booking = correcting?.booking ?? (await db.select().from(bookings).where(eq(bookings.id, input.bookingId)).get());
   if (!booking) return fail(c, 404, 'not_found', 'Booking not found.');
   if (booking.status !== 'done' || !booking.therapistId || !booking.startedAt) {
     return fail(c, 409, 'not_done', 'Check out a service once it is done.');
@@ -108,7 +112,7 @@ async function price(c: Context<AuthedEnv>, input: PriceInput): Promise<Priced |
     .from(sales)
     .where(and(eq(sales.bookingId, booking.id), eq(sales.status, 'paid')))
     .get();
-  if (paid) return fail(c, 409, 'already_paid', 'This guest has already been checked out.');
+  if (paid && paid.id !== correcting?.saleId) return fail(c, 409, 'already_paid', 'This guest has already been checked out.');
   if (input.complimentary && !can(c.var.user.role, 'sales.complimentary')) {
     return fail(c, 403, 'forbidden', 'Only the Super Admin can give a Complimentary Service.');
   }
@@ -368,6 +372,122 @@ export const salesRoutes = new Hono<AuthedEnv>()
     }
     return c.json({ ids: written.map((w) => w.id), amountDue: total }, 201);
   })
+
+  /**
+   * Super Admin: one Business Day's finished Services with their Sales, and its Day Close,
+   * for correcting a start time or the cash counted after the fact.
+   */
+  .get('/day-detail', requireCapability('day.reopen'), zValidator('query', z.object({ day: isoDate }), invalidInput), async (c) => {
+    const db = c.var.db;
+    const { day } = c.req.valid('query');
+    const [rows, daySales, pays, dayRow] = await Promise.all([
+      db
+        .select({ booking: bookings, serviceName: services.name, therapistName: staff.displayName })
+        .from(bookings)
+        .innerJoin(services, eq(services.id, bookings.serviceId))
+        .leftJoin(staff, eq(staff.id, bookings.therapistId))
+        .where(and(eq(bookings.businessDay, day), eq(bookings.status, 'done')))
+        .orderBy(asc(bookings.startedAt)),
+      db.select().from(sales).where(and(eq(sales.businessDay, day), eq(sales.status, 'paid'))),
+      db.select().from(payments).where(eq(payments.businessDay, day)),
+      db.select().from(businessDays).where(eq(businessDays.date, day)).get(),
+    ]);
+    return c.json({
+      day: dayRow ?? null,
+      services: rows.map(({ booking: b, serviceName, therapistName }) => {
+        const sale = daySales.find((s) => s.bookingId === b.id) ?? null;
+        return {
+          bookingId: b.id,
+          guestName: b.guestName,
+          serviceName,
+          therapistName,
+          startedAt: b.startedAt,
+          doneAt: b.doneAt,
+          enteredLate: b.enteredLate,
+          sale: sale && {
+            id: sale.id,
+            regularPrice: sale.regularPrice,
+            discountType: sale.discountType,
+            discountAmount: sale.discountAmount,
+            amountDue: sale.amountDue,
+            payments: pays.filter((p) => p.saleId === sale.id).map((p) => ({ method: p.method, amount: p.amount })),
+          },
+        };
+      }),
+    });
+  })
+
+  /**
+   * Super Admin: moves a finished Service to the time it really started (same length), e.g. one entered late
+   * without its real time, and re-prices its Sale by the checkout rules, so a missed Happy Hours applies.
+   * Works on a closed day too: its expected cash and variance follow. Commission does not change.
+   */
+  .post(
+    '/correct-start',
+    requireCapability('day.reopen'),
+    zValidator('json', z.object({ bookingId: z.string().min(1), startedAt: z.iso.datetime({ offset: true }).transform((s) => new Date(s).toISOString()), reason: z.string().trim().min(3, 'Give a short reason.').max(300) }), invalidInput),
+    async (c) => {
+      const db = c.var.db;
+      const input = c.req.valid('json');
+      const booking = await db.select().from(bookings).where(eq(bookings.id, input.bookingId)).get();
+      if (!booking || booking.status !== 'done' || !booking.startedAt || !booking.doneAt) return fail(c, 409, 'not_done', 'Only a finished service can have its start time corrected.');
+      if (businessDayOf(new Date(input.startedAt)) !== booking.businessDay) return fail(c, 400, 'other_day', 'The start time must be on the same Business Day.');
+      const shift = new Date(input.startedAt).getTime() - new Date(booking.startedAt).getTime();
+      const doneAt = new Date(new Date(booking.doneAt).getTime() + shift).toISOString();
+      if (doneAt > nowIso()) return fail(c, 400, 'in_future', 'With that start, the service would end later than now.');
+      const corrected = { ...booking, startedAt: input.startedAt, doneAt };
+
+      const sale = await db.select().from(sales).where(and(eq(sales.bookingId, booking.id), eq(sales.status, 'paid'))).get();
+      const statements = [
+        db.update(bookings).set({ startedAt: input.startedAt, doneAt }).where(eq(bookings.id, booking.id)),
+      ];
+      const after: Record<string, unknown> = { startedAt: input.startedAt, doneAt };
+      // Only a Sale with no Discount or a Promo depends on the start time; the others keep their price.
+      if (sale && (sale.discountType === 'none' || sale.discountType === 'promo')) {
+        const priced = await price(c, { bookingId: booking.id, statutory: null, promoId: undefined, complimentary: false, voucherSerial: null }, { booking: corrected, saleId: sale.id });
+        if (priced instanceof Response) return priced;
+        const q = priced.quote;
+        const diff = q.amountDue - sale.amountDue;
+        if (diff !== 0) {
+          const lines = await db.select().from(payments).where(eq(payments.saleId, sale.id)).orderBy(asc(payments.createdAt));
+          const line = lines.find((p) => p.method === 'cash') ?? lines[0];
+          if (!line || line.amount + diff < 0) return fail(c, 409, 'payment_mismatch', 'The payments on this sale can’t absorb the new price. Void it and check out again instead.');
+          const dayRow = await db.select().from(businessDays).where(eq(businessDays.date, sale.businessDay)).get();
+          statements.push(
+            db
+              .update(sales)
+              .set({
+                discountType: q.discount.type,
+                discountRef: q.discount.type === 'promo' ? q.discount.promoId : null,
+                discountBp: q.discount.bp,
+                discountAmount: q.discount.amount,
+                serviceAmount: q.serviceAmount,
+                amountDue: q.amountDue,
+              })
+              .where(eq(sales.id, sale.id)) as never,
+            db.update(payments).set({ amount: line.amount + diff }).where(eq(payments.id, line.id)) as never,
+          );
+          // A closed day keeps what was counted; what it expected, and so its variance, follow the new price.
+          if (dayRow?.closedAt && dayRow.expectedCash !== null) {
+            const expectedCash = dayRow.expectedCash + (line.method === 'cash' ? diff : 0);
+            const expectedGcash = (dayRow.expectedGcash ?? 0) + (line.method === 'gcash' ? diff : 0);
+            statements.push(
+              db
+                .update(businessDays)
+                .set({ expectedCash, expectedGcash, variance: dayRow.countedCash === null ? dayRow.variance : dayRow.countedCash - expectedCash })
+                .where(eq(businessDays.date, dayRow.date)) as never,
+            );
+          }
+          Object.assign(after, { discountType: q.discount.type, amountDue: q.amountDue, paymentChange: diff });
+        }
+      }
+      statements.push(
+        auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.correct_start', entity: 'booking', entityId: booking.id, before: { startedAt: booking.startedAt, doneAt: booking.doneAt, amountDue: sale?.amountDue }, after, reason: input.reason }) as never,
+      );
+      await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
+      return c.json({ ok: true, ...after });
+    },
+  )
 
   /** A mistaken checkout is voided (never deleted) and can be redone while the day is open. */
   .post('/:id/void', zValidator('json', z.object({ reason: z.string().trim().min(3, 'Give a short reason.').max(300) }), invalidInput), async (c) => {

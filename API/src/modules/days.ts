@@ -176,6 +176,27 @@ export const dayRoutes = new Hono<AuthedEnv>()
     },
   )
 
+  /** Super Admin: the cash really counted at a past Day Close; the variance follows, and Sales Cash runs on from it. */
+  .post(
+    '/days/:date/counted',
+    requireCapability('day.reopen'),
+    zValidator('param', dateParam, invalidInput),
+    zValidator('json', z.object({ countedCash: z.number().int().min(0).max(100_000_000), reason: z.string().trim().min(3, 'Give a short reason.').max(300) }), invalidInput),
+    async (c) => {
+      const { date } = c.req.valid('param');
+      const { countedCash, reason } = c.req.valid('json');
+      const db = c.var.db;
+      const row = await db.select().from(businessDays).where(eq(businessDays.date, date)).get();
+      if (!row?.closedAt || row.expectedCash === null) return fail(c, 409, 'not_closed', 'Only a closed day’s count can be corrected.');
+      const after = { countedCash, variance: countedCash - row.expectedCash };
+      await db.batch([
+        db.update(businessDays).set(after).where(eq(businessDays.date, date)),
+        auditInsert(db, { actorUserId: c.var.user.id, action: 'day.counted_corrected', entity: 'business_day', entityId: date, before: { countedCash: row.countedCash, variance: row.variance }, after, reason }),
+      ]);
+      return c.json({ ok: true, ...after });
+    },
+  )
+
   .post('/days/:date/reopen', requireCapability('day.reopen'), zValidator('param', dateParam, invalidInput), zValidator('json', reasonBody, invalidInput), async (c) => {
     const { date } = c.req.valid('param');
     const db = c.var.db;

@@ -776,7 +776,16 @@ Grilled with the owner on 2026-11-08 (three rounds), then adjusted while the own
 
 Grilled with the owner on 2026-11-10 (two rounds). Vocabulary is in `GLOSSARY.md` (new: Auto Clock-out, Late Entry, Opening Count; Day Close, DTR Review and Shop Stock updated). Migrations 0033 (`dtr.auto_clock_out`) and 0034 (`bookings.entered_late`, `late_checked_at`). **Next migration is 0035.**
 
-**Status (2026-11-10):** all of 16.2-16.7 built on `cr-5`, not committed. 461 tests pass (248 domain, 213 API) except one that fails between 2:00 and 6:00pm with or without these changes: the Top-up test in `service-changes.test.ts` expects full price, but Happy Hours takes 10% off then. Typecheck, lint and build pass. Checked in a browser on a scratch copy of the local database: late entry, red Close button and confirmation, Auto Clock-out at Day Close, logout warning, voucher filters, the upload preview and the Guests entered late card. 16.1 is a local script in `scripts/one-off/` (git-excluded) for the owner to run.
+**Status (2026-11-10):** 16.2-16.7 are pushed to `cr-5` at `7dc79c5` (plan at `0c827a4`), not merged or deployed. 16.1 is done on production. 461 tests pass (248 domain, 213 API) except one that fails between 2:00 and 6:00pm with or without these changes: the Top-up test in `service-changes.test.ts` expects full price, but Happy Hours takes 10% off then. Typecheck, lint and build pass. Checked in a browser on a scratch copy of the local database: late entry, red Close button and confirmation, Auto Clock-out at Day Close, logout warning, voucher filters, the upload preview and the Guests entered late card. Not tried by hand: saving an uploaded Opening Count (covered by an API test), the 6:00am cron, and a Late Entry that is still in service.
+
+**Pick up here, in order:**
+
+1. Owner opens the PR from `cr-5` to `main`, checks CI (re-run the Top-up test outside 2-6pm if it is the only failure), merges. Merging or Deploy all runs migrations 0033-0034 on production; then `/api/v1/health` should report `0034_late_entry`. Until then the live site still blocks logout on an open day and has no Auto Clock-out.
+2. If the Sales Cash on the Front Desk doesn't match the drawer, count it under Cash -> Count the sales cash in the shop before taking cash that day.
+3. Correct the Receptionist's Nov 9 clock-in (the change that was refused for overlapping); the clashing sample entry is gone.
+4. Re-enter Nov 2-8 from paper on the Nov 2-8 entry page, then generate Payroll for the weeks of Nov 1 (Receptionist) and Nov 2 (Therapists).
+5. Upload the Opening Counts for the Shop and Storage.
+6. After the test week, collect the Receptionist's feedback as the next batch.
 
 **As built, worth knowing:**
 - Late Entry is a checkbox on the New walk-in form ("Already served before I could record it"), which then asks Therapist, Room, Started at and Finished at. The 30-minute Reserved rule is not applied to Late Entries, since the Service already happened. The Super Admin ticks them on the Dashboard card "Guests entered late".
@@ -791,10 +800,13 @@ Grilled with the owner on 2026-11-10 (two rounds). Vocabulary is in `GLOSSARY.md
 2. Keep: Daily Summaries, Past Payslips, opening balances (including the Receptionist's opening Cash Advance and the Sales Cash count, even if dated Nov 8 or earlier), staff, settings, the Item catalog. The dry run lists any kept opening rows separately.
 3. Nothing real was entered for Nov 2-8 yet; the owner re-enters those days from paper on the Nov 2-8 page afterwards.
 4. **The owner runs it**, not the agent: a dry-run SQL that only counts per table, a Time Travel restore point first, then the delete. The script stays local (git-excluded); it touches no names.
+5. **Done 2026-11-10.** The owner ran it on production; every DELETE count afterwards was 0. `node scripts/one-off/purge.mjs` also has `list` (what is left from Nov 9 on), `cash` (where the Front Desk's Sales Cash comes from) and `fix-nov9`, all read-only except `fix-nov9`.
+6. **Two D1 limits found on the way:** `wrangler d1 execute --remote --file` uses the import API, which refused the owner's OAuth login (code 10000), so SQL goes through `--command` instead. D1 also refuses a long `UNION ALL` ("too many terms in compound SELECT"), so the dry run returns one row of counts, printed one per line.
+7. **Nov 9's Day Close was corrected.** It had expected and counted the cash including the sample records from before Nov 9, and Sales Cash is anchored on the latest Day Close count, so the Front Desk kept showing that figure after the delete. `fix-nov9` set Nov 9's expected and counted cash to that day's own cash only (its services less GCash, no cash-outs), with an audit log entry `day.close_corrected`. Lesson: after deleting past cash records, check the Day Close counts that follow them.
 
 **16.2 DTR overlap message** (no migration)
 
-1. The overlap error names the clashing entry, its Business Day and times, and links to that day. Cause of the owner's Nov 9 case (likely, unverified): a sample entry from Nov 8 or earlier left open, which the Receptionist's first tap on Nov 9 clocked out at about 2pm. 16.1 removes it.
+1. The overlap error names the clashing entry, its times and the Business Day it is filed under, and tells the user to open that day. Cause of the owner's Nov 9 case (likely, unverified): a sample entry from Nov 8 or earlier left open, which the Receptionist's first tap on Nov 9 clocked out at about 2pm. 16.1 removes it.
 
 **16.3 Logout and Day Close** (no migration)
 
@@ -806,7 +818,7 @@ Grilled with the owner on 2026-11-10 (two rounds). Vocabulary is in `GLOSSARY.md
 **16.4 Auto Clock-out** (migration: a marker on DTR)
 
 1. Day Close clocks out everyone still clocked in, the closer included, at the close time.
-2. At 6:00am (the existing daily cron, or lazily), anyone still in is clocked out at that Business Day's Day Close time, or 11:00pm if it was never closed.
+2. At 6:00am (a new daily cron, `0 22 * * *` UTC, and lazily when the Clock-in Screen or Front Desk loads), anyone still in is clocked out at that Business Day's Day Close time, or 11:00pm if it was never closed.
 3. Each is marked "Auto clock-out" and goes on DTR Review. A Receptionist's Overtime therefore never runs past the close.
 
 **16.5 Late Entry** (migration: entered-late marker on bookings). As agreed 2026-11-10:

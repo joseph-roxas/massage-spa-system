@@ -770,3 +770,60 @@ Grilled with the owner on 2026-11-08 (three rounds), then adjusted while the own
 **Known small things:** pressing Esc on Add time or Change service during checkout also closes checkout. A Guest who runs over shows the next service already counting down.
 
 **Worth confirming with the owner:** a Guest asking for longer upfront pays the same as one who extends. An extra hour of foot or back on a 1.5-hour Service costs ₱450, not ₱500.
+
+
+## 18. Phase 16: owner's fifth batch of change requests (branch `cr-5`)
+
+Grilled with the owner on 2026-11-10 (two rounds). Vocabulary is in `GLOSSARY.md` (new: Auto Clock-out, Late Entry, Opening Count; Day Close, DTR Review and Shop Stock updated). Migrations 0033 (`dtr.auto_clock_out`) and 0034 (`bookings.entered_late`, `late_checked_at`). **Next migration is 0035.**
+
+**Status (2026-11-10):** all of 16.2-16.7 built on `cr-5`, not committed. 461 tests pass (248 domain, 213 API) except one that fails between 2:00 and 6:00pm with or without these changes: the Top-up test in `service-changes.test.ts` expects full price, but Happy Hours takes 10% off then. Typecheck, lint and build pass. Checked in a browser on a scratch copy of the local database: late entry, red Close button and confirmation, Auto Clock-out at Day Close, logout warning, voucher filters, the upload preview and the Guests entered late card. 16.1 is a local script in `scripts/one-off/` (git-excluded) for the owner to run.
+
+**As built, worth knowing:**
+- Late Entry is a checkbox on the New walk-in form ("Already served before I could record it"), which then asks Therapist, Room, Started at and Finished at. The 30-minute Reserved rule is not applied to Late Entries, since the Service already happened. The Super Admin ticks them on the Dashboard card "Guests entered late".
+- Auto Clock-out also runs from a new 06:00 Manila cron (`0 22 * * *`) and lazily whenever the Clock-in Screen or Front Desk loads.
+- Logout with an open day returns `day_open` unless the body has `force: true`; the sidebar offers Go to Day Close or Log out anyway.
+
+**Context:** the week from 2026-11-09 is the Receptionist's test week on the live system. Its records are real (Payroll, Royalty, Sales Cash); there is no test mode. Her feedback comes back as the next batch.
+
+**16.1 Clear sample records up to Nov 8** (one-off script, not a migration)
+
+1. Delete everything with a Business Day on or before 2026-11-08: DTR, Sales with their Bookings and related rows, Voucher Sales (their cards go back to unsold), Expenses, Cash-outs and Cash Advances, Day Closes, Cash Handovers, Rejects, Payroll for the weeks of Nov 1 and Nov 2, and Guest Records that exist only because of those Sales.
+2. Keep: Daily Summaries, Past Payslips, opening balances (including the Receptionist's opening Cash Advance and the Sales Cash count, even if dated Nov 8 or earlier), staff, settings, the Item catalog. The dry run lists any kept opening rows separately.
+3. Nothing real was entered for Nov 2-8 yet; the owner re-enters those days from paper on the Nov 2-8 page afterwards.
+4. **The owner runs it**, not the agent: a dry-run SQL that only counts per table, a Time Travel restore point first, then the delete. The script stays local (git-excluded); it touches no names.
+
+**16.2 DTR overlap message** (no migration)
+
+1. The overlap error names the clashing entry, its Business Day and times, and links to that day. Cause of the owner's Nov 9 case (likely, unverified): a sample entry from Nov 8 or earlier left open, which the Receptionist's first tap on Nov 9 clocked out at about 2pm. 16.1 removes it.
+
+**16.3 Logout and Day Close** (no migration)
+
+1. Logging out no longer requires Day Close for the Receptionist or Reliever, so a Reliever can finish a day the Receptionist started. With a day open, logout asks once: Log out anyway, or Go to Day Close.
+2. "Close the day" on the Front Desk is solid red whenever a Business Day is open, older unclosed days included.
+3. Closing always asks for confirmation before it locks the day, naming the day and who will be clocked out.
+4. Dropped: ending the login when the browser closes.
+
+**16.4 Auto Clock-out** (migration: a marker on DTR)
+
+1. Day Close clocks out everyone still clocked in, the closer included, at the close time.
+2. At 6:00am (the existing daily cron, or lazily), anyone still in is clocked out at that Business Day's Day Close time, or 11:00pm if it was never closed.
+3. Each is marked "Auto clock-out" and goes on DTR Review. A Receptionist's Overtime therefore never runs past the close.
+
+**16.5 Late Entry** (migration: entered-late marker on bookings). As agreed 2026-11-10:
+
+1. The Walk-in form gets "Started at" (default now) and optional "Finished at"; a past start also asks Therapist and Room.
+2. Today's Business Day only, never before the Therapist's clock-in; if they did not clock in, the desk adds the time record first (goes to DTR Review).
+3. Rotation follows the real times.
+4. Marked "Entered late" with when it was entered, shown in the Finished list and Therapist Sales, and counted in the Super Admin's Needs Attention, since a past time can earn Happy Hours.
+5. A Therapist or Room recorded as busy at that time is refused.
+6. Paper backup stays hidden from the Receptionist.
+
+**16.6 Voucher list filters** (no migration)
+
+1. New Service filter. Status choices: Unsold (in shop), Sold (all), Sold and unused, Used (redeemed or Used Before Go-live), Voided. Super Admin and Receptionist both.
+
+**16.7 Opening Count upload** (no migration expected)
+
+1. Inventory -> Catalog -> Upload opening count: pick Shop or Storage, one .xlsx each, columns Item, Quantity, Unit, Kind; Unit and Kind needed only for new Items. Template to download.
+2. Preview before saving: names matched ignoring case, matches and new Items shown apart; new Items created on save.
+3. Saved as an Opening Count dated the upload day, through the existing `/inventory/opening` logic: no Turnover, Receiving or Expense. Uploading again replaces that place's count for the Items in the file.

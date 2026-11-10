@@ -151,8 +151,16 @@ The PC at the reception table, marked once by the Super Admin, whose login page 
 _Avoid_: Kiosk, terminal
 
 **DTR Review**:
-The Super Admin's check of every DTR entry added by hand, corrected, or still missing its clock-out, regardless of date. An entry is Reviewed once they tick it or correct it themselves; after that the Receptionist can no longer change it.
+The Super Admin's check of every DTR entry added by hand, corrected, ended by an Auto Clock-out, or still missing its clock-out, regardless of date. An entry is Reviewed once they tick it or correct it themselves; after that the Receptionist can no longer change it.
 _Avoid_: DTR audit, approval
+
+**Auto Clock-out**:
+Clocking out Staff who are still clocked in without them punching out: at Day Close, everyone still in, at the close time; at 6:00am, anyone still in, at that Business Day's Day Close time, or 11:00pm if it was never closed. Each one goes on DTR Review.
+_Avoid_: Forced clock-out
+
+**Late Entry**:
+A Walk-in the Receptionist records after it started, or even after it finished, because Therapists served the Guest before she arrived. It keeps its real times, counts in Rotation by them, and is marked as entered late.
+_Avoid_: Backdated booking, paper entry
 
 **Go-live**:
 The first Business Day recorded in the system as real Sales, Monday 2026-11-02. Everything before it exists only as Daily Summaries and opening balances.
@@ -173,7 +181,7 @@ _Avoid_: Historical sale, imported sale, legacy data
 Closing the shop before 11:00pm, recorded with a reason; time lost to an Early Close is not Undertime.
 
 **Day Close**:
-The end-of-day count reconciling expected against actual Cash and GCash, after which that day's sales are locked; only the Super Admin can reopen it.
+The end-of-day count reconciling expected against actual Cash and GCash, after which that day's sales are locked and everyone still clocked in gets an Auto Clock-out; only the Super Admin can reopen it. Logging out does not require it, so a Reliever can finish a day the Receptionist started.
 _Avoid_: End of day, Z-reading
 
 ## Money in
@@ -372,7 +380,11 @@ _Avoid_: Fixed asset
 The Super Admin's own stock, where every purchase lands first; the Shop is sent only what it needs.
 
 **Shop Stock**:
-The quantity of an Item physically at the shop, counting only Turnovers that have been Received.
+The quantity of an Item physically at the shop: its Opening Count plus Turnovers that have been Received, less Use and Discards.
+
+**Opening Count**:
+The quantity of each Item found at the Shop or in Storage when the system started tracking it, recorded by the Super Admin (by hand or from an uploaded file) with no Turnover, Receiving or Expense. A later Opening Count of the same Item and place replaces it.
+_Avoid_: Initial stock, beginning inventory
 
 **Stock-in**:
 The Super Admin recording a purchase of an Item into Storage from a Vendor, at a price and date. Counted as an Expense when bought.

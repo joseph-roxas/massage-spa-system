@@ -32,9 +32,11 @@ const board = (c: Client) => c.get('/front-desk').then((r) => json<Board>(r));
 const line = (b: Board, id: string) => b.bookings.find((x) => x.id === id)!;
 async function checkout(desk: Client, id: string, body: Record<string, unknown> = {}, amount?: number): Promise<Sale> {
   await desk.post(`/bookings/${id}/done`);
-  const quote = await json<{ amountDue: number }>(await desk.post('/sales/quote', { bookingId: id, ...('statutory' in body ? { statutory: 'senior' } : {}) }));
+  // No Promo unless a test asks: Happy Hours (2-6pm) would otherwise change the price with the time the tests run.
+  const promo = { promoId: null, ...body };
+  const quote = await json<{ amountDue: number }>(await desk.post('/sales/quote', { bookingId: id, promoId: promo.promoId, ...('statutory' in body ? { statutory: 'senior' } : {}) }));
   const due = amount ?? quote.amountDue;
-  const res = await desk.post('/sales', { bookingId: id, ...body, payments: due ? [{ method: 'cash', amount: due }] : [] });
+  const res = await desk.post('/sales', { bookingId: id, ...promo, payments: due ? [{ method: 'cash', amount: due }] : [] });
   expect(res.status).toBe(201);
   const { sales } = await json<{ sales: Sale[] }>(await desk.get(`/sales?day=${today()}`));
   return sales.find((s) => s.bookingId === id)!;

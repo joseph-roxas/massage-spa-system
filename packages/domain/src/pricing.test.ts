@@ -75,8 +75,26 @@ describe('quoteSale', () => {
       expect(topped({ statutory: 'senior' })).toMatchObject({ discount: { amount: pesos(150) }, amountDue: pesos(600) });
     });
 
-    it('takes a Promo off the original Service only', () => {
-      expect(topped({ promos: [{ ...happyHours, percentBp: 1000 }] })).toMatchObject({ discount: { type: 'promo', amount: pesos(50) }, amountDue: pesos(700) });
+    it('takes a Promo off the original Service, not a half hour of added time', () => {
+      expect(topped({ topUpSteps: [pesos(250)] })).toMatchObject({ discount: { type: 'promo', amount: pesos(50) }, amountDue: pesos(700) });
+    });
+
+    // Happy Hours on Swedish (1hr): a qualifying start covers up to 2 hours, full hours only.
+    it.each([
+      ['2 hours', [250, 250], 100, 900],
+      ['2.5 hours', [250, 250, 250], 100, 1150],
+      ['3 hours', [250, 250, 250, 250], 100, 1400],
+    ])('takes a Promo off one more full hour of added time: %s', (_, steps, off, due) => {
+      const q = quoteSale(swedish({ topUpSteps: steps.map((x) => pesos(x)) }));
+      expect(q).toMatchObject({ discount: { type: 'promo', amount: pesos(off) }, amountDue: pesos(due) });
+    });
+
+    it('covers the second hour by the first hour’s start, even when the second starts after Happy Hours', () => {
+      expect(quoteSale(swedish({ startTime: '17:30', topUpSteps: [pesos(250), pesos(250)] })).amountDue).toBe(pesos(900));
+    });
+
+    it('still gives Senior/PWD instead, off the whole bill', () => {
+      expect(quoteSale(swedish({ statutory: 'senior', topUpSteps: [pesos(250), pesos(250)] }))).toMatchObject({ discount: { type: 'senior', amount: pesos(200) }, amountDue: pesos(800) });
     });
 
     it('has the Guest pay Top-ups on a Voucher', () => {

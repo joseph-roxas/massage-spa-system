@@ -29,7 +29,17 @@ export type QuoteInput = {
   voucher?: { serial: string; isFree: boolean } | null;
   /** Everything added by Top-ups, at full price. */
   topUpsTotal?: Centavos;
+  /** Each 30-minute Top-up step's price, in the order added; a Promo covers the first full hour of them. */
+  topUpSteps?: readonly Centavos[];
 };
+
+/** A Promo covers its Service and one more full hour of Top-ups (two 30-minute steps); a half hour, or time past that, is full price. */
+export const PROMO_TOP_UP_STEPS = 2;
+
+/** The Top-ups a Promo also takes its percentage off. */
+export function promoCoveredTopUps(steps: readonly number[]): Centavos {
+  return (steps.length >= PROMO_TOP_UP_STEPS ? steps.slice(0, PROMO_TOP_UP_STEPS).reduce((s, x) => s + x, 0) : 0) as Centavos;
+}
 
 export type Quote = {
   regularPrice: Centavos;
@@ -51,11 +61,13 @@ const NONE = { type: 'none', bp: 0, promoId: null, label: 'No discount' } as con
  * every other Discount.
  *
  * Top-ups: a Statutory Discount and a Complimentary Service cover them too. A
- * Promo or Voucher is for the original Service only, so the Guest pays them.
+ * Promo also covers one more full hour of them (its start time decides it for
+ * the whole), never a half hour or time past 2 hours. A Voucher is for the
+ * original Service only, so the Guest pays them.
  */
 export function quoteSale(input: QuoteInput): Quote {
   const price = input.regularPrice;
-  const topUpsTotal = (input.topUpsTotal ?? 0) as Centavos;
+  const topUpsTotal = (input.topUpsTotal ?? (input.topUpSteps ?? []).reduce((s, x) => s + x, 0)) as Centavos;
   const whole = (price + topUpsTotal) as Centavos;
 
   let best: Omit<Quote['discount'], 'amount'> = NONE;
@@ -80,7 +92,11 @@ export function quoteSale(input: QuoteInput): Quote {
   }
 
   const amount =
-    best.type === 'complimentary' ? whole : best.type === 'voucher' ? price : percentOf(best.type === 'promo' ? price : whole, best.bp / 100);
+    best.type === 'complimentary'
+      ? whole
+      : best.type === 'voucher'
+        ? price
+        : percentOf(best.type === 'promo' ? ((price + promoCoveredTopUps(input.topUpSteps ?? [])) as Centavos) : whole, best.bp / 100);
   const serviceAmount = (whole - amount) as Centavos;
   return {
     regularPrice: price,

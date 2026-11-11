@@ -201,10 +201,10 @@ The 20% Senior Citizen or PWD Discount, which requires the Guest's ID number.
 _Avoid_: SC/PWD promo
 
 **Promo**:
-A time-boxed Discount defined by Service, time-of-day window and validity dates. Happy Hours is the current one.
+A time-boxed Discount defined by Service, time-of-day window and validity dates. Happy Hours is the current one. A Service starting within the window gets it on that Service and on one more full hour of Top-ups, however late that hour runs; a half hour, or time past that, pays full price.
 
 **Happy Hours**:
-The Promo giving 10% off Swedish Massage (1hr) when the Service starts within its hours, the end time included (a 6:00pm start counts when it runs to 6:00pm), valid until 2026-11-30.
+The Promo giving 10% off Swedish Massage (1hr) when the Service starts within its hours, the end time included (a 6:00pm start counts when it runs to 6:00pm), valid until 2026-11-30. A 2-hour Swedish started in its hours gets 10% off both hours; 1.5 hours gets it on the first hour only, and a third hour pays full price.
 
 **Voucher**:
 A serial-numbered, non-expiring prepaid entitlement to one specific Service, redeemable once by whoever presents the serial, only at this branch. Sold at that Service's Regular Price to a buyer, who is a Guest with a Guest Record. The Receptionist only sells serials she has Received through a Voucher Endorsement, picking each one herself.

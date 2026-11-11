@@ -259,7 +259,7 @@ describe('Day Close', () => {
     const b1 = await served(desk, t, 'thai-60');
     const day = today();
 
-    expect((await desk.post('/cash-outs', { category: 'laundry', amount: 15000, purpose: 'Laundry' })).status).toBe(201);
+    expect((await desk.post('/cash-outs', { category: 'laundry', days: [{ day: businessDayOf(new Date()), amount: 15000 }] })).status).toBe(201);
 
     let preview = await json<Preview>(await desk.get(`/days/${day}/close-preview`));
     expect(preview.blockers).toEqual([expect.objectContaining({ bookingId: b1, problem: 'Done but not checked out' })]);
@@ -399,7 +399,7 @@ describe('Early Close and Cash-outs', () => {
     for (const category of ['supplies', 'food', 'transport', 'other'])
       expect((await desk.post('/cash-outs', { category, amount: 100, purpose: 'Something' })).status).toBe(400);
     await desk.post('/cash-outs', { category: 'petty_cash', amount: 5000, purpose: 'Rice 1 kg' });
-    await desk.post('/cash-outs', { category: 'laundry', amount: 120000, purpose: 'Weekly laundry' });
+    await desk.post('/cash-outs', { category: 'laundry', days: [{ day: businessDayOf(new Date()), amount: 120000 }], purpose: 'Weekly laundry' });
     const { cashOuts } = await json<{ cashOuts: { category: string; source: string }[] }>(await desk.get(`/cash-outs?day=${today()}`));
     expect(cashOuts.map((x) => [x.category, x.source])).toEqual([
       ['petty_cash', 'petty'],
@@ -682,5 +682,69 @@ describe('Correcting a start time', () => {
     expect((await admin.post(`/days/${day}/counted`, { countedCash: 45000, reason: 'What was really in the drawer' })).status).toBe(200);
     detail = await (await admin.get(`/sales/day-detail?day=${day}`)).json<Detail>();
     expect(detail.day).toMatchObject({ countedCash: 45000, variance: 0 });
+  });
+});
+
+describe('Correcting a service', () => {
+  it('re-prices a sale on a closed day as the Service really served, and its Commission follows', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const d = new Date(`${today()}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 2);
+    const day = d.toISOString().slice(0, 10);
+    const at = (hhmm: string) => new Date(`${day}T${hhmm}:00+08:00`).toISOString();
+    const [bookingId, saleId, voucherBooking, voucherSale] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR REPLACE INTO business_days (date, opened_at, closed_at, expected_cash, expected_gcash, counted_cash, variance) VALUES (?, ?, ?, 50000, 0, 70000, 20000)`).bind(day, at('14:00'), at('23:30')),
+      env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, service_id, duration_min, therapist_id, room_id, started_at, done_at, created_at) VALUES (?, ?, 'walk_in', 'done', 'swedish-60', 60, ?, 1, ?, ?, ?)`).bind(bookingId, day, t, at('19:00'), at('20:00'), at('19:00')),
+      env.DB.prepare(`INSERT INTO sales (id, booking_id, business_day, service_id, therapist_id, regular_price, discount_type, service_amount, amount_due, commission_bp, commission_amount, created_at) VALUES (?, ?, ?, 'swedish-60', ?, 50000, 'none', 50000, 50000, 3000, 15000, ?)`).bind(saleId, bookingId, day, t, at('20:00')),
+      env.DB.prepare(`INSERT INTO payments (id, sale_id, business_day, method, amount, created_at) VALUES (?, ?, ?, 'cash', 50000, ?)`).bind(crypto.randomUUID(), saleId, day, at('20:00')),
+      env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, service_id, duration_min, therapist_id, room_id, started_at, done_at, created_at) VALUES (?, ?, 'walk_in', 'done', 'swedish-60', 60, ?, 2, ?, ?, ?)`).bind(voucherBooking, day, t, at('15:00'), at('16:00'), at('15:00')),
+      env.DB.prepare(`INSERT INTO sales (id, booking_id, business_day, service_id, therapist_id, regular_price, discount_type, discount_amount, service_amount, amount_due, focKind, commission_bp, commission_amount, created_at) VALUES (?, ?, ?, 'swedish-60', ?, 50000, 'voucher', 50000, 0, 0, 'voucher', 3000, 15000, ?)`.replace('focKind', 'foc_kind')).bind(voucherSale, voucherBooking, day, t, at('16:00')),
+    ]);
+    const body = { bookingId, serviceId: 'aroma-90', reason: 'Was really the 90-minute Aroma' };
+
+    expect((await desk.post('/sales/correct-service', body)).status).toBe(403);
+    expect((await admin.post('/sales/correct-service', { ...body, bookingId: voucherBooking })).status).toBe(409);
+    expect((await admin.post('/sales/correct-service', body)).status).toBe(200);
+
+    // ₱700 at full price; Commission 30% of ₱700 less the ₱50 Set-aside.
+    const sale = await env.DB.prepare(`SELECT service_id, regular_price, amount_due, commission_amount FROM sales WHERE id = ?`).bind(saleId).first();
+    expect(sale).toEqual({ service_id: 'aroma-90', regular_price: 70000, amount_due: 70000, commission_amount: 19500 });
+    const pay = await env.DB.prepare(`SELECT amount FROM payments WHERE sale_id = ?`).bind(saleId).first<{ amount: number }>();
+    expect(pay?.amount).toBe(70000);
+    const b = await env.DB.prepare(`SELECT service_id, started_at, done_at FROM bookings WHERE id = ?`).bind(bookingId).first();
+    expect(b).toEqual({ service_id: 'aroma-90', started_at: at('19:00'), done_at: at('20:30') });
+    // The Day Close expected ₱200 more, so the ₱200 it was over is explained.
+    const closed = await env.DB.prepare(`SELECT expected_cash, counted_cash, variance FROM business_days WHERE date = ?`).bind(day).first();
+    expect(closed).toEqual({ expected_cash: 70000, counted_cash: 70000, variance: 0 });
+  });
+});
+
+describe('Laundry Breakdown', () => {
+  it('records Laundry day by day and pays their total from Sales Cash', async () => {
+    const desk = await loggedIn('receptionist');
+    const d = new Date(`${today()}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    const yesterday = d.toISOString().slice(0, 10);
+    // An amount typed for Laundry is not enough: it needs its days.
+    expect((await desk.post('/cash-outs', { category: 'laundry', amount: 30000, purpose: 'Laundry' })).status).toBe(400);
+    expect((await desk.post('/cash-outs', { category: 'laundry', days: [{ day: '2026-01-01', amount: 100 }] })).status).toBe(400);
+    expect((await desk.post('/cash-outs', { category: 'laundry', days: [{ day: yesterday, amount: 100 }, { day: yesterday, amount: 100 }] })).status).toBe(400);
+
+    const res = await desk.post('/cash-outs', { category: 'laundry', days: [{ day: today(), amount: 22000 }, { day: yesterday, amount: 18000 }] });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ amount: 40000 });
+    const { cashOuts } = await json<{ cashOuts: { id: string; category: string; amount: number; source: string; breakdown: { day: string; amount: number }[] | null }[] }>(await desk.get(`/cash-outs?day=${today()}`));
+    expect(cashOuts.find((c) => c.category === 'laundry' && c.amount === 40000)).toMatchObject({
+      source: 'sales',
+      breakdown: [
+        { day: yesterday, amount: 18000 },
+        { day: today(), amount: 22000 },
+      ],
+    });
+    const paid = await json<{ days: string[] }>(await desk.get('/cash-outs/laundry-paid-days'));
+    expect(paid.days).toEqual(expect.arrayContaining([yesterday, today()]));
   });
 });

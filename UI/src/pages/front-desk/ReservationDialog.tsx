@@ -4,6 +4,7 @@ import { Modal } from '../../components/Modal';
 import { fromLocalInput, toLocalInput, useClockStaff } from '../../lib/attendance';
 import { useCurrentUser } from '../../lib/auth';
 import { guestLabel, isNamedReservation, useDeskAction, type Booking } from '../../lib/front-desk';
+import { DateTimeInput } from '../../components/TimeInput';
 
 export type ReservationChange = 'move' | 'cancel';
 
@@ -49,7 +50,7 @@ export function ReservationDialog({ booking, mode, onClose }: { booking: Booking
         {mode === 'move' && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="Date and time">
-              <Input type="datetime-local" required value={at} onChange={(e) => setAt(e.target.value)} />
+              <DateTimeInput required value={at} onChange={(v) => setAt(v)} />
             </Field>
             <Field label="Requested therapist">
               <Select value={therapistId} onChange={(e) => setTherapistId(e.target.value)}>

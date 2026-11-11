@@ -34,6 +34,7 @@ import { backfillRoutes } from './modules/backfill';
 import { dashboardRoutes } from './modules/dashboard';
 import { notifierFor, type Notifier } from './notify/notifier';
 import { fail } from './lib/http';
+import { tidyGuestNamesOnce } from './lib/guest-names';
 
 export type AppDeps = {
   /** Overridable so tests can capture notifications. */
@@ -48,6 +49,8 @@ export function createApp(deps: AppDeps = {}) {
     .use(async (c, next) => {
       c.set('db', drizzle(c.env.DB));
       c.set('notifier', makeNotifier(c.env));
+      // Once after migration 0035: capitalize Guest names saved before names were capitalized on entry.
+      await tidyGuestNamesOnce(c.var.db).catch((err: unknown) => console.error('guest name tidy', err));
       await next();
     })
     .use(requireJsonForWrites, loadSession)

@@ -1,8 +1,8 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
-import { businessDayOf, dayTotals, onCallOwed, SHOP_CLOSING_TIME, toManila, type Centavos } from '@spa/domain';
+import { and, asc, eq, gte, isNotNull, ne, sql } from 'drizzle-orm';
+import { businessDayOf, dayTotals, earliestLaundryDay, laundryBreakdownProblem, laundryTotal, onCallOwed, parseLaundryBreakdown, SHOP_CLOSING_TIME, toManila, type Centavos } from '@spa/domain';
 import { bookings, businessDays, cashOuts, cashTransfers, payments, sales, services, staff, stockIns, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
@@ -20,11 +20,21 @@ const dateParam = z.object({ date: isoDate });
 /** The only Cash-outs the form records; Petty cash comes from the Petty Cash Fund, Laundry from Sales Cash. */
 const FORM_CASH_OUTS = { petty_cash: 'petty', laundry: 'sales' } as const;
 
-const newCashOut = z.object({
-  category: z.enum(['petty_cash', 'laundry']),
-  amount: z.number().int().min(1).max(10_000_000),
-  purpose: z.string().trim().min(3, 'Say what the cash was for.').max(200),
-});
+const newCashOut = z.discriminatedUnion('category', [
+  z.object({
+    category: z.literal('petty_cash'),
+    amount: z.number().int().min(1).max(10_000_000),
+    purpose: z.string().trim().min(3, 'Say what the cash was for.').max(200),
+  }),
+  /** Laundry is entered day by day (a Laundry Breakdown); its total is never typed. */
+  z.object({
+    category: z.literal('laundry'),
+    days: z.array(z.object({ day: isoDate, amount: z.number().int().min(1, 'Each day needs an amount due.').max(10_000_000) })).min(1, 'Add at least one day of laundry.').max(14),
+    purpose: z.string().trim().max(200).optional(),
+  }),
+]);
+
+const shortDay = (d: string) => new Date(`${d}T00:00:00+08:00`).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' });
 
 /** Everything Day Close needs to know about a day: what's unfinished, what's owed, what's in the drawer. */
 async function closingState(c: Context<AuthedEnv>, day: string) {
@@ -250,7 +260,18 @@ export const dayRoutes = new Hono<AuthedEnv>()
 
   .get('/cash-outs', zValidator('query', z.object({ day: isoDate }), invalidInput), async (c) => {
     const rows = await c.var.db.select().from(cashOuts).where(eq(cashOuts.businessDay, c.req.valid('query').day)).orderBy(asc(cashOuts.createdAt));
-    return c.json({ cashOuts: rows });
+    return c.json({ cashOuts: rows.map(({ breakdownJson, ...r }) => ({ ...r, breakdown: parseLaundryBreakdown(breakdownJson) })) });
+  })
+
+  /** Days of laundry already paid that a new Laundry Breakdown could cover, to warn about paying one twice. */
+  .get('/cash-outs/laundry-paid-days', async (c) => {
+    const today = businessDayOf(new Date());
+    const rows = await c.var.db
+      .select({ breakdownJson: cashOuts.breakdownJson })
+      .from(cashOuts)
+      .where(and(eq(cashOuts.category, 'laundry'), isNotNull(cashOuts.breakdownJson), gte(cashOuts.businessDay, earliestLaundryDay(today))));
+    const days = [...new Set(rows.flatMap((r) => parseLaundryBreakdown(r.breakdownJson)!.map((d) => d.day)))].sort();
+    return c.json({ today, earliest: earliestLaundryDay(today), days });
   })
 
   .post('/cash-outs', zValidator('json', newCashOut, invalidInput), async (c) => {
@@ -258,15 +279,21 @@ export const dayRoutes = new Hono<AuthedEnv>()
     const blocked = await openDayFor(c, day);
     if (blocked) return blocked;
     const input = c.req.valid('json');
+    const id = crypto.randomUUID();
+    const base = { id, businessDay: day, category: input.category, source: FORM_CASH_OUTS[input.category], createdAt: nowIso(), createdBy: c.var.user.id };
     if (input.category === 'petty_cash') {
       const balance = await pettyCashNow(c.var.db);
       if (input.amount > balance) return fail(c, 409, 'petty_cash_short', `Only ${(balance / 100).toFixed(2)} is left in petty cash. Top it up from sales cash first.`);
+      await c.var.db.insert(cashOuts).values({ ...base, amount: input.amount, purpose: input.purpose });
+      return c.json({ id }, 201);
     }
-    const id = crypto.randomUUID();
-    await c.var.db
-      .insert(cashOuts)
-      .values({ id, businessDay: day, ...input, source: FORM_CASH_OUTS[input.category], createdAt: nowIso(), createdBy: c.var.user.id });
-    return c.json({ id }, 201);
+    const problem = laundryBreakdownProblem(input.days, day);
+    if (problem) return fail(c, 400, 'bad_breakdown', problem);
+    const days = [...input.days].sort((a, b) => a.day.localeCompare(b.day));
+    const covers = days.length === 1 ? shortDay(days[0]!.day) : `${shortDay(days[0]!.day)} – ${shortDay(days.at(-1)!.day)}, ${days.length} days`;
+    const amount = laundryTotal(days);
+    await c.var.db.insert(cashOuts).values({ ...base, amount, purpose: input.purpose || `Laundry, ${covers}`, breakdownJson: JSON.stringify(days) });
+    return c.json({ id, amount }, 201);
   })
 
   /** A mistaken Cash-out can be removed while its day is open. */

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, isNull, like, or } from 'drizzle-orm';
-import { maskId } from '@spa/domain';
+import { maskId, properName } from '@spa/domain';
 import { bookings, guests, sales, services, staff, STATUTORY_TYPES, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
@@ -21,7 +21,7 @@ const optText = (max: number) =>
     .optional();
 
 const guestFields = z.object({
-  name: z.string().trim().min(2, 'Enter the guest’s name.').max(80),
+  name: z.string().trim().min(2, 'Enter the guest’s name.').max(80).transform(properName),
   phone: optText(30),
   statutoryType: z.enum(STATUTORY_TYPES).nullable().optional(),
   statutoryIdNo: optText(40),

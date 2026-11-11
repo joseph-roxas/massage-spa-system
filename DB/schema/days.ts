@@ -60,6 +60,8 @@ export const cashOuts = sqliteTable(
     purpose: text('purpose').notNull(),
     /** Who received it, e.g. the On-call Therapist paid for the day. */
     staffId: text('staff_id').references(() => staff.id),
+    /** Laundry Breakdown: JSON [{ day, amount }], the days this payment covers; `amount` is their total. Null for other Cash-outs and older Laundry. */
+    breakdownJson: text('breakdown_json'),
     createdAt: text('created_at').notNull(),
     createdBy: text('created_by').references(() => users.id),
   },

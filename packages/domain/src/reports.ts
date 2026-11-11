@@ -9,6 +9,7 @@ export type Report = { title: string; columns: Column[]; rows: Row[]; totals?: R
 
 export const REPORTS = [
   'daily-sales',
+  'payments',
   'therapist-sales',
   'therapist-detail',
   'therapist-changes',
@@ -22,7 +23,7 @@ export const REPORTS = [
 export type ReportName = (typeof REPORTS)[number];
 
 /** What a Reliever may run, for today only. */
-export const DAILY_REPORTS: readonly ReportName[] = ['daily-sales', 'guests'];
+export const DAILY_REPORTS: readonly ReportName[] = ['daily-sales', 'payments', 'guests'];
 
 /** What the Receptionist may run, for any dates. */
 export const RECEPTIONIST_REPORTS: readonly ReportName[] = [...DAILY_REPORTS, 'therapist-detail', 'therapist-changes'];

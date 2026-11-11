@@ -1,9 +1,9 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, sql } from 'drizzle-orm';
-import { addMinutes, CATCH_UP_DAYS, onBusinessDay, paymentProblem, payWeekOf, toManila, type Centavos } from '@spa/domain';
-import { bookings, businessDays, caLedger, cashAdvances, dailySummaries, dtr, expenseCategories, expenses, payments, promos, sales, services, staff, vouchers } from '@spa/db';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { addMinutes, CATCH_UP_DAYS, onBusinessDay, paymentProblem, payWeekOf, properName, toManila, type Centavos } from '@spa/domain';
+import { bookings, businessDays, caLedger, cashAdvances, dailySummaries, dtr, expenseCategories, expenses, payments, payrolls, promos, sales, services, staff, vouchers } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { fail, invalidInput } from '../lib/http';
@@ -18,6 +18,14 @@ const note = z.string().trim().max(200).optional();
 const dtrBody = z.object({ staffId: z.string().min(1), clockIn: hhmm, clockOut: hhmm, isRelief: z.boolean().default(false) });
 const saleBody = z.object({
   time: hhmm,
+  /** From the paper record, if written down; links a Guest's several Services that day. */
+  guestName: z
+    .string()
+    .trim()
+    .max(80)
+    .transform((v) => (v ? properName(v) : null))
+    .nullable()
+    .default(null),
   serviceId: z.string().min(1),
   therapistId: z.string().min(1),
   promoId: z.string().min(1).nullable().default(null),
@@ -45,6 +53,78 @@ const closeDay = (c: Context<AuthedEnv>, date: string, now: string) =>
 
 const clockOf = (iso: string) => toManila(new Date(iso)).time;
 
+/** A Therapist's Commission for a day can't change once that week's Payroll is approved or released. */
+async function commissionLocked(c: Context<AuthedEnv>, therapistId: string, date: string): Promise<Response | null> {
+  const week = payWeekOf(date, 'therapist').start;
+  const fixed = await c.var.db
+    .select({ id: payrolls.id })
+    .from(payrolls)
+    .where(and(eq(payrolls.staffId, therapistId), eq(payrolls.weekStart, week), ne(payrolls.status, 'draft')))
+    .get();
+  return fixed ? fail(c, 409, 'payroll_locked', `The Payroll for the week of ${week} is already approved. Send it back to draft first.`) : null;
+}
+
+/** Everything a sale entered here wrote: its Voucher goes back to unused. */
+const removeSale = (c: Context<AuthedEnv>, row: typeof sales.$inferSelect) => {
+  const db = c.var.db;
+  return [
+    db.update(vouchers).set({ status: 'unused', redeemedSaleId: null, redeemedAt: null }).where(eq(vouchers.redeemedSaleId, row.id)),
+    db.delete(payments).where(eq(payments.saleId, row.id)),
+    db.delete(sales).where(eq(sales.id, row.id)),
+    db.delete(bookings).where(eq(bookings.id, row.bookingId)),
+  ] as const;
+};
+
+/** One sale from the paper records: a finished Booking and its Sale, priced exactly as checkout would. */
+async function enterSale(c: Context<AuthedEnv>, date: string, input: z.infer<typeof saleBody>): Promise<Response | { id: string; amountDue: number; commissionAmount: number }> {
+  const db = c.var.db;
+  const summary = await db.select({ date: dailySummaries.date }).from(dailySummaries).where(eq(dailySummaries.date, date)).get();
+  if (summary) return fail(c, 409, 'has_summary', 'This day already has a Daily Summary. Remove it under This year’s records first.');
+  const [service, therapist] = await Promise.all([
+    db.select().from(services).where(eq(services.id, input.serviceId)).get(),
+    db.select().from(staff).where(eq(staff.id, input.therapistId)).get(),
+  ]);
+  if (!service) return fail(c, 400, 'unknown_service', 'Pick a service.');
+  if (!therapist || therapist.kind !== 'therapist') return fail(c, 400, 'unknown_therapist', 'Pick a therapist.');
+  const locked = await commissionLocked(c, therapist.id, date);
+  if (locked) return locked;
+
+  const now = nowIso();
+  const bookingId = crypto.randomUUID();
+  const startedAt = onBusinessDay(date, input.time).toISOString();
+  await db.insert(bookings).values({ id: bookingId, businessDay: date, kind: 'walk_in', status: 'done', guestName: input.guestName, serviceId: service.id, durationMin: service.durationMin, therapistId: therapist.id, startedAt, doneAt: addMinutes(startedAt, service.durationMin), createdAt: now, createdBy: c.var.user.id });
+  const undo = () => db.delete(bookings).where(eq(bookings.id, bookingId));
+
+  const checkout = {
+    bookingId,
+    statutory: input.statutory ? { kind: input.statutory, idNumber: input.idNumber || 'Not recorded' } : null,
+    promoId: input.promoId,
+    complimentaryReason: input.complimentaryReason,
+    voucherSerial: input.voucherSerial,
+  };
+  const priced = await priceFor(c, checkout);
+  if (priced instanceof Response) {
+    await undo();
+    return priced;
+  }
+  const due = priced.quote.amountDue;
+  const lines = due > 0 ? [{ method: input.method, amount: due as Centavos, gcashRef: input.method === 'gcash' ? input.gcashRef || 'Not recorded' : null }] : [];
+  const problem = paymentProblem(due, lines);
+  if (problem) {
+    await undo();
+    return fail(c, 400, 'payment_mismatch', problem);
+  }
+  const { id, statements } = saleStatements(c, checkout, priced, lines, null, now);
+  try {
+    await db.batch([statements[0]!, ...statements.slice(1), db.update(sales).set({ catchUp: true }).where(eq(sales.id, id)), closeDay(c, date, now)]);
+  } catch (err) {
+    await undo();
+    throw err;
+  }
+  return { id, amountDue: due, commissionAmount: priced.commission.amount };
+}
+
+
 export const catchUpRoutes = new Hono<AuthedEnv>()
   .get('/catch-up/:date', ...guard, async (c) => {
     const date = dayOf(c);
@@ -57,7 +137,7 @@ export const catchUpRoutes = new Hono<AuthedEnv>()
       db.select({ id: promos.id, name: promos.name }).from(promos).where(eq(promos.active, true)),
       db.select().from(dtr).where(eq(dtr.businessDay, date)).orderBy(asc(dtr.clockIn)),
       db
-        .select({ sale: sales, startedAt: bookings.startedAt, method: payments.method })
+        .select({ sale: sales, startedAt: bookings.startedAt, doneAt: bookings.doneAt, guestName: bookings.guestName, method: payments.method, gcashRef: payments.gcashRef })
         .from(sales)
         .innerJoin(bookings, eq(bookings.id, sales.bookingId))
         .leftJoin(payments, eq(payments.saleId, sales.id))
@@ -73,9 +153,17 @@ export const catchUpRoutes = new Hono<AuthedEnv>()
     ]);
     const person = (id: string) => people.find((p) => p.id === id)?.displayName ?? id;
     const service = (id: string) => catalogue.find((s) => s.id === id);
-    const lines = soldRows.map(({ sale: s, startedAt, method }) => ({
+    const lines = soldRows.map(({ sale: s, startedAt, doneAt, guestName, method, gcashRef }) => ({
       id: s.id,
       time: startedAt ? clockOf(startedAt) : null,
+      endTime: doneAt ? clockOf(doneAt) : null,
+      guestName,
+      serviceId: s.serviceId,
+      therapistId: s.therapistId,
+      /** What the Edit form starts from: the Promo, ID number or Voucher serial, and the Complimentary reason. */
+      discountRef: s.discountRef,
+      reason: s.reason,
+      gcashRef: gcashRef === 'Not recorded' ? null : gcashRef,
       service: service(s.serviceId)?.name ?? s.serviceId,
       code: service(s.serviceId)?.code ?? '',
       therapist: person(s.therapistId),
@@ -137,50 +225,52 @@ export const catchUpRoutes = new Hono<AuthedEnv>()
   .post('/catch-up/:date/sales', ...guard, zValidator('json', saleBody, invalidInput), async (c) => {
     const date = dayOf(c);
     if (date instanceof Response) return date;
+    const made = await enterSale(c, date, c.req.valid('json'));
+    return made instanceof Response ? made : c.json(made, 201);
+  })
+
+  /**
+   * Corrects a sale entered here: any of its time, Guest, Service, Therapist, Discount or Payment Method.
+   * It is entered again by the same rules, so its price and Commission follow; if that is refused, the old one stays.
+   */
+  .put('/catch-up/:date/sales/:id', ...guard, zValidator('json', saleBody, invalidInput), async (c) => {
+    const date = dayOf(c);
+    if (date instanceof Response) return date;
     const db = c.var.db;
+    const old = await db.select().from(sales).where(and(eq(sales.id, c.req.param('id')), eq(sales.businessDay, date))).get();
+    if (!old || !old.catchUp || old.status !== 'paid') return fail(c, 404, 'not_found', 'Only sales entered here can be changed here.');
     const input = c.req.valid('json');
-    const summary = await db.select({ date: dailySummaries.date }).from(dailySummaries).where(eq(dailySummaries.date, date)).get();
-    if (summary) return fail(c, 409, 'has_summary', 'This day already has a Daily Summary. Remove it under This year’s records first.');
-    const [service, therapist] = await Promise.all([
-      db.select().from(services).where(eq(services.id, input.serviceId)).get(),
-      db.select().from(staff).where(eq(staff.id, input.therapistId)).get(),
+    for (const therapistId of new Set([old.therapistId, input.therapistId])) {
+      const locked = await commissionLocked(c, therapistId, date);
+      if (locked) return locked;
+    }
+    const [booking, oldPayments, redeemed] = await Promise.all([
+      db.select().from(bookings).where(eq(bookings.id, old.bookingId)).get(),
+      db.select().from(payments).where(eq(payments.saleId, old.id)),
+      db.select().from(vouchers).where(eq(vouchers.redeemedSaleId, old.id)),
     ]);
-    if (!service) return fail(c, 400, 'unknown_service', 'Pick a service.');
-    if (!therapist || therapist.kind !== 'therapist') return fail(c, 400, 'unknown_therapist', 'Pick a therapist.');
-
-    const now = nowIso();
-    const bookingId = crypto.randomUUID();
-    const startedAt = onBusinessDay(date, input.time).toISOString();
-    await db.insert(bookings).values({ id: bookingId, businessDay: date, kind: 'walk_in', status: 'done', serviceId: service.id, durationMin: service.durationMin, therapistId: therapist.id, startedAt, doneAt: addMinutes(startedAt, service.durationMin), createdAt: now, createdBy: c.var.user.id });
-    const undo = () => db.delete(bookings).where(eq(bookings.id, bookingId));
-
-    const checkout = {
-      bookingId,
-      statutory: input.statutory ? { kind: input.statutory, idNumber: input.idNumber || 'Not recorded' } : null,
-      promoId: input.promoId,
-      complimentaryReason: input.complimentaryReason,
-      voucherSerial: input.voucherSerial,
-    };
-    const priced = await priceFor(c, checkout);
-    if (priced instanceof Response) {
-      await undo();
-      return priced;
-    }
-    const due = priced.quote.amountDue;
-    const lines = due > 0 ? [{ method: input.method, amount: due as Centavos, gcashRef: input.method === 'gcash' ? input.gcashRef || 'Not recorded' : null }] : [];
-    const problem = paymentProblem(due, lines);
-    if (problem) {
-      await undo();
-      return fail(c, 400, 'payment_mismatch', problem);
-    }
-    const { id, statements } = saleStatements(c, checkout, priced, lines, null, now);
+    // Out of the way first, so the same Voucher can be redeemed again by the corrected sale.
+    const putBack = () =>
+      db.batch([
+        db.insert(bookings).values(booking!),
+        db.insert(sales).values(old),
+        ...oldPayments.map((p) => db.insert(payments).values(p)),
+        ...redeemed.map((v) => db.update(vouchers).set({ status: v.status, redeemedSaleId: v.redeemedSaleId, redeemedAt: v.redeemedAt }).where(eq(vouchers.id, v.id))),
+      ] as unknown as Parameters<typeof db.batch>[0]);
+    await db.batch(removeSale(c, old));
+    let made: Awaited<ReturnType<typeof enterSale>>;
     try {
-      await db.batch([statements[0]!, ...statements.slice(1), db.update(sales).set({ catchUp: true }).where(eq(sales.id, id)), closeDay(c, date, now)]);
+      made = await enterSale(c, date, input);
     } catch (err) {
-      await undo();
+      await putBack();
       throw err;
     }
-    return c.json({ id, amountDue: due, commissionAmount: priced.commission.amount }, 201);
+    if (made instanceof Response) {
+      await putBack();
+      return made;
+    }
+    await auditInsert(db, { actorUserId: c.var.user.id, action: 'catch_up.sale_edit', entity: 'sale', entityId: made.id, before: { ...old, guestName: booking?.guestName, payments: oldPayments }, after: input });
+    return c.json(made);
   })
 
   .delete('/catch-up/:date/sales/:id', ...guard, async (c) => {
@@ -189,13 +279,9 @@ export const catchUpRoutes = new Hono<AuthedEnv>()
     const db = c.var.db;
     const row = await db.select().from(sales).where(and(eq(sales.id, c.req.param('id')), eq(sales.businessDay, date))).get();
     if (!row || !row.catchUp) return fail(c, 404, 'not_found', 'Only sales entered here can be removed here.');
-    await db.batch([
-      db.update(vouchers).set({ status: 'unused', redeemedSaleId: null, redeemedAt: null }).where(eq(vouchers.redeemedSaleId, row.id)),
-      db.delete(payments).where(eq(payments.saleId, row.id)),
-      db.delete(sales).where(eq(sales.id, row.id)),
-      db.delete(bookings).where(eq(bookings.id, row.bookingId)),
-      auditInsert(db, { actorUserId: c.var.user.id, action: 'catch_up.sale_remove', entity: 'sale', entityId: row.id, before: row }),
-    ]);
+    const locked = await commissionLocked(c, row.therapistId, date);
+    if (locked) return locked;
+    await db.batch([...removeSale(c, row), auditInsert(db, { actorUserId: c.var.user.id, action: 'catch_up.sale_remove', entity: 'sale', entityId: row.id, before: row })]);
     return c.json({ ok: true });
   })
 

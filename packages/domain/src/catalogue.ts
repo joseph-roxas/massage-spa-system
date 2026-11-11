@@ -42,7 +42,7 @@ export type Promo = {
   serviceId: string;
   /** Basis points: 1000 = 10%. */
   percentBp: number;
-  /** Window on the Service's start time: startTime inclusive, endTime exclusive. */
+  /** Window on the Service's start time: both ends included (a 6:00pm start counts for a Promo to 6:00pm). */
   startTime: HhMm;
   endTime: HhMm;
   /** Inclusive on both ends. */

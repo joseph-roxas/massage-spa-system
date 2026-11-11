@@ -128,7 +128,7 @@ export function CashPage() {
           </Card>
           <Card title="Petty cash">
             <p className="text-2xl font-semibold tabular-nums">{peso(s.pettyCash)}</p>
-            <p className="text-xs text-stone-500">Kept at ₱800, topped up Sunday or Monday</p>
+            <p className="text-xs text-stone-500">Kept at ₱800, topped up Saturday</p>
           </Card>
           <Card title={`Pay week ${longDate(s.payWeek.start)}`}>
             <p className="text-sm">

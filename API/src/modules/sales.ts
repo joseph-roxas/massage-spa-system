@@ -1,8 +1,9 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import {
+  addMinutes,
   businessDayOf,
   can,
   commissionFor,
@@ -11,6 +12,7 @@ import {
   compactSerial,
   effectiveOn,
   paymentProblem,
+  payWeekOf,
   promoProblem,
   quoteSale,
   redemptionIsFree,
@@ -22,7 +24,7 @@ import {
   type PaymentLine,
   type Quote,
 } from '@spa/domain';
-import { bookings, bookingTopUps, businessDays, commissionRates, holidays, PAYMENT_METHODS, payments, promos, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
+import { bookings, bookingTopUps, businessDays, commissionRates, holidays, PAYMENT_METHODS, payments, payrolls, promos, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
@@ -284,6 +286,31 @@ export function saleStatements(c: Context<AuthedEnv>, input: CheckoutInput, pric
   return { id, statements };
 }
 
+/**
+ * After a past Sale is priced again: the difference comes off (or onto) its cash payment, else its first,
+ * and on a closed day its expected cash and variance follow; what was counted stays.
+ */
+async function shiftPayment(c: Context<AuthedEnv>, sale: typeof sales.$inferSelect, diff: number) {
+  const db = c.var.db;
+  if (diff === 0) return [];
+  const lines = await db.select().from(payments).where(eq(payments.saleId, sale.id)).orderBy(asc(payments.createdAt));
+  const line = lines.find((p) => p.method === 'cash') ?? lines[0];
+  if (!line || line.amount + diff < 0) return fail(c, 409, 'payment_mismatch', 'The payments on this sale can’t absorb the new price. Void it and check out again instead.');
+  const dayRow = await db.select().from(businessDays).where(eq(businessDays.date, sale.businessDay)).get();
+  const statements = [db.update(payments).set({ amount: line.amount + diff }).where(eq(payments.id, line.id))];
+  if (dayRow?.closedAt && dayRow.expectedCash !== null) {
+    const expectedCash = dayRow.expectedCash + (line.method === 'cash' ? diff : 0);
+    const expectedGcash = (dayRow.expectedGcash ?? 0) + (line.method === 'gcash' ? diff : 0);
+    statements.push(
+      db
+        .update(businessDays)
+        .set({ expectedCash, expectedGcash, variance: dayRow.countedCash === null ? dayRow.variance : dayRow.countedCash - expectedCash })
+        .where(eq(businessDays.date, dayRow.date)) as never,
+    );
+  }
+  return statements;
+}
+
 /** Turns a failed checkout write into the reason the desk sees. */
 function checkoutConflict(c: Context<AuthedEnv>, err: unknown, withVoucher: boolean) {
   if (!isUniqueViolation(err)) throw err;
@@ -399,6 +426,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
         return {
           bookingId: b.id,
           guestName: b.guestName,
+          serviceId: b.serviceId,
           serviceName,
           therapistName,
           startedAt: b.startedAt,
@@ -410,6 +438,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
             discountType: sale.discountType,
             discountAmount: sale.discountAmount,
             amountDue: sale.amountDue,
+            topUpsTotal: sale.topUpsTotal,
             payments: pays.filter((p) => p.saleId === sale.id).map((p) => ({ method: p.method, amount: p.amount })),
           },
         };
@@ -449,10 +478,8 @@ export const salesRoutes = new Hono<AuthedEnv>()
         const q = priced.quote;
         const diff = q.amountDue - sale.amountDue;
         if (diff !== 0) {
-          const lines = await db.select().from(payments).where(eq(payments.saleId, sale.id)).orderBy(asc(payments.createdAt));
-          const line = lines.find((p) => p.method === 'cash') ?? lines[0];
-          if (!line || line.amount + diff < 0) return fail(c, 409, 'payment_mismatch', 'The payments on this sale can’t absorb the new price. Void it and check out again instead.');
-          const dayRow = await db.select().from(businessDays).where(eq(businessDays.date, sale.businessDay)).get();
+          const shifted = await shiftPayment(c, sale, diff);
+          if (shifted instanceof Response) return shifted;
           statements.push(
             db
               .update(sales)
@@ -465,25 +492,98 @@ export const salesRoutes = new Hono<AuthedEnv>()
                 amountDue: q.amountDue,
               })
               .where(eq(sales.id, sale.id)) as never,
-            db.update(payments).set({ amount: line.amount + diff }).where(eq(payments.id, line.id)) as never,
+            ...(shifted as never[]),
           );
-          // A closed day keeps what was counted; what it expected, and so its variance, follow the new price.
-          if (dayRow?.closedAt && dayRow.expectedCash !== null) {
-            const expectedCash = dayRow.expectedCash + (line.method === 'cash' ? diff : 0);
-            const expectedGcash = (dayRow.expectedGcash ?? 0) + (line.method === 'gcash' ? diff : 0);
-            statements.push(
-              db
-                .update(businessDays)
-                .set({ expectedCash, expectedGcash, variance: dayRow.countedCash === null ? dayRow.variance : dayRow.countedCash - expectedCash })
-                .where(eq(businessDays.date, dayRow.date)) as never,
-            );
-          }
           Object.assign(after, { discountType: q.discount.type, amountDue: q.amountDue, paymentChange: diff });
         }
       }
       statements.push(
         auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.correct_start', entity: 'booking', entityId: booking.id, before: { startedAt: booking.startedAt, doneAt: booking.doneAt, amountDue: sale?.amountDue }, after, reason: input.reason }) as never,
       );
+      await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
+      return c.json({ ok: true, ...after });
+    },
+  )
+
+  /**
+   * Super Admin: changes the Service of a finished, paid one entered wrongly. Same start, the new Service's
+   * length; priced again by the checkout rules keeping its Discount (Senior/PWD, Complimentary; a Promo is
+   * checked again), and its Commission follows the new Service. The difference moves the payment as a
+   * start-time correction does. Not for a Voucher (it covers one Service) or a sale with Top-ups.
+   */
+  .post(
+    '/correct-service',
+    requireCapability('day.reopen'),
+    zValidator('json', z.object({ bookingId: z.string().min(1), serviceId: z.string().min(1), reason: z.string().trim().min(3, 'Give a short reason.').max(300) }), invalidInput),
+    async (c) => {
+      const db = c.var.db;
+      const input = c.req.valid('json');
+      const booking = await db.select().from(bookings).where(eq(bookings.id, input.bookingId)).get();
+      if (!booking || booking.status !== 'done' || !booking.startedAt || !booking.doneAt || !booking.therapistId) return fail(c, 409, 'not_done', 'Only a finished service can have its service corrected.');
+      const [sale, service] = await Promise.all([
+        db.select().from(sales).where(and(eq(sales.bookingId, booking.id), eq(sales.status, 'paid'))).get(),
+        db.select().from(services).where(eq(services.id, input.serviceId)).get(),
+      ]);
+      if (!sale) return fail(c, 409, 'not_paid', 'This service has not been checked out. Change it at checkout instead.');
+      if (!service || !service.active) return fail(c, 400, 'unknown_service', 'Pick a service.');
+      if (service.id === booking.serviceId) return fail(c, 400, 'same_service', 'That is already its service.');
+      if (sale.discountType === 'voucher') return fail(c, 409, 'voucher_sale', 'A Voucher covers one specific Service. Void this sale and check out again instead.');
+      if (sale.topUpsTotal > 0) return fail(c, 409, 'has_top_ups', 'This sale has added time. Void it and check out again instead.');
+      const week = payWeekOf(sale.businessDay, 'therapist').start;
+      const fixed = await db
+        .select({ id: payrolls.id })
+        .from(payrolls)
+        .where(and(eq(payrolls.staffId, sale.therapistId), eq(payrolls.weekStart, week), ne(payrolls.status, 'draft')))
+        .get();
+      if (fixed) return fail(c, 409, 'payroll_locked', `The Payroll for the week of ${week} is already approved. Send it back to draft first.`);
+
+      const doneAt = addMinutes(booking.startedAt, service.durationMin);
+      if (doneAt > nowIso()) return fail(c, 400, 'in_future', 'With that service, it would end later than now.');
+      const corrected = { ...booking, serviceId: service.id, durationMin: service.durationMin, doneAt };
+      const statutory = sale.discountType === 'senior' || sale.discountType === 'pwd' ? sale.discountType : null;
+      const priced = await price(
+        c,
+        { bookingId: booking.id, statutory, promoId: undefined, complimentary: sale.discountType === 'complimentary', voucherSerial: null },
+        { booking: corrected, saleId: sale.id },
+      );
+      if (priced instanceof Response) return priced;
+      const q = priced.quote;
+      const diff = q.amountDue - sale.amountDue;
+      const shifted = await shiftPayment(c, sale, diff);
+      if (shifted instanceof Response) return shifted;
+      const after = { serviceId: service.id, durationMin: service.durationMin, doneAt, regularPrice: q.regularPrice, discountType: q.discount.type, amountDue: q.amountDue, commissionAmount: priced.commission.amount, paymentChange: diff };
+      const statements = [
+        db.update(bookings).set({ serviceId: service.id, durationMin: service.durationMin, doneAt }).where(eq(bookings.id, booking.id)),
+        db
+          .update(sales)
+          .set({
+            serviceId: service.id,
+            regularPrice: q.regularPrice + q.topUpsTotal,
+            setAside: priced.setAside,
+            discountType: q.discount.type,
+            // Senior/PWD keep the ID number they were given; a Promo names itself.
+            discountRef: q.discount.type === 'promo' ? q.discount.promoId : statutory ? sale.discountRef : null,
+            discountBp: q.discount.bp,
+            discountAmount: q.discount.amount,
+            serviceAmount: q.serviceAmount,
+            amountDue: q.amountDue,
+            focKind: q.focKind,
+            commissionBp: priced.commission.bp,
+            commissionAmount: priced.commission.amount,
+            isHoliday: priced.isHoliday,
+          })
+          .where(eq(sales.id, sale.id)) as never,
+        ...(shifted as never[]),
+        auditInsert(db, {
+          actorUserId: c.var.user.id,
+          action: 'sale.correct_service',
+          entity: 'sale',
+          entityId: sale.id,
+          before: { serviceId: booking.serviceId, durationMin: booking.durationMin, doneAt: booking.doneAt, regularPrice: sale.regularPrice, amountDue: sale.amountDue, commissionAmount: sale.commissionAmount },
+          after,
+          reason: input.reason,
+        }) as never,
+      ];
       await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
       return c.json({ ok: true, ...after });
     },

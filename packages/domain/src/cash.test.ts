@@ -11,10 +11,10 @@ describe('Petty Cash Fund', () => {
     expect(topUpNeeded(pesos(800))).toBe(0);
   });
 
-  it('is topped up on Sunday or Monday', () => {
-    expect(isTopUpDay('2026-11-08')).toBe(true); // Sunday
-    expect(isTopUpDay('2026-11-09')).toBe(true); // Monday
-    expect(isTopUpDay('2026-11-10')).toBe(false);
+  it('is topped up on Saturday', () => {
+    expect(isTopUpDay('2026-11-14')).toBe(true); // Saturday
+    expect(isTopUpDay('2026-11-15')).toBe(false); // Sunday
+    expect(isTopUpDay('2026-11-16')).toBe(false); // Monday
   });
 });
 
@@ -46,10 +46,28 @@ describe('Sales Cash in the shop', () => {
 });
 
 describe('handover reminder', () => {
-  it('holds Sales Cash until Payroll and Laundry are paid', () => {
-    expect(handoverReminder({ salesCash: pesos(9000), payrollReleased: false, laundryPaid: true })).toBe('hold');
-    expect(handoverReminder({ salesCash: pesos(9000), payrollReleased: true, laundryPaid: false })).toBe('hold');
-    expect(handoverReminder({ salesCash: pesos(9000), payrollReleased: true, laundryPaid: true })).toBe('hand_over');
-    expect(handoverReminder({ salesCash: 0, payrollReleased: true, laundryPaid: true })).toBe('none');
+  const paid = { salesCash: pesos(9000), payrollReleased: true, laundryPaid: true, pettyCashFull: true };
+
+  it('holds on Thursday and Friday, whatever is paid', () => {
+    expect(handoverReminder({ ...paid, today: '2026-11-12' })).toBe('hold'); // Thursday
+    expect(handoverReminder({ ...paid, today: '2026-11-13' })).toBe('hold'); // Friday
+  });
+
+  it('hands over on Saturday only once Payroll, Laundry and petty cash are all paid', () => {
+    const saturday = '2026-11-14';
+    expect(handoverReminder({ ...paid, today: saturday })).toBe('hand_over');
+    expect(handoverReminder({ ...paid, today: saturday, payrollReleased: false })).toBe('hold');
+    expect(handoverReminder({ ...paid, today: saturday, laundryPaid: false })).toBe('hold');
+    expect(handoverReminder({ ...paid, today: saturday, pettyCashFull: false })).toBe('hold');
+  });
+
+  it('hands over from Sunday to Wednesday whatever has built up, with no Payroll check', () => {
+    for (const today of ['2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18']) {
+      expect(handoverReminder({ today, salesCash: pesos(1200), payrollReleased: false, laundryPaid: false, pettyCashFull: false })).toBe('hand_over');
+    }
+  });
+
+  it('has nothing to remind of with no Sales Cash', () => {
+    expect(handoverReminder({ ...paid, today: '2026-11-15', salesCash: 0 })).toBe('none');
   });
 });

@@ -54,7 +54,7 @@ export const CASH_OUT_CATEGORIES = {
 /** What the Cash-out form offers, and where each one's cash comes from. */
 export const FORM_CASH_OUTS = {
   petty_cash: { hint: 'From the petty cash fund: rice, ballpens, paper, tape, phone load' },
-  laundry: { hint: 'From sales cash' },
+  laundry: { hint: 'From sales cash. Enter each day’s amount due; the total adds itself up.' },
 } as const;
 
 export type CashOut = {
@@ -64,6 +64,8 @@ export type CashOut = {
   amount: number;
   purpose: string;
   createdAt: string;
+  /** Laundry Breakdown: the days paid for; null for other Cash-outs and older Laundry. */
+  breakdown: { day: string; amount: number }[] | null;
 };
 
 export type ClosePreview = {
@@ -112,6 +114,10 @@ export const useClosePreview = (date: string) =>
 
 export const useCashOuts = (day: string) =>
   useQuery({ queryKey: ['cash-outs', day], queryFn: () => api<{ cashOuts: CashOut[] }>(`/cash-outs?day=${day}`) });
+
+/** Laundry days already paid within reach of a new Laundry Breakdown. */
+export const useLaundryPaidDays = () =>
+  useQuery({ queryKey: ['cash-outs', 'laundry-paid-days'], queryFn: () => api<{ today: string; earliest: string; days: string[] }>('/cash-outs/laundry-paid-days') });
 
 /** Any sales or Business Day write; refreshes the board, the drawer and the close preview. */
 export function useDayAction() {

@@ -3,10 +3,59 @@ import { Alert, Button, Field, Input, Select } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { manilaTime } from '../../lib/attendance';
 import { longDate, parsePesos, peso } from '../../lib/format';
-import { CASH_OUT_CATEGORIES, FORM_CASH_OUTS, useCashOuts, useClosePreview, useDayAction, type ClosePreview } from '../../lib/sales';
+import { laundryDaysPaidBefore } from '@spa/domain';
+import { CASH_OUT_CATEGORIES, FORM_CASH_OUTS, useCashOuts, useClosePreview, useDayAction, useLaundryPaidDays, type ClosePreview } from '../../lib/sales';
 import { CheckoutDialog } from './CheckoutDialog';
 
 type Blocker = ClosePreview['blockers'][number];
+
+type LaundryRow = { key: number; day: string; amount: string };
+
+/** Laundry is entered day by day: date and amount due. The total is added up, never typed. */
+function LaundryBreakdown({ rows, setRows }: { rows: LaundryRow[]; setRows: (rows: LaundryRow[]) => void }) {
+  const paid = useLaundryPaidDays();
+  const earliest = paid.data?.earliest;
+  const today = paid.data?.today;
+  const total = rows.reduce((s, r) => s + (parsePesos(r.amount) ?? 0), 0);
+  const repeats = laundryDaysPaidBefore(
+    rows.filter((r) => r.day).map((r) => ({ day: r.day, amount: 0 })),
+    paid.data?.days ?? [],
+  );
+  const update = (key: number, patch: Partial<LaundryRow>) => setRows(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium text-stone-700">Laundry per day</p>
+      {rows.map((r, i) => (
+        <div key={r.key} className="grid grid-cols-[1fr_8rem_4.5rem] items-end gap-2">
+          <Field label={i === 0 ? 'Date' : ''}>
+            <Input type="date" required value={r.day} min={earliest} max={today} onChange={(e) => update(r.key, { day: e.target.value })} />
+          </Field>
+          <Field label={i === 0 ? 'Amount due (₱)' : ''}>
+            <Input required inputMode="decimal" value={r.amount} onChange={(e) => update(r.key, { amount: e.target.value })} />
+          </Field>
+          <button type="button" className="h-10 text-xs text-stone-500 underline disabled:opacity-40" disabled={rows.length === 1} onClick={() => setRows(rows.filter((x) => x.key !== r.key))}>
+            Remove
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center justify-between">
+        <Button type="button" variant="secondary" className="h-8 px-3" onClick={() => setRows([...rows, { key: Date.now(), day: '', amount: '' }])}>
+          Add day
+        </Button>
+        <span className="text-sm">
+          Total <span className="font-semibold tabular-nums">{peso(total)}</span>
+        </span>
+      </div>
+      {repeats.length > 0 && (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Already paid in an earlier laundry payment: {repeats.map(longDate).join(', ')}. Save anyway only if it was a second pickup that day.
+        </p>
+      )}
+    </div>
+  );
+}
+
+const freshLaundry = (today: string): LaundryRow[] => [{ key: 1, day: today, amount: '' }];
 
 export function CashOutDialog({ day, onClose }: { day: string; onClose: () => void }) {
   const list = useCashOuts(day);
@@ -15,16 +64,23 @@ export function CashOutDialog({ day, onClose }: { day: string; onClose: () => vo
   const [category, setCategory] = useState<keyof typeof FORM_CASH_OUTS>('petty_cash');
   const [amount, setAmount] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [laundry, setLaundry] = useState<LaundryRow[]>(() => freshLaundry(day));
   const centavos = parsePesos(amount);
+  const laundryDays = laundry.map((r) => ({ day: r.day, amount: parsePesos(r.amount) ?? 0 }));
+  const isLaundry = category === 'laundry';
+  const ready = isLaundry ? laundryDays.every((d) => d.day && d.amount > 0) : !!centavos;
 
   function submit(e: FormEvent) {
     e.preventDefault();
+    const body = isLaundry ? { category, days: laundryDays } : { category, amount: centavos, purpose };
     save.mutate(
-      { path: '/cash-outs', body: { category, amount: centavos, purpose } },
+      { path: '/cash-outs', body },
       {
         onSuccess: () => {
           setAmount('');
           setPurpose('');
+          // Empty, not today: today was most likely just paid, and the next payment is another week's.
+          setLaundry(freshLaundry(''));
         },
       },
     );
@@ -35,14 +91,6 @@ export function CashOutDialog({ day, onClose }: { day: string; onClose: () => vo
     <Modal title="Cash-outs" onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         {(save.error || remove.error) && <Alert>{(save.error ?? remove.error)?.message}</Alert>}
-        <div className="grid grid-cols-[1fr_8rem] gap-3">
-          <Field label="What for">
-            <Input required minLength={3} autoFocus value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="E.g. rice for staff" />
-          </Field>
-          <Field label="Amount (₱)">
-            <Input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </Field>
-        </div>
         <Field label="Category" hint={FORM_CASH_OUTS[category].hint}>
           <Select value={category} onChange={(e) => setCategory(e.target.value as keyof typeof FORM_CASH_OUTS)}>
             {Object.keys(FORM_CASH_OUTS).map((k) => (
@@ -52,9 +100,21 @@ export function CashOutDialog({ day, onClose }: { day: string; onClose: () => vo
             ))}
           </Select>
         </Field>
+        {isLaundry ? (
+          <LaundryBreakdown rows={laundry} setRows={setLaundry} />
+        ) : (
+          <div className="grid grid-cols-[1fr_8rem] gap-3">
+            <Field label="What for">
+              <Input required minLength={3} autoFocus value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="E.g. rice for staff" />
+            </Field>
+            <Field label="Amount (₱)">
+              <Input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </Field>
+          </div>
+        )}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Done</Button>
-          <Button type="submit" disabled={!centavos || save.isPending}>Record Cash-out</Button>
+          <Button type="submit" disabled={!ready || save.isPending}>Record Cash-out</Button>
         </div>
       </form>
 
@@ -64,10 +124,11 @@ export function CashOutDialog({ day, onClose }: { day: string; onClose: () => vo
       ) : (
         <ul className="divide-y divide-stone-100 text-sm">
           {rows.map((r) => (
-            <li key={r.id} className="flex items-center gap-3 py-2">
+            <li key={r.id} className="flex items-start gap-3 py-2">
               <span className="w-16 tabular-nums text-stone-500">{manilaTime(r.createdAt)}</span>
               <span className="flex-1">
                 {r.purpose} <span className="text-xs text-stone-500">· {CASH_OUT_CATEGORIES[r.category]}</span>
+                {r.breakdown && <span className="mt-0.5 block text-xs text-stone-500">{r.breakdown.map((d) => `${longDate(d.day)} ${peso(d.amount)}`).join(' · ')}</span>}
               </span>
               <span className="tabular-nums">{peso(r.amount)}</span>
               {r.category !== 'on_call_commission' && r.category !== 'cash_advance' && (

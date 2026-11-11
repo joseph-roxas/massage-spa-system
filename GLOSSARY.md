@@ -64,7 +64,7 @@ A person receiving one or more Services. A returning Guest is known by their Gue
 _Avoid_: Customer, client
 
 **Guest Record**:
-What the shop keeps about a Guest across visits: name, contact number (optional), and a saved Senior Citizen or PWD ID number, plus their visit history.
+What the shop keeps about a Guest across visits: name, contact number (optional), and a saved Senior Citizen or PWD ID number, plus their visit history. A Guest's name is kept with each word capitalized, whatever was typed.
 _Avoid_: Customer profile, client file
 
 **Visit**:
@@ -166,7 +166,7 @@ _Avoid_: Backdated booking, paper entry
 The first Business Day recorded in the system as real Sales, Monday 2026-11-02. Everything before it exists only as Daily Summaries and opening balances.
 
 **Catch-up Day**:
-A Business Day from 2026-11-02 to 2026-11-08, run on paper and entered afterwards by the Super Admin from those records as real Sales, DTR and Expenses, with no Guest Records. The Front Desk went live the day after, 2026-11-09.
+A Business Day from 2026-11-02 to 2026-11-08, run on paper and entered afterwards by the Super Admin from those records as real Sales, DTR and Expenses, with no Guest Records. A Sale may carry the Guest's name from the paper record, which links a Guest's several Services that day. The Front Desk went live the day after, 2026-11-09.
 _Avoid_: Backfill (that is Daily Summaries)
 
 **Business Day**:
@@ -327,11 +327,18 @@ The Receptionist's statutory December payment.
 Cash taken out during the day for a recorded purpose: Petty cash (from the Petty Cash Fund), Laundry (from Sales Cash), a Cash Advance, On-call pay or an Outside Reliever's Relief pay. Petty cash and Laundry are also Expenses.
 _Avoid_: Petty cash withdrawal
 
+**Laundry**:
+Washing the shop's linen, done by an outside launderer almost every day and paid once a week from Sales Cash. The Receptionist records the payment as a Laundry Breakdown, never as a single amount.
+
+**Laundry Breakdown**:
+The days a Laundry payment covers, each with the amount due for that day; the payment is their total. Laundry paid before the breakdown existed, or entered by the Super Admin as an Expense, has a single amount.
+_Avoid_: Laundry bill, laundry total
+
 **Petty Cash Fund**:
 A fixed ₱800 kept at the shop, apart from Sales Cash, for small buys (rice, ballpens, paper, tape, phone load).
 
 **Petty Cash Top-up**:
-Moving Sales Cash into the Petty Cash Fund to bring it back to ₱800, done weekly on Sunday or Monday.
+Moving Sales Cash into the Petty Cash Fund to bring it back to ₱800, done weekly on Saturday, with Payroll and Laundry, before the Cash Handover.
 _Avoid_: Replenishment
 
 **Sales Cash**:
@@ -339,7 +346,7 @@ Cash from sales held at the shop, often for several days, from which the Recepti
 _Avoid_: Cash on hand, drawer
 
 **Cash Handover**:
-The Receptionist giving the Super Admin all Sales Cash once that week's Payroll and Laundry are paid, or a Reliever doing so at the end of every Relief Shift. It is complete only when the Super Admin confirms receipt, naming who received it if not them.
+The Receptionist giving the Super Admin all Sales Cash, or a Reliever doing so at the end of every Relief Shift. Wednesday-to-Friday sales are held for Payroll, Laundry and the Petty Cash Top-up, so the Receptionist never hands over on Thursday or Friday unless asked; on Saturday she hands over once last week's Payroll is released, Laundry is paid and the Petty Cash Fund is back at ₱800; from Sunday to Wednesday she hands over whatever Sales Cash is in the shop, as often as it builds up. It is complete only when the Super Admin confirms receipt, naming who received it if not them.
 _Avoid_: Turnover (that is for Items), remittance
 
 **Employer Contributions**:

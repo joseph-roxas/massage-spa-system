@@ -4,6 +4,7 @@ import { api } from './api';
 
 export const REPORT_LABELS: Record<ReportName, { title: string; blurb: string }> = {
   'daily-sales': { title: 'Daily sales', blurb: 'Guests, sales, discounts, cash and GCash per day' },
+  payments: { title: 'Payments', blurb: 'Each payment: time, guest, amount, cash or GCash' },
   'therapist-sales': { title: 'Sales per therapist', blurb: 'Services, requests, FOCs and commission' },
   'therapist-detail': { title: 'Therapist Sales', blurb: 'Each service, its price and commission' },
   'therapist-changes': { title: 'Therapist Changes', blurb: 'Who took over a service, and why' },
@@ -15,11 +16,19 @@ export const REPORT_LABELS: Record<ReportName, { title: string; blurb: string }>
   expenses: { title: 'Expenses', blurb: 'Spending by category' },
 };
 
-export const useReport = (name: ReportName, from: string, to: string, therapist = '') =>
+/** Filters some reports take besides the dates; empty ones are left out. */
+export type ReportFilters = { therapist?: string; guest?: string; method?: string };
+
+export const useReport = (name: ReportName, from: string, to: string, filters: ReportFilters = {}) =>
   useQuery({
-    queryKey: ['reports', name, from, to, therapist],
-    queryFn: () => api<{ report: Report }>(`/reports/${name}?from=${from}&to=${to}${therapist ? `&therapist=${therapist}` : ''}`),
-    placeholderData: (prev) => prev,
+    queryKey: ['reports', name, from, to, filters],
+    queryFn: () => {
+      const q = new URLSearchParams({ from, to });
+      for (const [k, v] of Object.entries(filters)) if (v) q.set(k, v);
+      return api<{ report: Report }>(`/reports/${name}?${q}`);
+    },
+    // Keep the last figures while new dates load, but never another report's rows under this one's chart.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === name ? prev : undefined),
   });
 
 function save(blob: Blob, filename: string) {

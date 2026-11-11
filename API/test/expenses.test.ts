@@ -112,7 +112,7 @@ describe('expenses', () => {
     expect((await admin.post('/expenses', { categoryId: 'laundry', date: today(), amount: 35000, description: 'Towels' })).status).toBe(201);
     expect((await admin.post('/expenses', { categoryId: 'royalty', date: today(), amount: 100, description: 'Royalty' })).status).toBe(409);
 
-    expect((await desk.post('/cash-outs', { category: 'laundry', amount: 12000, purpose: 'Weekly laundry' })).status).toBe(201);
+    expect((await desk.post('/cash-outs', { category: 'laundry', days: [{ day: businessDayOf(new Date()), amount: 12000 }], purpose: 'Weekly laundry' })).status).toBe(201);
     const now = new Date().toISOString();
     await env.DB.prepare(`INSERT INTO cash_outs (id, business_day, category, amount, purpose, created_at) VALUES (?, ?, 'on_call_commission', 30000, 'On-call pay', ?)`)
       .bind(crypto.randomUUID(), today(), now)

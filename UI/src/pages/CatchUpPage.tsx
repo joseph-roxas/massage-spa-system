@@ -4,9 +4,31 @@ import { Link, useSearchParams } from 'react-router';
 import { CATCH_UP_DAYS } from '@spa/domain';
 import { Alert, Badge, Button, Card, Checkbox, Field, Input, Select, td, th } from '../components/ui';
 import { api } from '../lib/api';
-import { longDate, parsePesos, peso } from '../lib/format';
+import { clock, longDate, parsePesos, peso } from '../lib/format';
+import { TimeInput } from '../components/TimeInput';
 
 type Person = { id: string; displayName: string; kind: 'therapist' | 'receptionist' | 'reliever'; therapistClass: 'regular' | 'lmt' | null };
+type SaleLine = {
+  id: string;
+  time: string | null;
+  endTime: string | null;
+  guestName: string | null;
+  serviceId: string;
+  therapistId: string;
+  service: string;
+  code: string;
+  therapist: string;
+  discountType: string;
+  discountRef: string | null;
+  reason: string | null;
+  regularPrice: number;
+  discountAmount: number;
+  amountDue: number;
+  commissionAmount: number;
+  method: 'cash' | 'gcash' | null;
+  gcashRef: string | null;
+  catchUp: boolean;
+};
 type Day = {
   date: string;
   people: Person[];
@@ -14,7 +36,7 @@ type Day = {
   categories: { id: string; name: string }[];
   promos: { id: string; name: string }[];
   times: { id: string; staff: string; clockIn: string; clockOut: string | null; isRelief: boolean }[];
-  sales: { id: string; time: string | null; service: string; code: string; therapist: string; discountType: string; regularPrice: number; discountAmount: number; amountDue: number; commissionAmount: number; method: 'cash' | 'gcash' | null; catchUp: boolean }[];
+  sales: SaleLine[];
   expenses: { id: string; category: string; description: string; amount: number }[];
   cashAdvances: { id: string; staff: string; amount: number; note: string | null }[];
   week: { day: string; guests: number; total: number }[];
@@ -93,10 +115,10 @@ function TimeRecords({ data, act }: { data: Day; act: Act }) {
           </Field>
         </div>
         <Field label="Clock in">
-          <Input type="time" required value={f.clockIn} onChange={(e) => setF({ ...f, clockIn: e.target.value })} />
+          <TimeInput required value={f.clockIn} onChange={(v) => setF({ ...f, clockIn: v })} />
         </Field>
         <Field label="Clock out">
-          <Input type="time" required value={f.clockOut} onChange={(e) => setF({ ...f, clockOut: e.target.value })} />
+          <TimeInput required value={f.clockOut} onChange={(v) => setF({ ...f, clockOut: v })} />
         </Field>
         <div className="pb-2">
           <Checkbox label="Relief Shift" checked={f.isRelief} onChange={(e) => setF({ ...f, isRelief: e.target.checked })} />
@@ -108,8 +130,8 @@ function TimeRecords({ data, act }: { data: Day; act: Act }) {
           {data.times.map((t) => (
             <tr key={t.id}>
               <td className={td}>{t.staff}</td>
-              <td className={`${td} tabular-nums`}>{t.clockIn}</td>
-              <td className={`${td} tabular-nums`}>{t.clockOut}</td>
+              <td className={`${td} tabular-nums`}>{clock(t.clockIn)}</td>
+              <td className={`${td} tabular-nums`}>{t.clockOut ? clock(t.clockOut) : '—'}</td>
               <td className={td}>{t.isRelief && <Badge tone="teal">Relief Shift</Badge>}</td>
               <td className={`${td} text-right`}>
                 <Remove act={act} path={`time-records/${t.id}`} />
@@ -122,19 +144,56 @@ function TimeRecords({ data, act }: { data: Day; act: Act }) {
   );
 }
 
-const NEW_SALE = { time: '', serviceId: '', therapistId: '', discount: 'none', serial: '', idNumber: '', reason: '', method: 'cash', gcashRef: '' };
+const NEW_SALE = { time: '', guestName: '', serviceId: '', therapistId: '', discount: 'none', serial: '', idNumber: '', reason: '', method: 'cash', gcashRef: '' };
+type SaleForm = typeof NEW_SALE;
+
+/** A line as the form shows it, to correct it. */
+function formOf(l: SaleLine): SaleForm {
+  const discount = l.discountType === 'promo' ? `promo:${l.discountRef}` : l.discountType;
+  return {
+    time: l.time ?? '',
+    guestName: l.guestName ?? '',
+    serviceId: l.serviceId,
+    therapistId: l.therapistId,
+    discount,
+    serial: l.discountType === 'voucher' ? (l.discountRef ?? '') : '',
+    idNumber: (l.discountType === 'senior' || l.discountType === 'pwd') && l.discountRef !== 'Not recorded' ? (l.discountRef ?? '') : '',
+    reason: l.discountType === 'complimentary' ? (l.reason ?? '') : '',
+    method: l.method ?? 'cash',
+    gcashRef: l.gcashRef ?? '',
+  };
+}
+
+/** The same Guest's next Service: it starts when this one ended; Senior/PWD covers the whole bill, so it carries over. */
+function nextServiceOf(l: SaleLine): SaleForm {
+  const f = formOf(l);
+  const statutory = f.discount === 'senior' || f.discount === 'pwd';
+  return { ...NEW_SALE, time: l.endTime ?? '', guestName: f.guestName, therapistId: f.therapistId, method: f.method, gcashRef: f.gcashRef, discount: statutory ? f.discount : 'none', idNumber: statutory ? f.idNumber : '' };
+}
+
+type Mode = { kind: 'add' } | { kind: 'edit'; line: SaleLine } | { kind: 'next'; line: SaleLine };
 
 function Sales({ data, act }: { data: Day; act: Act }) {
   const [f, setF] = useState(NEW_SALE);
+  const [mode, setMode] = useState<Mode>({ kind: 'add' });
   const [round, setRound] = useState(0);
-  const set = (patch: Partial<typeof NEW_SALE>) => setF((x) => ({ ...x, ...patch }));
+  const set = (patch: Partial<SaleForm>) => setF((x) => ({ ...x, ...patch }));
   const therapists = data.people.filter((p) => p.kind === 'therapist');
+
+  function start(next: Mode, form: SaleForm) {
+    setMode(next);
+    setF(form);
+    setRound((r) => r + 1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  const reset = () => start({ kind: 'add' }, NEW_SALE);
 
   function submit(e: FormEvent) {
     e.preventDefault();
     const statutory = f.discount === 'senior' || f.discount === 'pwd' ? f.discount : null;
     const body = {
       time: f.time,
+      guestName: f.guestName || null,
       serviceId: f.serviceId,
       therapistId: f.therapistId,
       promoId: f.discount.startsWith('promo:') ? f.discount.slice('promo:'.length) : null,
@@ -145,24 +204,32 @@ function Sales({ data, act }: { data: Day; act: Act }) {
       method: f.method,
       gcashRef: f.gcashRef || undefined,
     };
-    act.mutate(
-      { path: 'sales', body },
-      {
-        onSuccess: () => {
-          setF(NEW_SALE);
-          setRound((r) => r + 1);
-        },
-      },
-    );
+    const req = mode.kind === 'edit' ? { path: `sales/${mode.line.id}`, method: 'PUT', body } : { path: 'sales', body };
+    act.mutate(req, { onSuccess: reset });
   }
+
+  const heading =
+    mode.kind === 'edit'
+      ? `Correcting ${mode.line.time ? clock(mode.line.time) : ''} ${mode.line.service}, ${mode.line.therapist}`
+      : mode.kind === 'next'
+        ? `Another service for ${mode.line.guestName || 'the same guest'}`
+        : null;
 
   return (
     <Card title={`Sales (${data.totals.guests}) · ${peso(data.totals.sales)} · Commission ${peso(data.totals.commission)}`}>
-      <form key={round} onSubmit={submit} className="mb-4 space-y-3">
+      <form key={round} onSubmit={submit} className={`mb-4 space-y-3 ${heading ? 'rounded-lg bg-amber-50 p-3 ring-1 ring-amber-200' : ''}`}>
+        {heading && <p className="text-sm font-semibold text-amber-900">{heading}</p>}
         <div className="flex flex-wrap items-end gap-3">
-          <Field label="Time">
-            <Input type="time" required autoFocus value={f.time} onChange={(e) => set({ time: e.target.value })} />
-          </Field>
+          <div className="w-56">
+            <Field label="Time">
+              <TimeInput required autoFocus value={f.time} onChange={(v) => set({ time: v })} />
+            </Field>
+          </div>
+          <div className="w-52">
+            <Field label="Guest (optional)">
+              <Input value={f.guestName} maxLength={80} onChange={(e) => set({ guestName: e.target.value })} placeholder="As on the paper" />
+            </Field>
+          </div>
           <div className="w-64">
             <Field label="Service">
               <Select required value={f.serviceId} onChange={(e) => set({ serviceId: e.target.value })}>
@@ -239,14 +306,23 @@ function Sales({ data, act }: { data: Day; act: Act }) {
               </Field>
             </div>
           )}
-          <Button type="submit" disabled={act.isPending}>Add sale</Button>
+          <Button type="submit" disabled={act.isPending}>
+            {mode.kind === 'edit' ? 'Save changes' : 'Add sale'}
+          </Button>
+          {mode.kind !== 'add' && (
+            <Button type="button" variant="secondary" onClick={reset}>
+              Cancel
+            </Button>
+          )}
         </div>
+        {mode.kind === 'edit' && <p className="text-xs text-stone-600">Saving prices it again by the checkout rules, so the amount paid and the Commission follow the changes.</p>}
       </form>
       {data.sales.length > 0 && (
-        <Table head={['Time', 'Service', 'Therapist', 'Regular', 'Discount', 'Paid', 'Commission', 'Payment', '']}>
+        <Table head={['Time', 'Guest', 'Service', 'Therapist', 'Regular', 'Discount', 'Paid', 'Commission', 'Payment', '']}>
           {data.sales.map((s) => (
-            <tr key={s.id}>
-              <td className={`${td} tabular-nums`}>{s.time}</td>
+            <tr key={s.id} className={mode.kind !== 'add' && mode.line.id === s.id ? 'bg-amber-50' : ''}>
+              <td className={`${td} whitespace-nowrap tabular-nums`}>{s.time ? clock(s.time) : '—'}</td>
+              <td className={td}>{s.guestName || '—'}</td>
               <td className={td}>{s.service}</td>
               <td className={td}>{s.therapist}</td>
               <td className={`${td} text-right tabular-nums`}>{peso(s.regularPrice)}</td>
@@ -257,7 +333,19 @@ function Sales({ data, act }: { data: Day; act: Act }) {
               <td className={`${td} text-right tabular-nums`}>{peso(s.amountDue)}</td>
               <td className={`${td} text-right tabular-nums`}>{peso(s.commissionAmount)}</td>
               <td className={td}>{s.method === 'gcash' ? 'GCash' : s.method === 'cash' ? 'Cash' : '—'}</td>
-              <td className={`${td} text-right`}>{s.catchUp && <Remove act={act} path={`sales/${s.id}`} />}</td>
+              <td className={`${td} whitespace-nowrap text-right`}>
+                {s.catchUp && (
+                  <span className="inline-flex gap-3">
+                    <button type="button" className="text-xs text-teal-700 underline" onClick={() => start({ kind: 'edit', line: s }, formOf(s))}>
+                      Edit
+                    </button>
+                    <button type="button" className="text-xs text-teal-700 underline" onClick={() => start({ kind: 'next', line: s }, nextServiceOf(s))}>
+                      Add service for this guest
+                    </button>
+                    <Remove act={act} path={`sales/${s.id}`} />
+                  </span>
+                )}
+              </td>
             </tr>
           ))}
         </Table>

@@ -177,6 +177,7 @@ export function MonthTab() {
                 <li key={c.id} className="flex justify-between gap-3 py-1.5">
                   <span>
                     {c.purpose} <span className="text-xs text-stone-500">· {CASH_OUT_CATEGORIES[c.category]}</span>
+                    {c.breakdown && <span className="block text-xs text-stone-500">{c.breakdown.map((d) => `${longDate(d.day)} ${peso(d.amount)}`).join(' · ')}</span>}
                   </span>
                   <span className="tabular-nums">{peso(c.amount)}</span>
                 </li>

@@ -1,3 +1,5 @@
+import { drizzle } from 'drizzle-orm/d1';
+import { tidyGuestNames } from '../src/lib/guest-names';
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { businessDayOf } from '@spa/domain';
@@ -135,5 +137,25 @@ describe('Guest Records', () => {
     expect((await list(desk, 'Lim')).map((g) => g.id)).toEqual([keep]);
     // A merged record can't be picked any more.
     expect((await desk.post('/bookings', { kind: 'walk_in', serviceId: 'foot-60', guestId: dup })).status).toBe(400);
+  });
+});
+
+describe('Guest names', () => {
+  it('are capitalized when saved, and the ones saved before are tidied once', async () => {
+    const admin = await loggedIn('super_admin');
+    const { id: saved } = await json<{ id: string }>(await admin.post('/guests', { name: "maria DELA cruz's" }));
+    expect((await json<{ guest: { name: string } }>(await admin.get(`/guests/${saved}`))).guest.name).toBe("Maria Dela Cruz's");
+
+    const id = crypto.randomUUID();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO guests (id, name, created_at) VALUES (?, 'old LOWER name', '2026-11-01T00:00:00Z')`).bind(id),
+      env.DB.prepare(`UPDATE app_meta SET value = 'to_tidy' WHERE key = 'guest_names'`),
+    ]);
+    expect(await tidyGuestNames(drizzle(env.DB))).toBeGreaterThan(0);
+    const row = await env.DB.prepare(`SELECT name FROM guests WHERE id = ?`).bind(id).first<{ name: string }>();
+    expect(row?.name).toBe('Old Lower Name');
+    // Done once: a second run changes nothing.
+    await env.DB.prepare(`UPDATE guests SET name = 'typed again' WHERE id = ?`).bind(id).run();
+    expect(await tidyGuestNames(drizzle(env.DB))).toBe(0);
   });
 });

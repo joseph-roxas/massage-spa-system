@@ -16,9 +16,9 @@ export function pettyCashBalance(topUps: number, pettyCashOuts: number): Centavo
   return (PETTY_CASH_FUND + topUps - pettyCashOuts) as Centavos;
 }
 
-/** Sunday or Monday: the week's Petty Cash Top-up is due. */
+/** Saturday: the week's Petty Cash Top-up is due, with Payroll and Laundry, before the Cash Handover. */
 export function isTopUpDay(date: IsoDate): boolean {
-  return weekdayOf(date) <= 1;
+  return weekdayOf(date) === 6;
 }
 
 /** The Top-up that brings the fund back to ₱800, or 0. */
@@ -46,19 +46,23 @@ export function transferDay(today: IsoDate, todayClosed: boolean): IsoDate {
 }
 
 export type HandoverReminder =
-  /** Keep holding Sales Cash: Payroll or Laundry is still to be paid. */
+  /** Keep holding Sales Cash: Payroll, Laundry or the Petty Cash Top-up is still to be paid. */
   | 'hold'
-  /** Everything is paid: hand all Sales Cash to the owner. */
+  /** Hand all Sales Cash to the owner now. */
   | 'hand_over'
   /** Nothing to hand over. */
   | 'none';
 
 /**
- * Sales Cash stays at the shop to pay Payroll and Laundry; once the last
- * completed Pay Week's Payroll is all released and Laundry is paid, the rest
- * goes to the owner.
+ * Wednesday-to-Friday sales are held for Payroll, Laundry and the Petty Cash
+ * Top-up, so Thursday and Friday always hold. Saturday hands over once last
+ * week's Payroll is released, Laundry is paid and petty cash is back at
+ * ₱800. Sunday to Wednesday hand over whatever has built up.
  */
-export function handoverReminder(input: { salesCash: number; payrollReleased: boolean; laundryPaid: boolean }): HandoverReminder {
+export function handoverReminder(input: { today: IsoDate; salesCash: number; payrollReleased: boolean; laundryPaid: boolean; pettyCashFull: boolean }): HandoverReminder {
   if (input.salesCash <= 0) return 'none';
-  return input.payrollReleased && input.laundryPaid ? 'hand_over' : 'hold';
+  const day = weekdayOf(input.today);
+  if (day === 4 || day === 5) return 'hold';
+  if (day === 6) return input.payrollReleased && input.laundryPaid && input.pettyCashFull ? 'hand_over' : 'hold';
+  return 'hand_over';
 }

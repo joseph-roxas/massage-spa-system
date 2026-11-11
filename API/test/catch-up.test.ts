@@ -120,3 +120,63 @@ describe('Nov 2–8 entry', () => {
     expect(payrolls.find((p) => p.staffId === desk)).toMatchObject({ gross: 89960 + 69200 });
   });
 });
+
+describe('Correcting a Nov 2–8 sale', () => {
+  type Line = { id: string; time: string; endTime: string; guestName: string | null; serviceId: string; therapistId: string; discountType: string; amountDue: number; commissionAmount: number; method: string; gcashRef: string | null };
+  const lines = async (d: string) => (await json<{ sales: Line[] }>(await admin.get(`/catch-up/${d}`))).sales;
+  let u: string;
+  let w: string;
+
+  beforeAll(async () => {
+    admin = await loggedIn('super_admin');
+    u = await person(admin, 'Fixer', { kind: 'therapist', therapistClass: 'regular' });
+    w = await person(admin, 'Other', { kind: 'therapist', therapistClass: 'regular' });
+  });
+
+  it('keeps the Guest’s name as written on paper, capitalized, and when the Service ended', async () => {
+    const res = await admin.post('/catch-up/2026-11-07/sales', { time: '15:00', serviceId: 'swedish-60', therapistId: u, guestName: "  ana's MOM " });
+    expect(res.status).toBe(201);
+    expect((await lines('2026-11-07'))[0]).toMatchObject({ guestName: "Ana's Mom", time: '15:00', endTime: '16:00' });
+  });
+
+  it('changes the Service, Therapist, Discount and Payment Method, priced again by the checkout rules', async () => {
+    const [line] = await lines('2026-11-07');
+    const res = await admin.send('PUT', `/catch-up/2026-11-07/sales/${line!.id}`, {
+      time: '16:00',
+      guestName: "Ana's Mom",
+      serviceId: 'thai-60',
+      therapistId: w,
+      statutory: 'senior',
+      method: 'gcash',
+    });
+    expect(res.status).toBe(200);
+    const after = await lines('2026-11-07');
+    expect(after).toHaveLength(1);
+    // ₱500 less 20% Senior, paid by GCash with no reference written down; Commission on the full ₱500.
+    expect(after[0]).toMatchObject({ serviceId: 'thai-60', therapistId: w, discountType: 'senior', amountDue: 40000, commissionAmount: 15000, method: 'gcash', gcashRef: null, time: '16:00' });
+    const audit = await env.DB.prepare(`SELECT count(*) n FROM audit_log WHERE action = 'catch_up.sale_edit'`).first<{ n: number }>();
+    expect(audit?.n).toBe(1);
+  });
+
+  it('leaves the sale as it was when the correction is refused', async () => {
+    const [line] = await lines('2026-11-07');
+    // Happy Hours doesn't cover 8:00pm.
+    const res = await admin.send('PUT', `/catch-up/2026-11-07/sales/${line!.id}`, { time: '20:00', serviceId: 'swedish-60', therapistId: u, promoId: 'happy-hours' });
+    expect(res.status).toBe(409);
+    const kept = await lines('2026-11-07');
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toMatchObject({ id: line!.id, serviceId: 'thai-60', amountDue: 40000, method: 'gcash' });
+  });
+
+  it('lists each payment in the Payments report, with the Guest, when the Service ended, and filters', async () => {
+    type R = { report: { rows: { when: string; guest: string; paidFor: string; method: string; amount: number; cash: number | null; gcash: number | null; ref: string | null }[]; totals: { amount: number; cash: number; gcash: number } } };
+    const all = await json<R>(await admin.get('/reports/payments?from=2026-11-07&to=2026-11-07'));
+    expect(all.report.rows).toHaveLength(1);
+    expect(all.report.rows[0]).toMatchObject({ guest: "Ana's Mom", paidFor: 'Thai Body Massage', method: 'GCash', amount: 40000, gcash: 40000, cash: null, ref: 'Not recorded' });
+    expect(all.report.rows[0]!.when).toMatch(/5:00\sPM/);
+    expect(all.report.totals).toMatchObject({ amount: 40000, gcash: 40000, cash: 0 });
+    expect((await json<R>(await admin.get('/reports/payments?from=2026-11-07&to=2026-11-07&method=cash'))).report.rows).toHaveLength(0);
+    expect((await json<R>(await admin.get('/reports/payments?from=2026-11-07&to=2026-11-07&guest=ana'))).report.rows).toHaveLength(1);
+    expect((await json<R>(await admin.get('/reports/payments?from=2026-11-07&to=2026-11-07&guest=bea'))).report.rows).toHaveLength(0);
+  });
+});

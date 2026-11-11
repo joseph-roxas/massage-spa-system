@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gte, isNotNull, lt, lte, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, lt, lte, ne, sql } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
-import { businessDayOf, handoverReminder, lastCompletedPayWeek, payWeekOf, pettyCashBalance, salesCashAnchor, transferDay, type Centavos } from '@spa/domain';
+import { businessDayOf, handoverReminder, lastCompletedPayWeek, payWeekOf, pettyCashBalance, salesCashAnchor, topUpNeeded, transferDay, weekdayOf, type Centavos } from '@spa/domain';
 import { businessDays, cashOuts, cashTransfers, payments, payrolls, sales, voucherPayments, voucherSales } from '@spa/db';
 
 const n = (v: unknown) => Number(v ?? 0);
@@ -84,29 +84,34 @@ export async function pettyCashNow(db: DrizzleD1Database): Promise<Centavos> {
 }
 
 /**
- * Whether the Receptionist should hand over Sales Cash now, and since when:
- * the moment the last of that week's Payroll and Laundry was paid.
+ * Whether the Receptionist should hand over Sales Cash now, and on a Saturday
+ * since when: the moment the last of Payroll, Laundry and the Petty Cash
+ * Top-up was paid. Sunday to Wednesday need no check (handoverReminder).
  */
 export async function handoverState(db: DrizzleD1Database, today: string) {
   const week = payWeekOf(today, 'therapist');
   const lastWeek = lastCompletedPayWeek(today, 'therapist');
-  const [now, weekPayrolls, laundry, handedThisWeek] = await Promise.all([
+  const [now, weekPayrolls, laundry, petty, topUp] = await Promise.all([
     salesCashNow(db),
     db.select({ status: payrolls.status, releasedAt: payrolls.releasedAt }).from(payrolls).where(and(eq(payrolls.weekStart, lastWeek.start), eq(payrolls.kind, 'therapist'))),
     db
       .select({ createdAt: cashOuts.createdAt })
       .from(cashOuts)
       .where(and(eq(cashOuts.category, 'laundry'), gte(cashOuts.businessDay, week.start)))
-      .orderBy(asc(cashOuts.createdAt))
+      .orderBy(desc(cashOuts.createdAt))
       .get(),
+    pettyCashNow(db),
     db
-      .select({ id: cashTransfers.id })
+      .select({ createdAt: cashTransfers.createdAt })
       .from(cashTransfers)
-      .where(and(eq(cashTransfers.kind, 'handover'), gte(cashTransfers.businessDay, week.start)))
+      .where(and(eq(cashTransfers.kind, 'petty_topup'), gte(cashTransfers.businessDay, week.start)))
+      .orderBy(desc(cashTransfers.createdAt))
       .get(),
   ]);
   const payrollReleased = weekPayrolls.length > 0 && weekPayrolls.every((p) => p.status === 'released');
-  const reminder = handoverReminder({ salesCash: now.amount, payrollReleased: payrollReleased && !handedThisWeek, laundryPaid: !!laundry });
-  const dueSince = reminder === 'hand_over' ? [laundry!.createdAt, ...weekPayrolls.map((p) => p.releasedAt!)].sort().at(-1)! : null;
-  return { now, lastWeek, payrollReleased, laundryPaid: !!laundry, reminder, dueSince };
+  const pettyCashFull = topUpNeeded(petty) === 0;
+  const reminder = handoverReminder({ today, salesCash: now.amount, payrollReleased, laundryPaid: !!laundry, pettyCashFull });
+  const saturday = weekdayOf(today) === 6;
+  const dueSince = reminder === 'hand_over' && saturday ? ([laundry?.createdAt, topUp?.createdAt, ...weekPayrolls.map((p) => p.releasedAt)].filter((x): x is string => !!x).sort().at(-1) ?? null) : null;
+  return { now, lastWeek, payrollReleased, laundryPaid: !!laundry, pettyCashFull, reminder, dueSince };
 }

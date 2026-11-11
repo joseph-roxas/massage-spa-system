@@ -7,6 +7,7 @@ import { fromLocalInput, hoursBetween, manilaTime, toLocalInput, useClockStaff, 
 import { useCan } from '../lib/auth';
 import { businessDayOf } from '@spa/domain';
 import { longDate } from '../lib/format';
+import { DateTimeInput, TimeInput } from '../components/TimeInput';
 
 function useDtrChange() {
   const qc = useQueryClient();
@@ -98,10 +99,10 @@ function BatchForm({ day, onDone }: { day: string; onDone: () => void }) {
                   {problem && <p className="mt-1 text-xs text-red-700">{problem.message}</p>}
                 </td>
                 <td className={td}>
-                  <Input type="time" required value={r.inAt} onChange={(e) => setRow(i, { inAt: e.target.value })} />
+                  <TimeInput required value={r.inAt} onChange={(v) => setRow(i, { inAt: v })} />
                 </td>
                 <td className={td}>
-                  <Input type="time" value={r.outAt} onChange={(e) => setRow(i, { outAt: e.target.value })} />
+                  <TimeInput value={r.outAt} onChange={(v) => setRow(i, { outAt: v })} />
                 </td>
                 <td className={td}>
                   <Input value={r.reason} onChange={(e) => setRow(i, { reason: e.target.value })} />
@@ -301,10 +302,10 @@ function EntryForm({ entry, day, onDone }: { entry?: DtrEntry; day: string; onDo
           )}
         </Field>
         <Field label="Clock in">
-          <Input type="datetime-local" required value={d.clockIn} onChange={(e) => set('clockIn', e.target.value)} />
+          <DateTimeInput required value={d.clockIn} onChange={(v) => set('clockIn', v)} />
         </Field>
         <Field label="Clock out" hint="Leave blank if still here">
-          <Input type="datetime-local" value={d.clockOut} onChange={(e) => set('clockOut', e.target.value)} />
+          <DateTimeInput value={d.clockOut} onChange={(v) => set('clockOut', v)} />
         </Field>
         <Field label="Reason" hint="Required; kept in the audit log">
           <Input required minLength={3} value={d.reason} onChange={(e) => set('reason', e.target.value)} />

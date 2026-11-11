@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
-import { businessDayOf, DEFAULT_REGULAR_RULE, visitStats, type RegularRule, type VisitStats } from '@spa/domain';
+import { businessDayOf, DEFAULT_REGULAR_RULE, properName, visitStats, type RegularRule, type VisitStats } from '@spa/domain';
 import { bookings, guests, payRules, sales } from '@spa/db';
 import { nowIso } from './time';
 
@@ -43,7 +43,9 @@ export type GuestChoice = { guestId?: string | null; saveGuest?: boolean; name: 
  * and phone are copied; `saveGuest` makes a new record from the typed name.
  * Returns the insert to run in the same batch, if any.
  */
-export async function resolveGuest(db: Db, choice: GuestChoice, actor: string) {
+export async function resolveGuest(db: Db, typed: GuestChoice, actor: string) {
+  // Names are kept with each word capitalized, whatever was typed.
+  const choice = { ...typed, name: typed.name?.trim() ? properName(typed.name) : typed.name };
   if (choice.guestId) {
     const g = await db
       .select()

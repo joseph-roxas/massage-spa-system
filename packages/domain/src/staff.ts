@@ -2,16 +2,24 @@ import type { IsoDate } from './calendar';
 
 const ROMAN_SUFFIX = /^(?:ii|iii|iv|v|vi)$/i;
 
+function capitalizeWord(word: string): string {
+  return word.toLocaleLowerCase().replace(/(^|[-'’])(\p{L})/gu, (whole: string, before: string, letter: string, at: number, all: string) =>
+    // A lone "s" after an apostrophe ending the word is a possessive: "Rosa's", not "Rosa'S".
+    before && before !== '-' && letter === 's' && at + whole.length === all.length ? whole : before + letter.toLocaleUpperCase(),
+  );
+}
+
 /**
  * A person's name as it is kept: each word capitalized, whatever was typed.
  * "DELA CRUZ" and "dela cruz" both become "Dela Cruz". Hyphens and apostrophes
- * start a new word, and a suffix like III stays in capitals.
+ * start a new word ("O'Neil"), except a possessive ("Rosa's"), and a suffix
+ * like III stays in capitals.
  */
 export function properName(value: string): string {
   return value
     .trim()
     .split(/\s+/)
-    .map((word, i) => (i > 0 && ROMAN_SUFFIX.test(word) ? word.toUpperCase() : word.toLocaleLowerCase().replace(/(^|[-'’])(\p{L})/gu, (_, before: string, letter: string) => before + letter.toLocaleUpperCase())))
+    .map((word, i) => (i > 0 && ROMAN_SUFFIX.test(word) ? word.toUpperCase() : capitalizeWord(word)))
     .join(' ');
 }
 

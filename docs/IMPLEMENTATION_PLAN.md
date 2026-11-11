@@ -865,3 +865,33 @@ Grilled with the owner on 2026-11-10 (two rounds). Vocabulary is in `GLOSSARY.md
 1. A Service starting exactly at a Promo's end time gets it: Happy Hours to 6:00pm covers a 6:00pm start, 6:01pm doesn't. One comparison in `promoProblem` (`packages/domain/src/catalogue.ts`), so checkout and Correct sales both follow.
 2. Settings -> Promos says the end is inclusive; the Price List says "starts from X to Y". `GLOSSARY.md` Happy Hours updated.
 3. Why: two Nov 9 Guests who started at 6:00pm paid the discounted price; correcting their start time to 6:00pm still priced them in full.
+
+## 19. Phase 17: owner's sixth batch of change requests (branch `cr-6`)
+
+Grilled with the owner on 2026-11-11 (two rounds). Built on `cr-6` on top of 16.9, which ships with it. Vocabulary in `GLOSSARY.md`: Cash Handover and Petty Cash Top-up updated; new Laundry and Laundry Breakdown; Catch-up Day and Guest Record extended. Migration 0035 (`cash_outs.breakdown_json`, and an `app_meta` marker for the Guest name tidy). **Next migration is 0036.**
+
+**Status (2026-11-11):** built, not committed. 480 tests pass (259 domain, 221 API). Typecheck, lint and build pass. Tried in a browser on a scratch copy of the local database: Nov 2-8 Edit and "Add service for this guest", Correct service, the Payments report and its filters, Sales per therapist opened straight after Daily sales, the Wednesday banner and the Laundry form.
+
+**17.1 Happy Hours at 6:00pm** is 16.9, unchanged; it ships in this batch.
+
+**17.2 Guest names are capitalized** (`properName`): every word capitalized, a possessive kept lower ("Rosa's Husband"), a suffix like III in capitals. Applied to Guest Records, the name on Bookings and Voucher buyers when saved. Names saved before are tidied once: migration 0035 sets `app_meta.guest_names = 'to_tidy'`, and the API's first request afterwards capitalizes them, logs `guest.names_capitalized` and sets it to `done`.
+
+**17.3 Nov 2-8 entry**
+1. Each sale line takes an optional Guest name from the paper record (no Guest Record is made).
+2. "Add service for this guest" starts the form at the time that Service ended, with the same Guest, Therapist and Payment Method; Senior/PWD carries over. Each Service is its own line and price.
+3. "Edit" changes any of time, Guest, Service, Therapist, Discount and Payment Method; GCash needs no reference ("Not recorded"). The line is entered again by the same rules (`PUT /catch-up/:date/sales/:id`), so price and Commission follow; if that is refused, the old line is put back. Audit `catch_up.sale_edit`.
+4. Adding, editing or removing a line is refused once that Therapist's Payroll for the week is approved or released.
+
+**17.4 12-hour time everywhere.** A shared hour / minute / AM-PM picker (`UI/src/components/TimeInput.tsx`) replaces every time and date-time box, so entry looks the same on every device. Times shown on the Nov 2-8 page are 12-hour like the rest.
+
+**17.5 Sales per therapist chart.** On first open it kept the previous report's rows (Daily sales) while loading; those rows have no name, so React reused one bar and left it behind with a day's sales on it. The report query now keeps only the same report's figures while loading, and bars are keyed by position.
+
+**17.6 Payments report** (`payments`): one line per payment, Services and Vouchers, with date and time, Guest (Walk-in guest if none), what it paid for, Cash or GCash, amount, and the GCash reference. A split bill is two lines. Nov 2-8 lines show when the Service ended. Filters: From/To, Guest (contains), Payment. Totals for Cash, GCash and both. Super Admin and Receptionist any dates; Reliever today only.
+
+**17.7 Correct service** on Correct sales (`POST /sales/correct-service`, Super Admin): same start, the new Service's length and price; Senior/PWD and Complimentary kept, a Promo checked again; Commission follows the new Service. The difference moves the cash payment and a closed day's expected cash, like Correct start time. Refused for a Voucher sale, a sale with Top-ups, or once that week's Payroll is approved. Audit `sale.correct_service`.
+
+**17.8 Hand over banner by weekday** (`handoverReminder`). Thursday and Friday hold. Saturday turns red once last week's Therapist Payroll is released, Laundry is paid that week and petty cash is back at ₱800. Sunday to Wednesday are red whenever there is Sales Cash, with no Payroll check, so a handover can happen several times a week. A Reliever is unchanged. The Petty Cash Top-up moves from Sunday/Monday to Saturday.
+
+**17.9 Laundry Breakdown.** The Receptionist's Laundry Cash-out is rows of date and amount due; the total is added up, never typed (the API refuses a typed amount). Dates within the 14 days up to today, each once; a day already in an earlier Laundry payment is a warning only. Still one Cash-out from Sales Cash dated the day paid. The breakdown shows on the Cash-out list, the Expenses page and the Expenses report's "Days paid for" column. Older Laundry, Nov 2-8 Expenses and the Super Admin's Expenses keep a single amount.
+
+**Also fixed on the way:** the Correct sales page's boxes lost their styling when given a width; they are wrapped instead.

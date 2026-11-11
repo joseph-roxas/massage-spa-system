@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Alert, Badge, Button, Card, Checkbox, Field, FormPanel, Input, Select } from '../../components/ui';
 import { usePromos, useSave, useServices, type Promo } from '../../lib/catalogue';
 import { clock, longDate, percent, todayManila } from '../../lib/format';
+import { TimeInput } from '../../components/TimeInput';
 
 type Draft = Omit<Promo, 'id' | 'percentBp'> & { percent: string };
 
@@ -52,10 +53,10 @@ function PromoForm({ promo, onDone }: { promo?: Promo; onDone: () => void }) {
           <Input type="number" min={0.01} max={100} step={0.01} required value={d.percent} onChange={(e) => set('percent', e.target.value)} />
         </Field>
         <Field label="Service starts from" hint="Inclusive">
-          <Input type="time" required value={d.startTime} onChange={(e) => set('startTime', e.target.value)} />
+          <TimeInput required value={d.startTime} onChange={(v) => set('startTime', v)} />
         </Field>
         <Field label="…up to" hint="Inclusive: a 6:00 PM end means a 6:00 PM start still counts">
-          <Input type="time" required value={d.endTime} onChange={(e) => set('endTime', e.target.value)} />
+          <TimeInput required value={d.endTime} onChange={(v) => set('endTime', v)} />
         </Field>
         <Field label="First day">
           <Input type="date" required value={d.validFrom} onChange={(e) => set('validFrom', e.target.value)} />

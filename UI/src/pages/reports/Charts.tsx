@@ -87,7 +87,7 @@ export function RankedBars({ report, labelKey, valueKey, label }: { report: Repo
         {rows.map((r, i) => {
           const v = Number(r[valueKey]);
           return (
-            <li key={String(r[labelKey])} className="group grid grid-cols-[8rem_1fr_6rem] items-center gap-3 text-sm" title={`${r[labelKey]}: ${peso(v)}`}>
+            <li key={`${i}:${String(r[labelKey])}`} className="group grid grid-cols-[8rem_1fr_6rem] items-center gap-3 text-sm" title={`${r[labelKey]}: ${peso(v)}`}>
               <span className="truncate text-stone-700">{r[labelKey]}</span>
               <span className="h-3.5">
                 <span className="block h-full rounded-r-[4px] bg-teal-700 group-hover:bg-teal-800" style={{ width: `${Math.max(1, (v / max) * 100)}%` }} />

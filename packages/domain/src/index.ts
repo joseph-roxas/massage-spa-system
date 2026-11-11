@@ -3,6 +3,7 @@ export * from './business-day';
 export * from './calendar';
 export * from './catch-up';
 export * from './cash';
+export * from './laundry';
 export * from './catalogue';
 export * from './contributions';
 export * from './day-close';

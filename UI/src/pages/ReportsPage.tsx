@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { businessDayOf, choosesReportDates, monthRange, payWeekOf, previousMonth, reportsFor, type Column, type Report, type ReportName, type Row } from '@spa/domain';
 import { Alert, Button, Card, Field, Input, Select, td, th } from '../components/ui';
@@ -95,8 +96,17 @@ export function ReportsPage() {
   const from = canPickDates ? (params.get('from') ?? (all ? `${today.slice(0, 7)}-01` : today)) : today;
   const to = canPickDates ? (params.get('to') ?? today) : today;
   const therapist = params.get('therapist') ?? '';
-  const set = (patch: Record<string, string>) => setParams({ r: name, from, to, therapist, ...patch });
-  const { data, error, isFetching } = useReport(name, from, to, name === 'therapist-detail' ? therapist : '');
+  const guest = params.get('guest') ?? '';
+  const method = params.get('method') ?? '';
+  const set = (patch: Record<string, string>) => setParams(Object.fromEntries(Object.entries({ r: name, from, to, therapist, guest, method, ...patch }).filter(([, v]) => v)));
+  // The Guest box waits for a pause in typing before asking again.
+  const [guestTyped, setGuestTyped] = useState(guest);
+  useEffect(() => {
+    const t = setTimeout(() => guestTyped !== guest && set({ guest: guestTyped }), 400);
+    return () => clearTimeout(t);
+  });
+  const filters = name === 'therapist-detail' ? { therapist } : name === 'payments' ? { guest, method } : {};
+  const { data, error, isFetching } = useReport(name, from, to, filters);
   const staff = useClockStaff();
   const report = data?.report;
 
@@ -128,6 +138,20 @@ export function ReportsPage() {
               <Field label="To">
                 <Input type="date" value={to} min={from} onChange={(e) => e.target.value && set({ to: e.target.value })} />
               </Field>
+              {name === 'payments' && (
+                <>
+                  <Field label="Guest">
+                    <Input value={guestTyped} placeholder="Any guest" onChange={(e) => setGuestTyped(e.target.value)} />
+                  </Field>
+                  <Field label="Payment">
+                    <Select value={method} onChange={(e) => set({ method: e.target.value })}>
+                      <option value="">Cash and GCash</option>
+                      <option value="cash">Cash</option>
+                      <option value="gcash">GCash</option>
+                    </Select>
+                  </Field>
+                </>
+              )}
               {name === 'therapist-detail' && (
                 <Field label="Therapist">
                   <Select value={therapist} onChange={(e) => set({ therapist: e.target.value })}>

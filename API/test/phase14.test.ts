@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { businessDayOf, lastCompletedPayWeek, manilaInstant, payWeekOf } from '@spa/domain';
+import { businessDayOf, lastCompletedPayWeek, manilaInstant, payWeekOf, weekdayOf } from '@spa/domain';
 import { client, loggedIn, PERSON, type Client } from './helpers';
 
 async function json<T>(res: Response): Promise<T> {
@@ -137,7 +137,7 @@ describe('Time record override', () => {
 });
 
 describe('Cash Handover overdue', () => {
-  it('reaches the Super Admin as urgent after 24 hours', async () => {
+  it('reaches the Super Admin as urgent 24 hours after a Saturday’s dues are paid', async () => {
     const owner = await loggedIn('super_admin');
     const today = businessDayOf(new Date());
     const week = payWeekOf(today, 'therapist');
@@ -157,6 +157,10 @@ describe('Cash Handover overdue', () => {
       env.DB.prepare(`INSERT INTO cash_outs (id, business_day, category, source, amount, purpose, created_at) VALUES (?, ?, 'laundry', 'sales', 100, 'Laundry', ?)`).bind(crypto.randomUUID(), week.start, then),
     ]);
     const summary = await json<{ reminder: string; dueSince: string | null }>(await owner.get('/cash/summary'));
+    // The rule depends on the weekday (domain tests cover each day); only a Saturday has a "due since".
+    const weekday = weekdayOf(today);
+    if (weekday === 4 || weekday === 5) return expect(summary.reminder).toBe('hold');
+    if (weekday !== 6) return expect(summary).toMatchObject({ reminder: 'hand_over', dueSince: null });
     expect(summary).toMatchObject({ reminder: 'hand_over', dueSince: then });
     const { items } = await json<{ items: { key: string; tone: string }[] }>(await owner.get('/attention'));
     expect(items.find((i) => i.key === 'handover-overdue')).toMatchObject({ tone: 'urgent' });

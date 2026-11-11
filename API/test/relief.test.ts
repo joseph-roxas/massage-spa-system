@@ -138,7 +138,7 @@ describe('Reliever Login', () => {
     // Receptionist powers minus Payroll.
     expect((await pc.get(`/payroll/weeks/${last().start}`)).status).toBe(403);
     expect((await pc.get('/me/pay')).status).toBe(403);
-    expect((await pc.post('/cash-outs', { category: 'laundry', amount: 15000, purpose: 'Laundry' })).status).toBe(201);
+    expect((await pc.post('/cash-outs', { category: 'laundry', days: [{ day: businessDayOf(new Date()), amount: 15000 }] })).status).toBe(201);
     // A time record added under the shared login is credited to the Reliever clocked in.
     const t = await newStaff(owner, THERAPIST);
     const day = lastDays()[3]!;

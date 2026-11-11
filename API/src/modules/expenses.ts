@@ -14,6 +14,7 @@ import {
   royaltyAmount,
   royaltyGross,
   type Month,
+  parseLaundryBreakdown,
 } from '@spa/domain';
 import { cashOuts, expenseCategories, expenses, items, recurringExpenses, royaltyStatements, sales, staff, stockIns, vendors, voucherSales } from '@spa/db';
 import { contributionRates, contributionsOf } from '../lib/contributions';
@@ -314,7 +315,7 @@ export const expenseRoutes = new Hono<AuthedEnv>()
       start,
       end,
       expenses: rows,
-      cashOuts: outs,
+      cashOuts: outs.map(({ breakdownJson, ...o }) => ({ ...o, breakdown: parseLaundryBreakdown(breakdownJson) })),
       purchases: purchaseLines,
       totals: {
         confirmed: sum(rows.filter((r) => r.status === 'confirmed')),

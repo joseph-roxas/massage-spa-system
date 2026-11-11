@@ -7,6 +7,7 @@ import { fromLocalInput, useClockStaff } from '../../lib/attendance';
 import { useRooms, useServices } from '../../lib/catalogue';
 import { duration, peso } from '../../lib/format';
 import { fetchSuggestion, useDeskAction } from '../../lib/front-desk';
+import { DateTimeInput, TimeInput } from '../../components/TimeInput';
 
 /** Up to three more hours from the booking form; a longer stay can still be topped up during the Service. */
 const MAX_EXTRA_STEPS = 6;
@@ -202,10 +203,10 @@ export function NewBookingDialog({
                 </Select>
               </Field>
               <Field label="Started at">
-                <Input type="time" required value={form.startedAt} onChange={(e) => set('startedAt', e.target.value)} />
+                <TimeInput required value={form.startedAt} onChange={(v) => set('startedAt', v)} />
               </Field>
               <Field label="Finished at" hint="Leave blank if still in service">
-                <Input type="time" value={form.finishedAt} onChange={(e) => set('finishedAt', e.target.value)} />
+                <TimeInput value={form.finishedAt} onChange={(v) => set('finishedAt', v)} />
               </Field>
             </div>
             {lateRoom?.isFlex && (
@@ -235,7 +236,7 @@ export function NewBookingDialog({
           )}
           {kind === 'scheduled' && (
             <Field label="Date and time">
-              <Input type="datetime-local" required value={form.scheduledAt} onChange={(e) => set('scheduledAt', e.target.value)} />
+              <DateTimeInput required value={form.scheduledAt} onChange={(v) => set('scheduledAt', v)} />
             </Field>
           )}
         </div>

@@ -7,6 +7,7 @@ import {
   businessDayOf,
   choosesReportDates,
   FOC_LABELS,
+  parseLaundryBreakdown,
   focGroup,
   REPORTS,
   reportsFor,
@@ -45,9 +46,11 @@ import { isoDate } from '../lib/validation';
 import { requireAuth } from '../auth/middleware';
 
 type Db = DrizzleD1Database;
-type Range = { from: string; to: string; therapist?: string };
+type Range = { from: string; to: string; therapist?: string; guest?: string; method?: 'cash' | 'gcash' };
 
 const CASH_OUT_LABELS: Record<string, string> = { relief_pay: 'Relief pay', petty_cash: 'Petty cash', laundry: 'Laundry', supplies: 'Supplies', food: 'Food / rice', transport: 'Transport', other: 'Other' };
+
+const shortDate = (d: string) => new Date(`${d}T00:00:00+08:00`).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' });
 
 const col = (key: string, label: string, type: Column['type'] = 'text'): Column => ({ key, label, type });
 const n = (v: unknown) => Number(v ?? 0);
@@ -217,6 +220,87 @@ export async function therapistSales(db: Db, r: Range): Promise<Report> {
 }
 
 const whenLabel = (iso: string) => new Date(iso).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/**
+ * Every payment received, one line each: for Services and for Vouchers. A sale
+ * paid partly in cash and partly by GCash is two lines. Nov 2-8 entries were
+ * typed in afterwards, so their time is when the Service ended.
+ */
+async function paymentsReport(db: Db, r: Range): Promise<Report> {
+  const guestLike = r.guest ? `%${r.guest.trim().toLowerCase()}%` : null;
+  const [forServices, forVouchers] = await Promise.all([
+    db
+      .select({
+        id: payments.id,
+        at: payments.createdAt,
+        doneAt: bookings.doneAt,
+        catchUp: sales.catchUp,
+        guest: bookings.guestName,
+        paidFor: services.name,
+        method: payments.method,
+        amount: payments.amount,
+        ref: payments.gcashRef,
+      })
+      .from(payments)
+      .innerJoin(sales, eq(sales.id, payments.saleId))
+      .innerJoin(bookings, eq(bookings.id, sales.bookingId))
+      .innerJoin(services, eq(services.id, sales.serviceId))
+      .where(
+        and(
+          eq(sales.status, 'paid'),
+          gte(payments.businessDay, r.from),
+          lte(payments.businessDay, r.to),
+          r.method ? eq(payments.method, r.method) : undefined,
+          guestLike ? sql`lower(coalesce(${bookings.guestName}, '')) like ${guestLike}` : undefined,
+        ),
+      ),
+    db
+      .select({ id: voucherPayments.id, at: voucherPayments.createdAt, guest: voucherSales.buyerName, paidFor: services.name, qty: voucherSales.qtyPaid, method: voucherPayments.method, amount: voucherPayments.amount, ref: voucherPayments.gcashRef })
+      .from(voucherPayments)
+      .innerJoin(voucherSales, eq(voucherSales.id, voucherPayments.voucherSaleId))
+      .innerJoin(services, eq(services.id, voucherSales.serviceId))
+      .where(
+        and(
+          eq(voucherSales.status, 'paid'),
+          gte(voucherPayments.businessDay, r.from),
+          lte(voucherPayments.businessDay, r.to),
+          r.method ? eq(voucherPayments.method, r.method) : undefined,
+          guestLike ? sql`lower(coalesce(${voucherSales.buyerName}, '')) like ${guestLike}` : undefined,
+        ),
+      ),
+  ]);
+  const columns = [
+    col('when', 'Date and time'),
+    col('guest', 'Guest'),
+    col('paidFor', 'Paid for'),
+    col('method', 'Payment'),
+    col('amount', 'Amount paid', 'money'),
+    col('cash', 'Cash', 'money'),
+    col('gcash', 'GCash', 'money'),
+    col('ref', 'Reference number'),
+  ];
+  const lines = [
+    ...forServices.map((x) => ({ ...x, at: x.catchUp && x.doneAt ? x.doneAt : x.at, paidFor: x.paidFor })),
+    ...forVouchers.map((x) => ({ ...x, paidFor: `Voucher: ${x.paidFor}${x.qty > 1 ? ` × ${x.qty}` : ''}` })),
+  ].sort((a, b) => a.at.localeCompare(b.at));
+  const rows: Row[] = lines.map((x) => ({
+    when: whenLabel(x.at),
+    guest: x.guest || 'Walk-in guest',
+    paidFor: x.paidFor,
+    method: x.method === 'gcash' ? 'GCash' : 'Cash',
+    amount: x.amount,
+    cash: x.method === 'cash' ? x.amount : null,
+    gcash: x.method === 'gcash' ? x.amount : null,
+    ref: x.method === 'gcash' ? x.ref || 'Not recorded' : null,
+  }));
+  return {
+    title: 'Payments',
+    columns,
+    rows,
+    totals: totalsOf(columns, rows),
+    note: 'Each payment received, for Services and Vouchers. A bill paid partly in cash and partly by GCash shows as two lines. Sales entered afterwards for Nov 2–8 show when the Service ended.',
+  };
+}
 
 /** Every Service a Therapist was paid for, one line each. */
 async function therapistDetail(db: Db, r: Range): Promise<Report> {
@@ -447,7 +531,7 @@ async function inventory(db: Db, r: Range): Promise<Report> {
 }
 
 async function expenseReport(db: Db, r: Range): Promise<Report> {
-  const [byCat, cats, outs, bought] = await Promise.all([
+  const [byCat, cats, outs, bought, laundry] = await Promise.all([
     db
       .select({ id: expenses.categoryId, count: sql<number>`count(*)`, amount: sql<number>`sum(${expenses.amount})` })
       .from(expenses)
@@ -471,11 +555,21 @@ async function expenseReport(db: Db, r: Range): Promise<Report> {
       .from(stockIns)
       .where(and(eq(stockIns.kind, 'purchase'), gte(stockIns.purchaseDate, r.from), lte(stockIns.purchaseDate, r.to)))
       .get(),
+    db
+      .select({ breakdownJson: cashOuts.breakdownJson })
+      .from(cashOuts)
+      .where(and(eq(cashOuts.category, 'laundry'), isNotNull(cashOuts.breakdownJson), gte(cashOuts.businessDay, r.from), lte(cashOuts.businessDay, r.to)))
+      .orderBy(asc(cashOuts.businessDay)),
   ]);
-  const columns = [col('source', 'Where recorded'), col('category', 'Category'), col('count', 'Entries', 'int'), col('amount', 'Amount', 'money')];
+  // The Laundry row lists the days paid for (its Laundry Breakdowns), without changing the totals.
+  const laundryDays = laundry
+    .flatMap((x) => parseLaundryBreakdown(x.breakdownJson) ?? [])
+    .map((d) => `${shortDate(d.day)} ${(d.amount / 100).toFixed(2)}`)
+    .join(' · ');
+  const columns = [col('source', 'Where recorded'), col('category', 'Category'), col('count', 'Entries', 'int'), col('amount', 'Amount', 'money'), col('detail', 'Days paid for')];
   const rows: Row[] = [
     ...byCat.map((x) => ({ source: 'Expenses', category: cats.find((c) => c.id === x.id)?.name ?? x.id, count: n(x.count), amount: n(x.amount) })),
-    ...outs.map((x) => ({ source: 'Drawer Cash-out', category: CASH_OUT_LABELS[x.category] ?? x.category, count: n(x.count), amount: n(x.amount) })),
+    ...outs.map((x) => ({ source: 'Drawer Cash-out', category: CASH_OUT_LABELS[x.category] ?? x.category, count: n(x.count), amount: n(x.amount), detail: x.category === 'laundry' && laundryDays ? laundryDays : null })),
     ...(n(bought?.count) ? [{ source: 'Inventory', category: 'Inventory purchases', count: n(bought?.count), amount: n(bought?.amount) }] : []),
   ].sort((a, b) => n(b.amount) - n(a.amount));
   return { title: 'Expenses', columns, rows, totals: totalsOf(columns, rows), note: 'Confirmed Expenses only. Payroll, On-call pay and Cash Advances are not included.' };
@@ -483,6 +577,7 @@ async function expenseReport(db: Db, r: Range): Promise<Report> {
 
 const BUILDERS: Record<ReportName, (db: Db, r: Range) => Promise<Report>> = {
   'daily-sales': dailySales,
+  payments: paymentsReport,
   'therapist-sales': therapistSales,
   'therapist-detail': therapistDetail,
   'therapist-changes': therapistChangesReport,
@@ -495,7 +590,7 @@ const BUILDERS: Record<ReportName, (db: Db, r: Range) => Promise<Report>> = {
 };
 
 const query = z
-  .object({ from: isoDate, to: isoDate, therapist: z.string().min(1).optional() })
+  .object({ from: isoDate, to: isoDate, therapist: z.string().min(1).optional(), guest: z.string().trim().max(80).optional(), method: z.enum(['cash', 'gcash']).optional() })
   .refine((q) => q.from <= q.to, 'The start date must be on or before the end date.')
   .refine((q) => (Date.parse(q.to) - Date.parse(q.from)) / 86_400_000 <= 366, 'Choose at most a year at a time.');
 

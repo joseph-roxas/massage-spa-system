@@ -3,6 +3,7 @@ import { DEFAULT_CONTRIBUTION_RATES, type ContributionRates } from '@spa/domain'
 import { Alert, Button, Card, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
 import { useCommissionRates, usePayRules, useSave } from '../../lib/catalogue';
 import { longDate, parsePesos, percent, pesosText, todayManila } from '../../lib/format';
+import { TimeInput } from '../../components/TimeInput';
 
 const CLASS_LABEL = { regular: 'Regular Therapist', lmt: 'Licensed Massage Therapist' } as const;
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -131,10 +132,10 @@ function ReceptionistRules({ rules }: { rules: Record<string, unknown> }) {
         {saved && !error && <Alert tone="success">Saved.</Alert>}
         <div className="grid grid-cols-4 gap-3">
           <Field label="Shift starts" hint="Arriving later is Undertime">
-            <Input type="time" required value={shift.start} onChange={(e) => setShift({ ...shift, start: e.target.value })} />
+            <TimeInput required value={shift.start} onChange={(v) => setShift({ ...shift, start: v })} />
           </Field>
           <Field label="Shift ends" hint="Time after this is Overtime">
-            <Input type="time" required value={shift.end} onChange={(e) => setShift({ ...shift, end: e.target.value })} />
+            <TimeInput required value={shift.end} onChange={(v) => setShift({ ...shift, end: v })} />
           </Field>
           <Field label="Unpaid meal break (min)">
             <Input type="number" min={0} max={240} required value={shift.mealBreakMin} onChange={(e) => setShift({ ...shift, mealBreakMin: Number(e.target.value) })} />

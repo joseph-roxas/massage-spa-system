@@ -29,7 +29,7 @@ export type CashSummary = {
   day: string;
   salesCash: number;
   pettyCash: number;
-  /** Sunday or Monday only: what brings petty cash back to ₱800. */
+  /** Saturday only: what brings petty cash back to ₱800. */
   topUpDue: number;
   reminder: 'hold' | 'hand_over' | 'none';
   /** When the Cash Handover became due. */

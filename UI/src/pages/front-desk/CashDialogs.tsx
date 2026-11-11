@@ -40,7 +40,7 @@ export function CashReminder({ onHandover, onTopUp }: { onHandover: () => void; 
         <span className="min-w-64 flex-1">
           <span className="block text-xl font-bold">Hand over {peso(s.salesCash)} to the owner now</span>
           <span className="block text-sm">
-            {s.relief ? 'End of your Relief Shift: after Day Close, hand over all Sales Cash.' : 'All payroll and laundry are paid.'} Keep petty cash at ₱800.
+            {s.relief ? 'End of your Relief Shift: after Day Close, hand over all Sales Cash.' : s.dueSince ? 'Payroll, laundry and the petty cash top-up are paid.' : 'Saturday to Wednesday, the sales cash goes to the owner.'} Keep petty cash at ₱800.
             {s.dueSince && dueFor(s.dueSince, now) !== 'just now' && <span className="font-semibold"> Due for {dueFor(s.dueSince, now)}.</span>}
           </span>
           {footnote}
@@ -57,7 +57,7 @@ export function CashReminder({ onHandover, onTopUp }: { onHandover: () => void; 
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
       <span className="flex-1">
         Sales cash in the shop: <span className="font-semibold">{peso(s.salesCash)}</span>
-        {since}. {s.salesCash > 0 && 'Pay payroll and laundry from it, then hand the rest to the owner. Keep petty cash at ₱800.'}
+        {since}. {s.salesCash > 0 && 'Held for payroll, laundry and the petty cash top-up, paid on Saturday; then the rest goes to the owner. Keep petty cash at ₱800.'}
         {footnote}
       </span>
       {topUp}

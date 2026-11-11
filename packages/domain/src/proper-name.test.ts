@@ -14,6 +14,10 @@ describe('properName', () => {
     ['ñino', 'Ñino'],
     ['reyes iii', 'Reyes III'],
     ['Reyes jr.', 'Reyes Jr.'],
+    ["rosa's husband", "Rosa's Husband"],
+    ['MARIA’S', 'Maria’s'],
+    ["d'angelo", "D'Angelo"],
+    ['jr', 'Jr'],
   ])('%s becomes %s', (typed, kept) => {
     expect(properName(typed)).toBe(kept);
   });

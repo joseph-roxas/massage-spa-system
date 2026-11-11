@@ -54,7 +54,7 @@ function PromoForm({ promo, onDone }: { promo?: Promo; onDone: () => void }) {
         <Field label="Service starts from" hint="Inclusive">
           <Input type="time" required value={d.startTime} onChange={(e) => set('startTime', e.target.value)} />
         </Field>
-        <Field label="…until before" hint="A 6:00 PM end means 5:59 PM is the last start">
+        <Field label="…up to" hint="Inclusive: a 6:00 PM end means a 6:00 PM start still counts">
           <Input type="time" required value={d.endTime} onChange={(e) => set('endTime', e.target.value)} />
         </Field>
         <Field label="First day">
@@ -104,7 +104,7 @@ export function PromosSettings() {
                       {p.name} <Badge tone={status === 'Running' ? 'teal' : status === 'Upcoming' ? 'amber' : 'stone'}>{status}</Badge>
                     </p>
                     <p className="text-sm text-stone-600">
-                      {percent(p.percentBp)} off {name(p.serviceId)} · starts {clock(p.startTime)} to before {clock(p.endTime)} ·{' '}
+                      {percent(p.percentBp)} off {name(p.serviceId)} · starts {clock(p.startTime)} to {clock(p.endTime)} ·{' '}
                       {longDate(p.validFrom)} – {longDate(p.validTo)}
                     </p>
                   </div>

@@ -30,7 +30,8 @@ describe('quoteSale', () => {
     ['13:59', 0],
     ['14:00', pesos(50)],
     ['17:59', pesos(50)],
-    ['18:00', 0],
+    ['18:00', pesos(50)],
+    ['18:01', 0],
   ])('applies Happy Hours by start time %s', (startTime, discount) => {
     expect(quoteSale(swedish({ startTime })).discount.amount).toBe(discount);
   });

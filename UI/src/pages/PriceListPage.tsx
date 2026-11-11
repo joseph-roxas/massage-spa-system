@@ -62,7 +62,7 @@ export function PriceListPage() {
             {runningPromos.map((p) => (
               <li key={p.id}>
                 <span className="font-semibold">{p.name}</span>: {percent(p.percentBp)} off {name(p.serviceId)} when the
-                service starts from {clock(p.startTime)} to before {clock(p.endTime)}, daily until {longDate(p.validTo)}
+                service starts from {clock(p.startTime)} to {clock(p.endTime)}, daily until {longDate(p.validTo)}
                 {p.validFrom > today && ` (starts ${longDate(p.validFrom)})`}
               </li>
             ))}

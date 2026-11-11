@@ -143,9 +143,11 @@ async function price(c: Context<AuthedEnv>, input: PriceInput, correcting?: { bo
     db.select().from(staff).where(eq(staff.id, booking.therapistId)).get(),
     db.select().from(holidays).where(eq(holidays.date, day)).get(),
     db.select().from(commissionRates),
-    db.select({ s: sql<number>`coalesce(sum(${bookingTopUps.price}), 0)` }).from(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id)).get(),
+    db.select({ price: bookingTopUps.price }).from(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id)).orderBy(asc(bookingTopUps.createdAt)),
   ]);
-  const topUpsTotal = Number(topUps?.s ?? 0) as Centavos;
+  // Each 30-minute step, in the order added: a Promo also covers the first full hour of them.
+  const topUpSteps = topUps.map((t) => t.price as Centavos);
+  const topUpsTotal = topUpSteps.reduce((s, x) => s + x, 0) as Centavos;
   const regular = effectiveOn(prices, day);
   if (!regular) return fail(c, 409, 'no_price', 'This service has no price for that day. Ask the Super Admin to set one.');
   const setAside = effectiveOn(setAsides, day)?.amount ?? 0;
@@ -180,6 +182,7 @@ async function price(c: Context<AuthedEnv>, input: PriceInput, correcting?: { bo
       complimentary: input.complimentary,
       voucher: voucher && { serial: voucher.serial, isFree: voucherBundle!.thisIsFree },
       topUpsTotal,
+      topUpSteps,
     }),
     setAside,
     commission: commissionFor((regular.regularPrice + topUpsTotal) as Centavos, rate, isHoliday, setAside),

@@ -344,3 +344,30 @@ describe('Therapist Change', () => {
     expect((await desk.post(`/bookings/${id}/change-therapist`, { therapistId: c, reason: 'Too late' })).status).toBe(409);
   });
 });
+
+describe('Happy Hours with added time', () => {
+  it('covers one more full hour of a Swedish started in its hours, not a half hour or time past 2 hours', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    // A fixed past day while Happy Hours runs (to Nov 30), started at 5:30pm, inside its hours (to 6:00pm).
+    const day = '2026-11-10';
+    const at = (hhmm: string) => new Date(`${day}T${hhmm}:00+08:00`).toISOString();
+    const quote = async (steps: number) => {
+      const id = crypto.randomUUID();
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, service_id, duration_min, therapist_id, room_id, started_at, done_at, created_at) VALUES (?, ?, 'walk_in', 'done', 'swedish-60', ?, ?, 1, ?, ?, ?)`).bind(id, day, 60 + steps * 30, t, at('17:30'), at('20:30'), at('17:30')),
+        ...Array.from({ length: steps }, (_, i) =>
+          env.DB.prepare(`INSERT INTO booking_top_ups (id, booking_id, minutes, price, created_at) VALUES (?, ?, 30, 25000, ?)`).bind(crypto.randomUUID(), id, `${at('17:30').slice(0, 19)}.00${i}Z`),
+        ),
+      ]);
+      return json<{ discount: { type: string; amount: number }; amountDue: number }>(await desk.post('/sales/quote', { bookingId: id, promoId: 'happy-hours' }));
+    };
+    // 1.5 hours: the half hour pays full price.
+    expect(await quote(1)).toMatchObject({ discount: { type: 'promo', amount: 5000 }, amountDue: 70000 });
+    // 2 hours: both hours at 10% off, though the second starts at 6:30pm.
+    expect(await quote(2)).toMatchObject({ discount: { amount: 10000 }, amountDue: 90000 });
+    // 3 hours: the third hour pays full price.
+    expect(await quote(4)).toMatchObject({ discount: { amount: 10000 }, amountDue: 140000 });
+  });
+});

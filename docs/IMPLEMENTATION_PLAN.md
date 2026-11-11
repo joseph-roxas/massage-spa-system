@@ -735,7 +735,7 @@ Grilled with the owner on 2026-11-08 (three rounds), then adjusted while the own
 
 1. **Top-up**: singles only, 30-minute steps, repeatable, same Booking and sale, no extra Rotation cost, no second Set-aside.
 2. **Price**: Foot and Back at either length use the 30-minute price in Settings (₱250), and each full extra hour costs the 1-hour price (₱450), however it was added: 2 hours of Foot is ₱900. Other 1-hour Services are half their Regular Price. 1.5-hour Services take a chosen 30-minute head, back or foot massage at its price. Head Massage is an inactive Service (`head-30`, ₱250) so its price is editable.
-3. **Discounts**: Senior/PWD on the whole bill; Happy Hours and Voucher on the original Service only; Complimentary covers all. Commission on full prices less the Set-aside.
+3. **Discounts**: Senior/PWD on the whole bill; Voucher on the original Service only; Happy Hours on the original Service, later also one more full hour of Top-ups (§20); Complimentary covers all. Commission on full prices less the Set-aside.
 4. **Service Change**: during service or before payment, reason required, full price of the new Service only, counted from the original start, clears Top-ups. A warning if the new Service is shorter than the time used.
 5. **Therapist Change**: during service, reason required, new Therapist must be free. Clock runs on, whole Commission to the new one. The replaced Therapist keeps their old place, passed only by named Guests. The new one loses a place when done unless the Guest named them.
 6. **As built**: `booking_top_ups`, `therapist_changes`, `sales.top_ups_total`; `sales.regular_price` includes Top-ups. `modules/service-changes.ts`, `lib/top-ups.ts`, `packages/domain/src/topups.ts`.
@@ -895,3 +895,13 @@ Grilled with the owner on 2026-11-11 (two rounds). Built on `cr-6` on top of 16.
 **17.9 Laundry Breakdown.** The Receptionist's Laundry Cash-out is rows of date and amount due; the total is added up, never typed (the API refuses a typed amount). Dates within the 14 days up to today, each once; a day already in an earlier Laundry payment is a warning only. Still one Cash-out from Sales Cash dated the day paid. The breakdown shows on the Cash-out list, the Expenses page and the Expenses report's "Days paid for" column. Older Laundry, Nov 2-8 Expenses and the Super Admin's Expenses keep a single amount.
 
 **Also fixed on the way:** the Correct sales page's boxes lost their styling when given a width; they are wrapped instead.
+
+## 20. Happy Hours covers up to 2 hours of Swedish (on `main`)
+
+Asked by the owner on 2026-11-11, after `cr-6` was merged; committed straight to `main` at the owner's request. No migration.
+
+1. A Promo covers its Service and one more full hour of Top-ups (the first two 30-minute steps). The start of the Service decides it for the whole: a 2-hour Swedish started at 5:30pm gets 10% off both hours, though the second runs past 6:00pm.
+2. A half hour, or time past 2 hours, pays full price. Swedish at ₱500 with Happy Hours: 1 hour ₱450, 1.5 hours ₱700, 2 hours ₱900, 2.5 hours ₱1,150, 3 hours ₱1,400.
+3. Time added while the Service is under way counts the same as time booked upfront.
+4. Senior/PWD still take 20% off the whole bill instead; Commission is still on the full price.
+5. `quoteSale` takes each Top-up step's price (`topUpSteps`); `promoCoveredTopUps` in `packages/domain/src/pricing.ts`. Correct start time re-prices by the same rule.

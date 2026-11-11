@@ -301,7 +301,7 @@ describe('Therapist Change', () => {
     const one = (await json<{ report: Report }>(await desk.get(`/reports/therapist-detail?${range}&therapist=${b}`))).report;
     expect(one.rows).toHaveLength(1);
     // Each line names its Guest, or says Walk-in guest when no name was taken.
-    expect(one.rows[0]).toMatchObject({ guest: expect.any(String), regular: 50000, commission: 15000 });
+    expect(one.rows[0]).toMatchObject({ guest: expect.any(String), room: expect.stringMatching(/^Room \d$/), regular: 50000, commission: 15000 });
     expect(String(one.rows[0]!.note)).toMatch(/Took over from .*Pressure hurt the shoulder/);
 
     const all = (await json<{ report: Report }>(await desk.get(`/reports/therapist-detail?${range}`))).report;

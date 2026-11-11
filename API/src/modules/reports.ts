@@ -39,6 +39,7 @@ import {
   voucherSales,
   dailySummaries,
   rejects,
+  rooms,
 } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { fail, invalidInput } from '../lib/http';
@@ -312,6 +313,7 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
         name: staff.displayName,
         startedAt: bookings.startedAt,
         guest: bookings.guestName,
+        room: rooms.name,
         enteredLate: bookings.enteredLate,
         enteredAt: bookings.createdAt,
         service: services.name,
@@ -324,6 +326,7 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
       .innerJoin(bookings, eq(bookings.id, sales.bookingId))
       .innerJoin(services, eq(services.id, sales.serviceId))
       .innerJoin(staff, eq(staff.id, sales.therapistId))
+      .leftJoin(rooms, eq(rooms.id, bookings.roomId))
       .where(inRange)
       .orderBy(asc(staff.displayName), asc(bookings.startedAt)),
     db.select({ id: staff.id, name: staff.displayName }).from(staff),
@@ -339,6 +342,7 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
     col('when', 'Date and time'),
     col('guest', 'Guest'),
     col('service', 'Service'),
+    col('room', 'Room'),
     col('regular', 'Regular Price', 'money'),
     col('setAside', 'Owner’s Set-aside', 'money'),
     col('commission', 'Commission', 'money'),
@@ -347,7 +351,7 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
   const rows: Row[] = lines.map((x) => {
     const change = changes.filter((c) => c.bookingId === x.bookingId).at(-1);
     const notes = [x.enteredLate ? `Entered late, at ${whenLabel(x.enteredAt)}` : null, x.topUps > 0 ? `Includes added time ₱${x.topUps / 100}` : null, change ? `Took over from ${people.find((p) => p.id === change.from)?.name ?? 'another therapist'}: ${change.reason}` : null].filter(Boolean);
-    return { name: x.name, when: x.startedAt ? whenLabel(x.startedAt) : null, guest: x.guest || 'Walk-in guest', service: x.service, regular: x.regular, setAside: x.setAside, commission: x.commission, note: notes.join(' · ') || null };
+    return { name: x.name, when: x.startedAt ? whenLabel(x.startedAt) : null, guest: x.guest || 'Walk-in guest', service: x.service, room: x.room ?? null, regular: x.regular, setAside: x.setAside, commission: x.commission, note: notes.join(' · ') || null };
   });
   return {
     title: 'Therapist Sales',

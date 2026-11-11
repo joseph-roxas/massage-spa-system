@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { onBusinessDay } from '@spa/domain';
 import { Alert, Badge, Button, Card, Field, Input, Select, td, th } from '../components/ui';
 import { api } from '../lib/api';
-import { useServices } from '../lib/catalogue';
+import { useRooms, useServices } from '../lib/catalogue';
 import { manilaTime } from '../lib/attendance';
 import { longDate, parsePesos, peso, todayManila } from '../lib/format';
 import { TimeInput } from '../components/TimeInput';
@@ -15,6 +15,8 @@ type Detail = {
     guestName: string | null;
     serviceId: string;
     serviceName: string;
+    roomId: number | null;
+    roomName: string | null;
     therapistName: string | null;
     startedAt: string;
     doneAt: string;
@@ -42,7 +44,9 @@ export function CorrectSalesPage() {
       for (const key of ['day-detail', 'front-desk', 'cash', 'close-preview', 'reports', 'dashboard']) qc.invalidateQueries({ queryKey: [key] });
     },
   });
-  const [editing, setEditing] = useState<{ id: string; what: 'start' | 'service' } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; what: 'start' | 'service' | 'room' } | null>(null);
+  const [roomId, setRoomId] = useState('');
+  const rooms = useRooms();
   const [time, setTime] = useState('');
   const [serviceId, setServiceId] = useState('');
   const services = useServices();
@@ -64,6 +68,12 @@ export function CorrectSalesPage() {
     setReason('');
     act.reset();
   };
+  const startRoom = (id: string, current: number | null) => {
+    setEditing({ id, what: 'room' });
+    setRoomId(current ? String(current) : '');
+    setReason('');
+    act.reset();
+  };
   /** Why a sale's Service can't be corrected here, or null. */
   const serviceBlock = (r: Detail['services'][number]) =>
     !r.sale ? 'Not checked out' : r.sale.discountType === 'voucher' ? 'Paid with a Voucher: void and check out again' : r.sale.topUpsTotal > 0 ? 'Has added time: void and check out again' : null;
@@ -73,7 +83,7 @@ export function CorrectSalesPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Correct sales</h1>
-          <p className="text-sm text-stone-600">Fix when a service really started or which service it was, or what was really counted at a Day Close.</p>
+          <p className="text-sm text-stone-600">Fix when a service really started, which service or room it was, or what was really counted at a Day Close.</p>
         </div>
         <Field label="Business Day">
           <div className="w-44">
@@ -141,6 +151,7 @@ export function CorrectSalesPage() {
                   <th className={th}>Served</th>
                   <th className={th}>Guest and service</th>
                   <th className={th}>Therapist</th>
+                  <th className={th}>Room</th>
                   <th className={th}>Discount</th>
                   <th className={`${th} text-right`}>Paid</th>
                   <th className={th} />
@@ -161,6 +172,7 @@ export function CorrectSalesPage() {
                       {r.guestName || 'Walk-in guest'} · {r.serviceName}
                     </td>
                     <td className={td}>{r.therapistName}</td>
+                    <td className={td}>{r.roomName ?? '—'}</td>
                     <td className={td}>
                       {r.sale ? `${DISCOUNT_LABELS[r.sale.discountType] ?? r.sale.discountType}${r.sale.discountAmount ? ` −${peso(r.sale.discountAmount)}` : ''}` : 'Not checked out'}
                     </td>
@@ -225,6 +237,40 @@ export function CorrectSalesPage() {
                             Cancel
                           </Button>
                         </form>
+                      ) : editing?.id === r.bookingId && editing.what === 'room' ? (
+                        <form
+                          className="flex flex-wrap items-end justify-end gap-2"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            act.mutate({ path: '/sales/correct-room', body: { bookingId: r.bookingId, roomId: Number(roomId), reason } }, { onSuccess: () => setEditing(null) });
+                          }}
+                        >
+                          <div className="w-40">
+                            <Field label="Really in">
+                              <Select required value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+                                <option value="">Choose a room…</option>
+                                {(rooms.data?.rooms ?? [])
+                                  .filter((x) => x.active)
+                                  .map((x) => (
+                                    <option key={x.id} value={x.id}>
+                                      {x.name}
+                                    </option>
+                                  ))}
+                              </Select>
+                            </Field>
+                          </div>
+                          <Field label="Why">
+                            <div className="w-56">
+                              <Input required minLength={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+                            </div>
+                          </Field>
+                          <Button type="submit" className="h-10" disabled={act.isPending || !roomId || Number(roomId) === r.roomId}>
+                            Save
+                          </Button>
+                          <Button type="button" variant="secondary" className="h-10" onClick={() => setEditing(null)}>
+                            Cancel
+                          </Button>
+                        </form>
                       ) : (
                         <span className="inline-flex flex-wrap justify-end gap-2">
                           <Button variant="secondary" className="h-8 px-3" onClick={() => startEdit(r.bookingId, r.startedAt)}>
@@ -232,6 +278,9 @@ export function CorrectSalesPage() {
                           </Button>
                           <Button variant="secondary" className="h-8 px-3" disabled={!!serviceBlock(r)} title={serviceBlock(r) ?? undefined} onClick={() => startService(r.bookingId, r.serviceId)}>
                             Correct service
+                          </Button>
+                          <Button variant="secondary" className="h-8 px-3" onClick={() => startRoom(r.bookingId, r.roomId)}>
+                            Correct room
                           </Button>
                         </span>
                       )}

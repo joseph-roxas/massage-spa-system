@@ -10,7 +10,7 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 type Listed = { id: string; name: string; phone: string | null; statutoryIdMasked: string | null; visits: number; lastVisit: string | null; isRegular: boolean };
-type Detail = { guest: Listed & { statutoryType: string | null; statutoryIdNo: string | null; avgDaysBetween: number | null }; visits: { day: string; serviceName: string }[]; vouchers: { day: string; total: number }[] };
+type Detail = { guest: Listed & { statutoryType: string | null; statutoryIdNo: string | null; avgDaysBetween: number | null }; visits: { day: string; serviceName: string; roomName: string | null }[]; vouchers: { day: string; total: number }[] };
 
 const daysAgo = (n: number) => {
   const d = new Date(`${businessDayOf(new Date())}T00:00:00Z`);
@@ -25,7 +25,7 @@ async function pastVisit(guestId: string, day: string, status: 'paid' | 'voided'
   const therapist = (await env.DB.prepare(`SELECT id FROM staff WHERE kind = 'therapist' LIMIT 1`).first<{ id: string }>())!.id;
   await env.DB.batch([
     env.DB.prepare(`INSERT OR IGNORE INTO business_days (date, opened_at, closed_at) VALUES (?, ?, ?)`).bind(day, now, now),
-    env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, guest_id, service_id, duration_min, created_at) VALUES (?, ?, 'walk_in', 'done', ?, 'swedish-60', 60, ?)`).bind(
+    env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, guest_id, service_id, duration_min, room_id, created_at) VALUES (?, ?, 'walk_in', 'done', ?, 'swedish-60', 60, 5, ?)`).bind(
       booking,
       day,
       guestId,
@@ -96,6 +96,8 @@ describe('Guest Records', () => {
     const d = await json<Detail>(await desk.get(`/guests/${id}`));
     expect(d.guest).toMatchObject({ visits: 3, isRegular: true, avgDaysBetween: 19 });
     expect(d.visits.map((v) => v.day)).toEqual([daysAgo(2), daysAgo(20), daysAgo(20), daysAgo(40)]);
+    // The Room each visit was in, e.g. to trace a lost item.
+    expect(d.visits[0]!.roomName).toBe('Room 5');
 
     // Only the Super Admin changes the rule.
     expect((await desk.send('PUT', '/settings/pay-rules/regular_guest_rule', { value: { visits: 4, days: 90 } })).status).toBe(403);

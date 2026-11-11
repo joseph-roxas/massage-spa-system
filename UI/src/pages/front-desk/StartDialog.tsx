@@ -8,28 +8,25 @@ import { useServices } from '../../lib/catalogue';
 import { duration } from '../../lib/format';
 import { fetchSuggestion, guestLabel, isNamedReservation, useDeskAction, type Board, type Booking } from '../../lib/front-desk';
 
-export function StartDialog({ booking, board, onClose }: { booking: Booking; board: Board; onClose: () => void }) {
+export function StartDialog({ booking, board, roomId: pickedRoomId, onClose }: { booking: Booking; board: Board; /** A Room the desk already picked on the walk-in form. */ roomId?: number | null; onClose: () => void }) {
   const suggestion = useQuery({ queryKey: ['suggest', booking.id], queryFn: () => fetchSuggestion(booking.id), staleTime: 0 });
   const services = useServices();
   const start = useDeskAction();
   const [therapistId, setTherapistId] = useState('');
-  const [roomId, setRoomId] = useState('');
+  // The desk always picks the Room itself; one picked on the walk-in form carries over if still free.
+  const [roomId, setRoomId] = useState(() => (pickedRoomId && board.rooms.some((r) => r.id === pickedRoomId && r.active && !r.booking) ? String(pickedRoomId) : ''));
   const [flexMode, setFlexMode] = useState<'floor' | 'recliner'>('floor');
   const [portableTable, setPortableTable] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
   const [guestAsked, setGuestAsked] = useState(false);
   const { data: me } = useCurrentUser();
 
-  // Pre-fill with the suggestion once it arrives.
+  // Pre-fill the therapist with the suggestion once it arrives; the Room is left for the desk to pick.
   const s = suggestion.data;
   useEffect(() => {
     if (!s) return;
     /* eslint-disable react-hooks/set-state-in-effect -- one-time prefill from the server's suggestion */
     if (s.therapist) setTherapistId(s.therapist.staffId);
-    if (s.room) {
-      setRoomId(String(s.room.roomId));
-      if (s.room.flexMode) setFlexMode(s.room.flexMode);
-    }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [s]);
 
@@ -92,7 +89,7 @@ export function StartDialog({ booking, board, onClose }: { booking: Booking; boa
           </Field>
           <Field label="Room">
             <Select required value={roomId} onChange={(e) => setRoomId(e.target.value)}>
-              <option value="">Choose…</option>
+              <option value="">Choose a room…</option>
               {freeRooms.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}

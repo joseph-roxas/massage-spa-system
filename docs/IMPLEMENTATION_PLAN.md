@@ -905,3 +905,13 @@ Asked by the owner on 2026-11-11, after `cr-6` was merged; committed straight to
 3. Time added while the Service is under way counts the same as time booked upfront.
 4. Senior/PWD still take 20% off the whole bill instead; Commission is still on the full price.
 5. `quoteSale` takes each Top-up step's price (`topUpSteps`); `promoCoveredTopUps` in `packages/domain/src/pricing.ts`. Correct start time re-prices by the same rule.
+
+## 21. The desk picks the Room (branch `cr-8`)
+
+Asked by the owner on 2026-11-11: a Guest may prefer a certain Room, and the shop wants a record of the Room in case an item is lost. No migration: every Booking already keeps its `room_id`.
+
+1. **New walk-in, Start now:** a required Room box listing only free Rooms (occupied ones are not shown); the Flex Room asks floor bed or, for foot services, recliner. The Service starts there with the next therapist. If no therapist is free, the Start dialog opens with that Room kept.
+2. **Start dialog:** the therapist is still suggested; the Room is no longer filled in, the desk picks it from the free ones.
+3. **Scheduled bookings** have no Room option and nothing is held; the Room is picked when the Service starts.
+4. **Where the Room shows:** the Front Desk's Finished list, the Guest's visit history (now with the time too), a Room column in the Therapist Sales report, and the Correct sales page.
+5. **Correct room** (Correct sales, Super Admin, `POST /sales/correct-room`): records the Room a finished Service was really in, with a reason; refused if another Guest was in that Room at the time. Nothing is re-priced. Audit `booking.correct_room`.

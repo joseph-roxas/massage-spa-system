@@ -748,3 +748,33 @@ describe('Laundry Breakdown', () => {
     expect(paid.days).toEqual(expect.arrayContaining([yesterday, today()]));
   });
 });
+
+describe('Correcting a room', () => {
+  it('records the Room a finished service was really in, unless another guest was there then', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const day = '2026-11-10';
+    const at = (hhmm: string) => new Date(`${day}T${hhmm}:00+08:00`).toISOString();
+    const [mine, other] = [crypto.randomUUID(), crypto.randomUUID()];
+    const insert = (id: string, room: number, from: string, to: string, guest: string) =>
+      env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, service_id, duration_min, therapist_id, room_id, guest_name, started_at, done_at, created_at) VALUES (?, ?, 'walk_in', 'done', 'swedish-60', 60, ?, ?, ?, ?, ?, ?)`).bind(
+        id, day, t, room, guest, at(from), at(to), at(from),
+      );
+    await env.DB.batch([insert(mine, 2, '15:00', '16:00', 'Lia Santos'), insert(other, 4, '15:30', '16:30', 'Ben Cruz')]);
+    const body = { bookingId: mine, roomId: 3, reason: 'Guest was in Room 3; left a watch' };
+
+    expect((await desk.post('/sales/correct-room', body)).status).toBe(403);
+    // Room 4 had another guest from 3:30pm.
+    expect((await admin.post('/sales/correct-room', { ...body, roomId: 4 })).status).toBe(409);
+    expect((await admin.post('/sales/correct-room', body)).status).toBe(200);
+    const row = await env.DB.prepare(`SELECT room_id FROM bookings WHERE id = ?`).bind(mine).first<{ room_id: number }>();
+    expect(row?.room_id).toBe(3);
+
+    type Detail = { services: { bookingId: string; roomId: number; roomName: string }[] };
+    const detail = await (await admin.get(`/sales/day-detail?day=${day}`)).json<Detail>();
+    expect(detail.services.find((s) => s.bookingId === mine)).toMatchObject({ roomId: 3, roomName: 'Room 3' });
+    const audit = await env.DB.prepare(`SELECT reason FROM audit_log WHERE action = 'booking.correct_room' AND entity_id = ?`).bind(mine).first<{ reason: string }>();
+    expect(audit?.reason).toBe(body.reason);
+  });
+});

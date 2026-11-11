@@ -20,7 +20,7 @@ export type GuestListed = {
 
 export type GuestDetail = {
   guest: GuestListed & { statutoryIdNo: string | null; mergedInto: string | null };
-  visits: { day: string; serviceName: string; therapistName: string; amountDue: number; discountType: string }[];
+  visits: { day: string; startedAt: string | null; serviceName: string; therapistName: string; roomName: string | null; amountDue: number; discountType: string }[];
   vouchers: { id: string; day: string; serviceName: string; qtyPaid: number; qtyFree: number; total: number; status: string }[];
 };
 

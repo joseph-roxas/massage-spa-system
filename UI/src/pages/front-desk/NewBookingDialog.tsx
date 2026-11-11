@@ -6,7 +6,7 @@ import { Modal } from '../../components/Modal';
 import { fromLocalInput, useClockStaff } from '../../lib/attendance';
 import { useRooms, useServices } from '../../lib/catalogue';
 import { duration, peso } from '../../lib/format';
-import { fetchSuggestion, useDeskAction } from '../../lib/front-desk';
+import { fetchSuggestion, useBoard, useDeskAction } from '../../lib/front-desk';
 import { DateTimeInput, TimeInput } from '../../components/TimeInput';
 
 /** Up to three more hours from the booking form; a longer stay can still be topped up during the Service. */
@@ -19,8 +19,8 @@ export function NewBookingDialog({
 }: {
   kind: 'walk_in' | 'scheduled';
   onClose: () => void;
-  /** Called with the new walk-in when it could not be started automatically. */
-  onNeedsAssignment: (bookingId: string) => void;
+  /** Called with the new walk-in, and the Room picked for it, when it could not be started straight away. */
+  onNeedsAssignment: (bookingId: string, roomId: number | null) => void;
 }) {
   const services = useServices();
   const staff = useClockStaff();
@@ -43,8 +43,13 @@ export function NewBookingDialog({
     flexMode: 'floor' as 'floor' | 'recliner',
     startedAt: '',
     finishedAt: '',
+    // Starting now: the Room the desk picks, always by hand, from the free ones.
+    startRoomId: '',
+    startFlexMode: 'floor' as 'floor' | 'recliner',
   });
   const rooms = useRooms();
+  const board = useBoard();
+  const freeRooms = (board.data?.rooms ?? []).filter((r) => r.active && !r.booking);
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const offered = services.data?.services.filter((s) => s.active) ?? [];
@@ -66,6 +71,8 @@ export function NewBookingDialog({
   const lengths = service && rule ? Array.from({ length: MAX_EXTRA_STEPS + 1 }, (_, i) => i) : [];
 
   const late = kind === 'walk_in' && form.late;
+  const startingNow = kind === 'walk_in' && !late && form.startNow;
+  const startRoom = freeRooms.find((r) => String(r.id) === form.startRoomId);
   const lateRoom = rooms.data?.rooms.find((r) => String(r.id) === form.roomId);
   /** A time today, as typed on the form; before 6:00am is after midnight, still today's Business Day. */
   const todayAt = (hhmm: string) => onBusinessDay(businessDayOf(new Date()), hhmm).toISOString();
@@ -104,15 +111,17 @@ export function NewBookingDialog({
     if (!id) return;
     if (kind === 'scheduled' || !form.startNow) return onClose();
 
-    // Start straight away when the suggestion is clear: a therapist and a room are free.
+    // Start straight away in the Room the desk picked, when the next therapist is clear.
+    const roomId = Number(form.startRoomId);
+    const flexMode = startRoom?.isFlex ? (service?.isFootType ? form.startFlexMode : 'floor') : null;
     const s = await fetchSuggestion(id);
-    if (s.therapist && s.room) {
+    if (s.therapist) {
       await start
-        .mutateAsync({ path: `/bookings/${id}/start`, body: { therapistId: s.therapist.staffId, roomId: s.room.roomId, flexMode: s.room.flexMode } })
+        .mutateAsync({ path: `/bookings/${id}/start`, body: { therapistId: s.therapist.staffId, roomId, flexMode } })
         .then(onClose)
-        .catch(() => onNeedsAssignment(id));
+        .catch(() => onNeedsAssignment(id, roomId));
     } else {
-      onNeedsAssignment(id);
+      onNeedsAssignment(id, roomId);
     }
   }
 
@@ -244,8 +253,31 @@ export function NewBookingDialog({
           <Input value={form.notes} onChange={(e) => set('notes', e.target.value)} />
         </Field>
         {kind === 'walk_in' && !late && (
-          <Checkbox label="Start now if a therapist and room are free" checked={form.startNow} onChange={(e) => set('startNow', e.target.checked)} />
+          <Checkbox label="Start now if a therapist is free" checked={form.startNow} onChange={(e) => set('startNow', e.target.checked)} />
         )}
+        {startingNow && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Room" hint={freeRooms.length ? 'Free rooms only. Kept with the service, e.g. for lost items.' : undefined}>
+              <Select required value={form.startRoomId} onChange={(e) => set('startRoomId', e.target.value)}>
+                <option value="">Choose a room…</option>
+                {freeRooms.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {startRoom?.isFlex && (
+              <Field label={`Set up ${startRoom.name} as`}>
+                <Select value={service?.isFootType ? form.startFlexMode : 'floor'} onChange={(e) => set('startFlexMode', e.target.value as 'floor' | 'recliner')}>
+                  <option value="floor">Floor bed</option>
+                  {service?.isFootType && <option value="recliner">Foot recliner</option>}
+                </Select>
+              </Field>
+            )}
+          </div>
+        )}
+        {startingNow && board.data && !freeRooms.length && <Alert tone="info">All rooms are taken. Untick Start now to add the guest to the waiting list.</Alert>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={create.isPending || start.isPending}>

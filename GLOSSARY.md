@@ -107,7 +107,7 @@ A Guest's reservation of a Service with a Therapist, either a Walk-in starting n
 _Avoid_: Appointment, reservation
 
 **Room**:
-A treatment room holding one Guest at a time; the shop's capacity is its 8 Rooms. Rooms 1–7 have a floor bed.
+A treatment room holding one Guest at a time; the shop's capacity is its 8 Rooms. Rooms 1–7 have a floor bed. The desk always picks a free Room by hand when a Service starts, a Guest's preferred one if they ask, and the Room each Service was done in is kept, e.g. to trace a lost item. A Scheduled Booking has no Room until it starts.
 _Avoid_: Station, bed, cubicle
 
 **Flex Room**:

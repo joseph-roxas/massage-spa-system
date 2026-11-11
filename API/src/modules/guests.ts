@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, isNull, like, or } from 'drizzle-orm';
 import { maskId, properName } from '@spa/domain';
-import { bookings, guests, sales, services, staff, STATUTORY_TYPES, voucherSales } from '@spa/db';
+import { bookings, guests, rooms, sales, services, staff, STATUTORY_TYPES, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { regularRule, visitStatsFor, type GuestRow } from '../lib/guests';
@@ -66,11 +66,12 @@ export const guestRoutes = new Hono<AuthedEnv>()
     const [stats, visits, bought] = await Promise.all([
       visitStatsFor(db, [g.id]),
       db
-        .select({ day: bookings.businessDay, serviceName: services.name, therapistName: staff.displayName, amountDue: sales.amountDue, discountType: sales.discountType })
+        .select({ day: bookings.businessDay, startedAt: bookings.startedAt, serviceName: services.name, therapistName: staff.displayName, roomName: rooms.name, amountDue: sales.amountDue, discountType: sales.discountType })
         .from(bookings)
         .innerJoin(sales, and(eq(sales.bookingId, bookings.id), eq(sales.status, 'paid')))
         .innerJoin(services, eq(services.id, bookings.serviceId))
         .innerJoin(staff, eq(staff.id, sales.therapistId))
+        .leftJoin(rooms, eq(rooms.id, bookings.roomId))
         .where(eq(bookings.guestId, g.id))
         .orderBy(desc(bookings.businessDay), desc(sales.createdAt)),
       db

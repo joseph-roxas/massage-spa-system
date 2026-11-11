@@ -5,6 +5,7 @@ import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import {
   addMinutes,
   businessDayOf,
+  overlaps,
   can,
   commissionFor,
   commissionRateOn,
@@ -24,7 +25,7 @@ import {
   type PaymentLine,
   type Quote,
 } from '@spa/domain';
-import { bookings, bookingTopUps, businessDays, commissionRates, holidays, PAYMENT_METHODS, payments, payrolls, promos, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
+import { bookings, bookingTopUps, businessDays, commissionRates, holidays, PAYMENT_METHODS, payments, payrolls, promos, rooms, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
@@ -412,10 +413,11 @@ export const salesRoutes = new Hono<AuthedEnv>()
     const { day } = c.req.valid('query');
     const [rows, daySales, pays, dayRow] = await Promise.all([
       db
-        .select({ booking: bookings, serviceName: services.name, therapistName: staff.displayName })
+        .select({ booking: bookings, serviceName: services.name, therapistName: staff.displayName, roomName: rooms.name })
         .from(bookings)
         .innerJoin(services, eq(services.id, bookings.serviceId))
         .leftJoin(staff, eq(staff.id, bookings.therapistId))
+        .leftJoin(rooms, eq(rooms.id, bookings.roomId))
         .where(and(eq(bookings.businessDay, day), eq(bookings.status, 'done')))
         .orderBy(asc(bookings.startedAt)),
       db.select().from(sales).where(and(eq(sales.businessDay, day), eq(sales.status, 'paid'))),
@@ -424,7 +426,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
     ]);
     return c.json({
       day: dayRow ?? null,
-      services: rows.map(({ booking: b, serviceName, therapistName }) => {
+      services: rows.map(({ booking: b, serviceName, therapistName, roomName }) => {
         const sale = daySales.find((s) => s.bookingId === b.id) ?? null;
         return {
           bookingId: b.id,
@@ -432,6 +434,8 @@ export const salesRoutes = new Hono<AuthedEnv>()
           serviceId: b.serviceId,
           serviceName,
           therapistName,
+          roomId: b.roomId,
+          roomName,
           startedAt: b.startedAt,
           doneAt: b.doneAt,
           enteredLate: b.enteredLate,
@@ -589,6 +593,42 @@ export const salesRoutes = new Hono<AuthedEnv>()
       ];
       await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
       return c.json({ ok: true, ...after });
+    },
+  )
+
+  /**
+   * Super Admin: records the Room a finished Service was really done in, e.g. to trace a lost item.
+   * Refused if another Guest was in that Room at the time. Nothing is re-priced.
+   */
+  .post(
+    '/correct-room',
+    requireCapability('day.reopen'),
+    zValidator('json', z.object({ bookingId: z.string().min(1), roomId: z.number().int().positive(), reason: z.string().trim().min(3, 'Give a short reason.').max(300) }), invalidInput),
+    async (c) => {
+      const db = c.var.db;
+      const input = c.req.valid('json');
+      const booking = await db.select().from(bookings).where(eq(bookings.id, input.bookingId)).get();
+      if (!booking || booking.status !== 'done' || !booking.startedAt || !booking.doneAt) return fail(c, 409, 'not_done', 'Only a finished service can have its room corrected.');
+      if (booking.roomId === input.roomId) return fail(c, 400, 'same_room', 'That is already its room.');
+      const [room, service, sameRoom] = await Promise.all([
+        db.select().from(rooms).where(eq(rooms.id, input.roomId)).get(),
+        db.select().from(services).where(eq(services.id, booking.serviceId)).get(),
+        db
+          .select({ id: bookings.id, guestName: bookings.guestName, startedAt: bookings.startedAt, doneAt: bookings.doneAt, status: bookings.status })
+          .from(bookings)
+          .where(and(eq(bookings.roomId, input.roomId), eq(bookings.businessDay, booking.businessDay), ne(bookings.id, booking.id))),
+      ]);
+      if (!room || !room.active) return fail(c, 400, 'unknown_room', 'Pick a room that is in use.');
+      const span = { start: booking.startedAt, end: booking.doneAt };
+      const clash = sameRoom.find((b) => (b.status === 'done' || b.status === 'in_service') && b.startedAt && overlaps(span, { start: b.startedAt, end: b.doneAt ?? nowIso() }));
+      if (clash) return fail(c, 409, 'room_taken', `${room.name} had another guest then (${clash.guestName || 'a walk-in guest'}).`);
+      // The Flex Room takes a foot service on its recliner, anything else on its floor bed.
+      const flexMode = room.isFlex ? (service?.isFootType ? 'recliner' : 'floor') : null;
+      await db.batch([
+        db.update(bookings).set({ roomId: room.id, flexMode }).where(eq(bookings.id, booking.id)),
+        auditInsert(db, { actorUserId: c.var.user.id, action: 'booking.correct_room', entity: 'booking', entityId: booking.id, before: { roomId: booking.roomId, flexMode: booking.flexMode }, after: { roomId: room.id, flexMode }, reason: input.reason }),
+      ]);
+      return c.json({ ok: true, roomId: room.id });
     },
   )
 

@@ -315,6 +315,8 @@ function FrontDeskBoard() {
   const done = useDeskAction();
   const [creating, setCreating] = useState<'walk_in' | 'scheduled' | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
+  /** The Room picked on the walk-in form, carried into the Start dialog. */
+  const [startRoom, setStartRoom] = useState<number | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
   const [finishing, setFinishing] = useState<string | null>(null);
@@ -404,7 +406,7 @@ function FrontDeskBoard() {
             ) : (
               <ul className="divide-y divide-stone-100">
                 {queue.map((b) => (
-                  <QueueLine key={b.id} b={b} onStart={(x) => setStarting(x.id)} onChange={(x, mode) => setChanging({ id: x.id, mode })} />
+                  <QueueLine key={b.id} b={b} onStart={(x) => (setStartRoom(null), setStarting(x.id))} onChange={(x, mode) => setChanging({ id: x.id, mode })} />
                 ))}
               </ul>
             )}
@@ -431,6 +433,7 @@ function FrontDeskBoard() {
                     <span className="text-stone-600">
                       {b.therapistName}
                       {b.requestedTherapistId === b.therapistId && b.therapistId ? ' (requested)' : ''}
+                      {b.roomId && <span className="text-stone-500"> · {board.rooms.find((r) => r.id === b.roomId)?.name ?? `Room ${b.roomId}`}</span>}
                     </span>
                     <span className="w-28 text-right">
                       {b.sale ? (
@@ -454,13 +457,24 @@ function FrontDeskBoard() {
         <NewBookingDialog
           kind={creating}
           onClose={() => setCreating(null)}
-          onNeedsAssignment={(id) => {
+          onNeedsAssignment={(id, roomId) => {
             setCreating(null);
+            setStartRoom(roomId);
             setStarting(id);
           }}
         />
       )}
-      {startingBooking && <StartDialog booking={startingBooking} board={board} onClose={() => setStarting(null)} />}
+      {startingBooking && (
+        <StartDialog
+          booking={startingBooking}
+          board={board}
+          roomId={startRoom}
+          onClose={() => {
+            setStarting(null);
+            setStartRoom(null);
+          }}
+        />
+      )}
       {payingBooking && <CheckoutDialog booking={payingBooking} onClose={() => setPaying(null)} />}
       {addingBooking && <AddServiceDialog booking={addingBooking} onClose={() => setAdding(null)} />}
       {actedOn && roomAction?.what === 'top-up' && <ServiceTopUpDialog booking={actedOn} onClose={() => setRoomAction(null)} />}

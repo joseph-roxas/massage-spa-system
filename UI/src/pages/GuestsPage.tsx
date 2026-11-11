@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { Alert, Badge, Button, Card, Field, Input, Select, td, th } from '../components/ui';
 import { useCan } from '../lib/auth';
+import { manilaTime } from '../lib/attendance';
 import { longDate, peso } from '../lib/format';
 import { STATUTORY_LABEL, useGuest, useGuestAction, useGuests, visitsLabel, type GuestDetail, type RegularRule, type StatutoryType } from '../lib/guests';
 
@@ -223,15 +224,20 @@ export function GuestPage() {
                 <th className={th}>Day</th>
                 <th className={th}>Service</th>
                 <th className={th}>Therapist</th>
+                <th className={th}>Room</th>
                 <th className={`${th} text-right`}>Paid</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
               {visits.map((v, i) => (
                 <tr key={i}>
-                  <td className={td}>{longDate(v.day)}</td>
+                  <td className={td}>
+                    {longDate(v.day)}
+                    {v.startedAt && <span className="text-stone-500"> · {manilaTime(v.startedAt)}</span>}
+                  </td>
                   <td className={td}>{v.serviceName}</td>
                   <td className={td}>{v.therapistName}</td>
+                  <td className={td}>{v.roomName ?? '—'}</td>
                   <td className={`${td} text-right tabular-nums`}>{peso(v.amountDue)}</td>
                 </tr>
               ))}

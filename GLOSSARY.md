@@ -204,7 +204,7 @@ _Avoid_: SC/PWD promo
 A time-boxed Discount defined by Service, time-of-day window and validity dates. Happy Hours is the current one.
 
 **Happy Hours**:
-The Promo giving 10% off Swedish Massage (1hr) when the Service starts 2:00–6:00pm, valid until 2026-11-30.
+The Promo giving 10% off Swedish Massage (1hr) when the Service starts within its hours, the end time included (a 6:00pm start counts when it runs to 6:00pm), valid until 2026-11-30.
 
 **Voucher**:
 A serial-numbered, non-expiring prepaid entitlement to one specific Service, redeemable once by whoever presents the serial, only at this branch. Sold at that Service's Regular Price to a buyer, who is a Guest with a Guest Record. The Receptionist only sells serials she has Received through a Voucher Endorsement, picking each one herself.

@@ -69,7 +69,8 @@ export function promoProblem(
   if (promo.serviceId !== service.serviceId) return `Only for ${promo.serviceName ?? 'another service'}`;
   if (service.startDate < promo.validFrom) return `Starts ${promo.validFrom}`;
   if (service.startDate > promo.validTo) return `Ended ${promo.validTo}`;
-  if (service.startTime < promo.startTime || service.startTime >= promo.endTime) {
+  // The end time itself counts: Happy Hours to 6:00pm covers a Service starting at 6:00pm.
+  if (service.startTime < promo.startTime || service.startTime > promo.endTime) {
     return `Only for services starting ${clock(promo.startTime)}–${clock(promo.endTime)}`;
   }
   return null;

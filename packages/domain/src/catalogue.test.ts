@@ -48,11 +48,12 @@ describe('promoApplies (Happy Hours)', () => {
   const at = (startDate: string, startTime: string, serviceId = 'swedish-60') =>
     promoApplies(happyHours, { serviceId, startDate, startTime });
 
-  it('covers starts from 2:00pm up to 5:59pm', () => {
+  it('covers starts from 2:00pm up to and including 6:00pm', () => {
     expect(at('2026-11-03', '13:59')).toBe(false);
     expect(at('2026-11-03', '14:00')).toBe(true);
     expect(at('2026-11-03', '17:59')).toBe(true);
-    expect(at('2026-11-03', '18:00')).toBe(false);
+    expect(at('2026-11-03', '18:00')).toBe(true);
+    expect(at('2026-11-03', '18:01')).toBe(false);
   });
 
   it('runs through November 30, 2026 only', () => {
@@ -82,7 +83,7 @@ describe('promoProblem', () => {
   it('says why Happy Hours does not apply', () => {
     expect(at('2026-11-03', '15:00')).toBeNull();
     expect(at('2026-11-03', '15:00', 'thai-60')).toBe('Only for Swedish Massage (1hr)');
-    expect(at('2026-11-03', '18:00')).toBe('Only for services starting 2:00pm–6:00pm');
+    expect(at('2026-11-03', '18:01')).toBe('Only for services starting 2:00pm–6:00pm');
     expect(at('2026-12-01', '15:00')).toBe('Ended 2026-11-30');
     expect(at('2025-12-31', '15:00')).toBe('Starts 2026-01-01');
     expect(promoProblem({ ...happyHours, active: false }, { serviceId: 'swedish-60', startDate: '2026-11-03', startTime: '15:00' })).toBe('Not running');

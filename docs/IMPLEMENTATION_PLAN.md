@@ -776,16 +776,22 @@ Grilled with the owner on 2026-11-08 (three rounds), then adjusted while the own
 
 Grilled with the owner on 2026-11-10 (two rounds). Vocabulary is in `GLOSSARY.md` (new: Auto Clock-out, Late Entry, Opening Count; Day Close, DTR Review and Shop Stock updated). Migrations 0033 (`dtr.auto_clock_out`) and 0034 (`bookings.entered_late`, `late_checked_at`). **Next migration is 0035.**
 
-**Status (2026-11-10):** 16.2-16.7 are pushed to `cr-5` at `7dc79c5` (plan at `0c827a4`), not merged or deployed. 16.1 is done on production. 461 tests pass (248 domain, 213 API) except one that fails between 2:00 and 6:00pm with or without these changes: the Top-up test in `service-changes.test.ts` expects full price, but Happy Hours takes 10% off then. Typecheck, lint and build pass. Checked in a browser on a scratch copy of the local database: late entry, red Close button and confirmation, Auto Clock-out at Day Close, logout warning, voucher filters, the upload preview and the Guests entered late card. Not tried by hand: saving an uploaded Opening Count (covered by an API test), the 6:00am cron, and a Late Entry that is still in service.
+**Status (2026-11-11):** CR-5 is merged to `main` (`3bfab98`) and deployed: migrations 0033-0034 are on production, and 16.1-16.8 are live. The only CI failure on the PR was the Top-up test during Happy Hours; its checkout now passes no Promo. One follow-up is on branch `cr-6` (16.9), pushed at `8149942`, **not merged or deployed**; it has no migration. 463 tests pass (249 domain, 214 API). Typecheck, lint and build pass. Not tried by hand: the 6:00am cron, a Late Entry that is still in service, and saving an uploaded Opening Count (covered by an API test).
 
 **Pick up here, in order:**
 
-1. Owner opens the PR from `cr-5` to `main`, checks CI (re-run the Top-up test outside 2-6pm if it is the only failure), merges. Merging or Deploy all runs migrations 0033-0034 on production; then `/api/v1/health` should report `0034_late_entry`. Until then the live site still blocks logout on an open day and has no Auto Clock-out.
-2. If the Sales Cash on the Front Desk doesn't match the drawer, count it under Cash -> Count the sales cash in the shop before taking cash that day.
-3. Correct the Receptionist's Nov 9 clock-in (the change that was refused for overlapping); the clashing sample entry is gone.
-4. Re-enter Nov 2-8 from paper on the Nov 2-8 entry page, then generate Payroll for the weeks of Nov 1 (Receptionist) and Nov 2 (Therapists).
-5. Upload the Opening Counts for the Shop and Storage.
-6. After the test week, collect the Receptionist's feedback as the next batch.
+1. Owner opens the PR from `cr-6` to `main` (title: "Happy Hours includes its end time: a 6:00pm start gets the discount"), checks CI, merges. No migration, so health still reports `0034_late_entry`.
+2. **Finish Nov 9** once 16.9 is live, on Correct sales, day 2026-11-09. Production now reads expected cash ₱4,650, counted ₱5,150 (the duplicate sale in 16.8.7 is already voided).
+   - Re-save the start time 6:00 PM on the 6:00 PM Swedish services that really paid the Happy Hours price. With both, expected drops to ₱4,550; with one, ₱4,600. The owner is checking with the Receptionist which.
+   - Correct count to ₱4,600, what the owner received.
+   - Record the ₱4,600 Cash Handover for Nov 9 and confirm receipt.
+3. If the Receptionist still lacks "Log out anyway", her tab is stale: reload with Ctrl+F5. The live bundle has it.
+4. Correct the Receptionist's Nov 9 clock-in if not done yet (the overlap that refused it is gone).
+5. Re-enter Nov 2-8 from paper on the Nov 2-8 entry page, then generate Payroll for the weeks of Nov 1 (Receptionist) and Nov 2 (Therapists).
+6. Upload the Opening Counts for the Shop and Storage.
+7. After the test week, collect the Receptionist's feedback as the next batch.
+
+**Offered, not yet asked for:** an "Order" button on Shop requests, to turn a take-out request straight into a Purchase Order; and a "new version, reload" prompt (or auto-reload) for tabs left open across a deploy.
 
 **As built, worth knowing:**
 - Late Entry is a checkbox on the New walk-in form ("Already served before I could record it"), which then asks Therapist, Room, Started at and Finished at. The 30-minute Reserved rule is not applied to Late Entries, since the Service already happened. The Super Admin ticks them on the Dashboard card "Guests entered late".
@@ -849,4 +855,13 @@ Grilled with the owner on 2026-11-10 (two rounds). Vocabulary is in `GLOSSARY.md
    - *Correct count*: the cash really counted at a past Day Close; the variance follows and Sales Cash runs on from it. Audit log `day.counted_corrected`. API `POST /days/:date/counted`.
    - Why not reopen the day instead: an earlier open day blocks new walk-ins until it is closed again, so correcting a past day during opening hours would stop the desk.
 4. **Cash Handover counts, not assumes.** The amount box starts empty, so the Receptionist types what she actually counted out. Handing over less than the Sales Cash that should be in the shop needs a reason, on screen and in the API (`note_required`), so a gap like Nov 9's is explained when it happens. The owner still confirms what they received separately.
-5. **Nov 9** (once this is live): record the cash handed to the owner as a Cash Handover with its real amount, confirm receipt, then use Correct start time on the guest who missed Happy Hours. Whatever the Front Desk then shows as left from Nov 9 should be in the drawer; if it isn't, ask where it went.
+5. **Nov 9**: superseded by the Pick-up list above, which has the figures as they stand.
+6. **Where supply orders go** (explained, no change): paying for supplies is a Purchase Order, received into Storage, which records the Expense; a plain Expense is for things that aren't stock. Shop requests are answered from Inventory -> Requests (move from Storage); when Storage is short, the Super Admin raises a Purchase Order separately.
+7. **A duplicate Sale was voided on production** (Nov 9: one Guest recorded under two Therapists). Local one-off script `scripts/one-off/void-sale.mjs <guest> <therapist> [--apply]` (git-excluded): lists the Guest's paid Sales, voids exactly one, cancels its Booking, frees a redeemed Voucher, lowers a closed day's expected cash/GCash, and logs `sale.void`. `SPA_LOCAL=<folder>` runs it against a local copy. Also `node scripts/one-off/purge.mjs promo-check` shows Nov 9's Sales, Promos and start-time corrections (read-only).
+8. **Correct start time didn't give Happy Hours at exactly 6:00pm**, because the Promo's end was exclusive. That is 16.9.
+
+**16.9 Happy Hours includes its end time** (branch `cr-6`, no migration)
+
+1. A Service starting exactly at a Promo's end time gets it: Happy Hours to 6:00pm covers a 6:00pm start, 6:01pm doesn't. One comparison in `promoProblem` (`packages/domain/src/catalogue.ts`), so checkout and Correct sales both follow.
+2. Settings -> Promos says the end is inclusive; the Price List says "starts from X to Y". `GLOSSARY.md` Happy Hours updated.
+3. Why: two Nov 9 Guests who started at 6:00pm paid the discounted price; correcting their start time to 6:00pm still priced them in full.

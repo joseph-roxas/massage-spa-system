@@ -354,7 +354,7 @@ async function therapistDetail(db: Db, r: Range): Promise<Report> {
     return { name: x.name, when: x.startedAt ? whenLabel(x.startedAt) : null, guest: x.guest || 'Walk-in guest', service: x.service, room: x.room ?? null, regular: x.regular, setAside: x.setAside, commission: x.commission, note: notes.join(' · ') || null };
   });
   return {
-    title: 'Therapist Sales',
+    title: 'Therapist Commission',
     columns,
     rows: withSubtotals(columns, rows, 'name'),
     totals: totalsOf(columns, rows),

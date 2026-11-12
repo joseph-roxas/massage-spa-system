@@ -92,8 +92,8 @@ export function ReportsPage() {
   const canPickDates = !!me && choosesReportDates(me.role);
   const [params, setParams] = useSearchParams();
   const name = (allowed.includes(params.get('r') as ReportName) ? params.get('r') : (allowed[0] ?? 'daily-sales')) as ReportName;
-  // The owner starts on the month, the desk on today.
-  const from = canPickDates ? (params.get('from') ?? (all ? `${today.slice(0, 7)}-01` : today)) : today;
+  // The owner starts on the month, the desk on today; Therapist Commission always starts on today.
+  const from = canPickDates ? (params.get('from') ?? (all && name !== 'therapist-detail' ? `${today.slice(0, 7)}-01` : today)) : today;
   const to = canPickDates ? (params.get('to') ?? today) : today;
   const therapist = params.get('therapist') ?? '';
   const guest = params.get('guest') ?? '';
@@ -119,7 +119,7 @@ export function ReportsPage() {
             <button
               key={r}
               type="button"
-              onClick={() => set({ r })}
+              onClick={() => set(r === 'therapist-detail' ? { r, from: today, to: today } : { r })}
               className={`block w-full rounded-md px-3 py-2 text-left text-sm ${r === name ? 'bg-teal-700 text-white' : 'text-stone-700 hover:bg-stone-100'}`}
             >
               <span className="block font-medium">{REPORT_LABELS[r].title}</span>

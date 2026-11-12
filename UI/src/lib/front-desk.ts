@@ -62,6 +62,8 @@ export type Board = {
   birthdays: string[];
   /** Who is running the front desk on a Relief Shift now. */
   relieving: string[];
+  /** Sent to the shop and not yet received: Turnovers and Voucher card ranges. */
+  toReceive: { items: { itemName: string; unit: string; qty: number }[]; voucherRanges: { serviceName: string; cards: number }[] };
 };
 
 export type RejectReason = 'no_therapist' | 'too_late' | 'refused_safety';

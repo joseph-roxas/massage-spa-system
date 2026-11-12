@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { addMinutes, businessDayOf, clock, flexModeFor, GRACE_PERIOD_MIN, TOP_UP_PARTS, TOP_UP_STEP_MIN, topUpStepPrices, isBirthday, overlaps, reservationHold, RESERVED_LEAD_MIN, roomFits, serviceSpanFrom, stayOf, suggestRoom, suggestTherapist, toManila, type Span } from '@spa/domain';
-import { bookings, bookingTopUps, businessDays, dtr, FLEX_MODES, payments, rejects, rooms, sales, services, staff, voucherPayments, voucherSales } from '@spa/db';
+import { bookings, bookingTopUps, businessDays, dtr, FLEX_MODES, items, payments, rejects, rooms, sales, services, staff, turnovers, voucherEndorsements, voucherPayments, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
 import { openDayFor, openDays } from '../lib/business-days';
@@ -143,7 +143,7 @@ export const bookingRoutes = new Hono<AuthedEnv>()
     const now = nowIso();
     const day = businessDayOf(new Date(now));
     const state = await frontDeskState(c.var.db, day, now);
-    const [svc, people, daySales, dayRow, unclosed, takings, voucherTakings, turnedAway, topUps] = await Promise.all([
+    const [svc, people, daySales, dayRow, unclosed, takings, voucherTakings, turnedAway, topUps, waitingItems, waitingCards] = await Promise.all([
       c.var.db.select({ id: services.id, code: services.code, name: services.name, kind: services.kind }).from(services),
       c.var.db.select({ id: staff.id, displayName: staff.displayName, birthdate: staff.birthdate, active: staff.active }).from(staff),
       c.var.db
@@ -171,6 +171,18 @@ export const bookingRoutes = new Hono<AuthedEnv>()
         .innerJoin(bookings, eq(bookings.id, bookingTopUps.bookingId))
         .where(eq(bookings.businessDay, day))
         .groupBy(bookingTopUps.bookingId),
+      c.var.db
+        .select({ itemName: items.name, unit: items.unit, qty: turnovers.qty })
+        .from(turnovers)
+        .innerJoin(items, eq(items.id, turnovers.itemId))
+        .where(isNull(turnovers.receivedAt))
+        .orderBy(asc(turnovers.sentOn)),
+      c.var.db
+        .select({ serviceName: services.name, fromNo: voucherEndorsements.fromNo, toNo: voucherEndorsements.toNo })
+        .from(voucherEndorsements)
+        .innerJoin(services, eq(services.id, voucherEndorsements.serviceId))
+        .where(isNull(voucherEndorsements.receivedAt))
+        .orderBy(asc(voucherEndorsements.endorsedOn)),
     ]);
     const svcById = new Map(svc.map((s) => [s.id, s]));
     const guestIds = [...new Set(state.dayBookings.map((b) => b.guestId).filter((g): g is string => !!g))];
@@ -202,6 +214,11 @@ export const bookingRoutes = new Hono<AuthedEnv>()
       next: state.next?.staffId ?? null,
       // Staff celebrating today, for the Front Desk banner.
       birthdays: people.filter((p) => p.active && isBirthday(p.birthdate, day)).map((p) => p.displayName),
+      // Turnovers and Voucher card ranges sent to the shop and not yet received, for the Front Desk banner.
+      toReceive: {
+        items: waitingItems,
+        voucherRanges: waitingCards.map((v) => ({ serviceName: v.serviceName, cards: v.toNo - v.fromNo + 1 })),
+      },
       // Running the front desk on a Relief Shift now.
       relieving: state.relieving.map((id) => nameOf(id)).filter(Boolean),
       rotation: state.rotation.map((r) => ({ ...r, ...byId.get(r.staffId)! })),

@@ -191,6 +191,43 @@ function QueueLine({ b, onStart, onChange }: { b: Booking; onStart: (b: Booking)
   );
 }
 
+/** What the Super Admin sent to the shop that nobody has received yet; it goes once everything is received. */
+function ToReceive({ waiting }: { waiting: Board['toReceive'] }) {
+  const canItems = useCan('inventory.stock_out');
+  const canCards = useCan('sales.manage');
+  const items = canItems ? waiting.items : [];
+  const ranges = canCards ? waiting.voucherRanges : [];
+  if (!items.length && !ranges.length) return null;
+  const names = items.map((t) => `${t.qty} ${t.itemName}`);
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border-2 border-sky-300 bg-sky-50 px-4 py-3 text-sky-950">
+      <div className="flex-1">
+        <p className="font-semibold">
+          {[items.length ? `${items.length} ${items.length === 1 ? 'delivery' : 'deliveries'} to receive` : null, ranges.length ? `${ranges.length} voucher ${ranges.length === 1 ? 'range' : 'ranges'} to receive` : null]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+        <p className="text-sm">
+          {[names.length ? `${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}` : null, ...ranges.map((r) => `${r.cards} ${r.serviceName} voucher cards`)]
+            .filter(Boolean)
+            .join(' · ')}
+          . Count them, then confirm what arrived.
+        </p>
+      </div>
+      {items.length > 0 && (
+        <Link to="/inventory?tab=stock" className="rounded-md bg-sky-700 px-3 py-2 text-sm font-medium text-white hover:bg-sky-800">
+          Receive items
+        </Link>
+      )}
+      {ranges.length > 0 && (
+        <Link to="/vouchers" className="rounded-md bg-sky-700 px-3 py-2 text-sm font-medium text-white hover:bg-sky-800">
+          Receive vouchers
+        </Link>
+      )}
+    </div>
+  );
+}
+
 type DayDialog = 'cash-outs' | 'early-close' | 'vouchers' | 'handover' | 'top-up' | { close: string } | null;
 
 /** Business Day status and its end-of-day actions. */
@@ -377,6 +414,7 @@ function FrontDeskBoard() {
         </div>
       </div>
       {canCash && <CashReminder onHandover={() => setDayDialog('handover')} onTopUp={() => setDayDialog('top-up')} />}
+      <ToReceive waiting={board.toReceive} />
       <TodayStrip today={board.today} onTurnedAway={() => setTurningAway(true)} />
       {board.relieving.length > 0 && (
         <div className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-2 text-sm text-teal-900">

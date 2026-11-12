@@ -22,6 +22,7 @@ type Item = {
 type Po = { id: string; status: string; lines: { id: string; itemId: string; qty: number; received: number }[] };
 
 const today = () => businessDayOf(new Date());
+const waiting = async (c: Client) => (await json<{ toReceive: { items: { itemName: string; unit: string; qty: number }[] } }>(await c.get('/front-desk'))).toReceive;
 const item = async (c: Client, id: string) => (await json<{ items: Item[] }>(await c.get('/inventory/items'))).items.find((i) => i.id === id)!;
 
 let n = 0;
@@ -112,8 +113,11 @@ describe('Storage, Turnovers and Shop Stock', () => {
 
     expect((await desk.post('/inventory/turnovers', { itemId: 'alcohol', qty: 3, sentOn: today() })).status).toBe(403);
     expect((await admin.post('/inventory/turnovers', { itemId: 'alcohol', qty: 11, sentOn: today() })).status).toBe(409);
+    expect((await waiting(desk)).items).toEqual([]);
     const t = await sent(admin, 'alcohol', 6);
     expect(await item(desk, 'alcohol')).toMatchObject({ storage: 4, inTransit: 6, shop: 0 });
+    // The Front Desk banner shows it until it is received.
+    expect((await waiting(desk)).items).toEqual([{ itemName: (await item(desk, 'alcohol')).name, unit: expect.any(String), qty: 6 }]);
 
     const { turnovers } = await json<{ turnovers: { id: string; receivedAt: string | null }[] }>(await desk.get('/inventory/turnovers'));
     expect(turnovers[0]).toMatchObject({ id: t, receivedAt: null });
@@ -122,6 +126,7 @@ describe('Storage, Turnovers and Shop Stock', () => {
     expect((await desk.post(`/inventory/turnovers/${t}/receive`, { receivedQty: 5, note: 'One bottle missing' })).status).toBe(200);
     expect((await desk.post(`/inventory/turnovers/${t}/receive`, { receivedQty: 5, note: 'again' })).status).toBe(409);
     expect(await item(desk, 'alcohol')).toMatchObject({ storage: 5, inTransit: 0, shop: 5, onHand: 5 });
+    expect((await waiting(desk)).items).toEqual([]);
 
     // The Super Admin finds the missing one was lost.
     expect((await desk.post(`/inventory/turnovers/${t}/resolve`, { outcome: 'lost' })).status).toBe(403);

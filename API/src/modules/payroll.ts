@@ -22,6 +22,7 @@ import {
   receptionistDay,
   receptionistPayroll,
   refundSplit,
+  REFUND_STEPS,
   suggestBonus,
   therapistPayroll,
   thirteenthMonth,
@@ -54,6 +55,7 @@ import {
   PAYROLL_KINDS,
   pastPayslips,
   pastTherapistWeeks,
+  payRules,
   sales,
   staff,
 } from '@spa/db';
@@ -64,6 +66,7 @@ import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
 import { fail, invalidInput } from '../lib/http';
 import { contributionRates, weeklyDeductions } from '../lib/contributions';
+import { REFUND_PLAN_KEY, refundStatus } from '../lib/refund';
 import { goLiveDate, takeHomeFloor } from '../lib/pay-rules';
 import { currentTransferDay } from '../lib/sales-cash';
 import { nowIso } from '../lib/time';
@@ -302,6 +305,10 @@ const pesoText = (n: number) => `${n < 0 ? '-' : ''}₱${(Math.abs(n) / 100).toL
 /** Refunds cover both kinds of staff, so only someone who approves both sets them: the Super Admin. */
 const canRefund = (c: Context<AuthedEnv>) => can(c.var.user.role, 'payroll.therapist.approve') && can(c.var.user.role, 'payroll.receptionist.manage');
 const agencyAmount = z.number().int().min(-10_000_000).max(10_000_000);
+const refundPlanBody = z.object({
+  payoutDate: isoDate,
+  ticked: z.array(z.enum(REFUND_STEPS.filter((s) => s.manual).map((s) => s.key) as [string, ...string[]])).max(10),
+});
 const refundBody = z.object({ staffId: z.string().min(1), weekStart: isoDate, sss: agencyAmount, phic: agencyAmount, pagibig: agencyAmount });
 
 /** Payrolls with names, days, Adjustments and Payslip lines. Adjustment reasons only `withReasons`. */
@@ -920,6 +927,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
       : [];
     const statusOf = (staffId: string, start: string) => rows.find((r) => r.staffId === staffId && r.weekStart === start)?.status ?? null;
     return c.json({
+      plan: await refundStatus(db, today()),
       people: shown.map((p) => {
         const kind = p.kind as 'therapist' | 'receptionist';
         const refund = refunds.find((r) => r.staffId === p.id);
@@ -939,6 +947,22 @@ export const payrollRoutes = new Hono<AuthedEnv>()
         };
       }),
     });
+  })
+
+  /** The payout date and the to-do steps the Super Admin has ticked. */
+  .put('/deduction-refunds/plan', zValidator('json', refundPlanBody, invalidInput), async (c) => {
+    if (!canRefund(c)) return fail(c, 403, 'forbidden', 'Only the Super Admin sets refunds.');
+    const db = c.var.db;
+    const value = c.req.valid('json');
+    const now = nowIso();
+    await db.batch([
+      db
+        .insert(payRules)
+        .values({ key: REFUND_PLAN_KEY, valueJson: JSON.stringify(value), updatedAt: now, updatedBy: c.var.user.id })
+        .onConflictDoUpdate({ target: payRules.key, set: { valueJson: JSON.stringify(value), updatedAt: now, updatedBy: c.var.user.id } }),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'deduction_refund.plan', entity: 'pay_rule', entityId: REFUND_PLAN_KEY, after: value }),
+    ]);
+    return c.json(await refundStatus(db, today()));
   })
 
   /** Sets a staff member's refund: it clears what they owe first, and the rest is added to the chosen Payroll. */

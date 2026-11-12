@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Badge, Button, Card, Input, Select, td, th } from '../../components/ui';
+import type { RefundStepKey } from '@spa/domain';
+import { Alert, Badge, Button, Card, Checkbox, Input, Select, td, th } from '../../components/ui';
 import { api } from '../../lib/api';
 import { longDate, parsePesos, peso, pesosText } from '../../lib/format';
 import { STATUS_LABELS, STATUS_TONE, usePayrollAction, type PayrollStatus, type Refund } from '../../lib/payroll';
@@ -231,11 +232,74 @@ function RefundRow({ person }: { person: RefundPerson }) {
   );
 }
 
+type RefundPlan = {
+  payoutDate: string;
+  ticked: RefundStepKey[];
+  steps: { key: RefundStepKey; manual: boolean; title: string; detail: string; done: boolean; progress?: string }[];
+  done: number;
+  finished: boolean;
+  remindFrom: string;
+  daysLeft: number;
+};
+
+/** The to-do list for working out and paying the refund, with the payout date the reminder counts down to. */
+function RefundChecklist({ plan }: { plan: RefundPlan }) {
+  const act = usePayrollAction();
+  const save = (patch: Partial<Pick<RefundPlan, 'payoutDate' | 'ticked'>>) => act.mutate({ path: '/deduction-refunds/plan', method: 'PUT', body: { payoutDate: plan.payoutDate, ticked: plan.ticked, ...patch } });
+  const toggle = (key: RefundStepKey, on: boolean) => save({ ticked: on ? [...plan.ticked, key] : plan.ticked.filter((k) => k !== key) });
+  return (
+    <section className="mb-5 rounded-md border border-stone-200 bg-stone-50 p-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">
+            To do · {plan.done} of {plan.steps.length} done
+          </h3>
+          <p className="text-xs text-stone-500">
+            {plan.finished
+              ? 'Every Payroll carrying a refund is released. Done.'
+              : `Shown in Needs Attention from ${longDate(plan.remindFrom)} until every Payroll carrying a refund is released.`}
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          Payout date
+          <Input type="date" className="w-40" value={plan.payoutDate} onChange={(e) => e.target.value && save({ payoutDate: e.target.value })} />
+        </label>
+      </div>
+      {act.error && <Alert>{act.error.message}</Alert>}
+      <ol className="mt-3 space-y-2">
+        {plan.steps.map((step, i) => (
+          <li key={step.key} className="flex gap-3 text-sm">
+            <span
+              aria-hidden
+              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs ${step.done ? 'bg-teal-700 text-white' : 'border border-stone-300 bg-white text-stone-500'}`}
+            >
+              {step.done ? '✓' : i + 1}
+            </span>
+            <div className="flex-1">
+              <p className={step.done ? 'text-stone-500 line-through' : 'font-medium'}>
+                {step.title}
+                {step.progress && <span className="font-normal text-stone-500"> · {step.progress}</span>}
+              </p>
+              <p className="text-xs text-stone-500">{step.detail}</p>
+              {step.manual && (
+                <div className="mt-1">
+                  <Checkbox label="Done" checked={plan.ticked.includes(step.key)} disabled={act.isPending} onChange={(e) => toggle(step.key, e.target.checked)} />
+                </div>
+              )}
+              {!step.manual && !step.done && <p className="text-xs text-stone-400">Ticks itself from the Payrolls.</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 /** The one-time Government Deduction Refund for January–November 2026 (ADR 0010). */
 function RefundCard() {
   const { data, error } = useQuery({
     queryKey: ['payroll', 'refunds'],
-    queryFn: () => api<{ people: RefundPerson[] }>('/deduction-refunds'),
+    queryFn: () => api<{ plan: RefundPlan; people: RefundPerson[] }>('/deduction-refunds'),
   });
   if (error) return <Alert>{error.message}</Alert>;
   if (!data) return null;
@@ -246,6 +310,7 @@ function RefundCard() {
         a minus sign for an agency taken short. It first comes off what they still owe in Deferred Deductions; the rest is added to the Payroll you pick as its own line, and
         the Payslip shows the agencies. One refund per person.
       </p>
+      <RefundChecklist plan={data.plan} />
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>

@@ -7,6 +7,7 @@ import { handoverState } from '../lib/sales-cash';
 import type { AuthedEnv } from '../env';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { quarterStatus } from './finance';
+import { refundStatus } from '../lib/refund';
 
 export type AttentionItem = {
   key: string;
@@ -26,7 +27,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAuth, requireCapability('settings.manage'), async (c) => {
   const db = c.var.db;
   const today = businessDayOf(new Date());
-  const [requests, shortfalls, handovers, people, certs, drafts, tax, dtrToReview, cash, late] = await Promise.all([
+  const [requests, shortfalls, handovers, people, certs, drafts, tax, dtrToReview, cash, late, refund] = await Promise.all([
     db.select({ id: takeoutRequests.id, level: takeoutRequests.level }).from(takeoutRequests).where(isNull(takeoutRequests.resolvedAt)),
     db
       .select({ id: turnovers.id })
@@ -40,9 +41,23 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
     dtrToReviewCount(db),
     handoverState(db, today),
     db.select({ n: sql<number>`count(*)` }).from(bookings).where(and(eq(bookings.enteredLate, true), isNull(bookings.lateCheckedAt))).get(),
+    refundStatus(db, today),
   ]);
 
   const items: AttentionItem[] = [];
+
+  // From two weeks before payout until every Payroll carrying a refund is released (ADR 0010).
+  if (refund.remind) {
+    const next = refund.steps.find((s) => !s.done);
+    const when = refund.daysLeft < 0 ? `payout was ${plural(-refund.daysLeft, 'day')} ago` : refund.daysLeft === 0 ? 'payout today' : `payout in ${plural(refund.daysLeft, 'day')}`;
+    items.push({
+      key: 'deduction-refund',
+      tone: refund.urgent ? 'urgent' : 'normal',
+      title: 'Government Deduction Refund',
+      detail: `${refund.done} of ${refund.steps.length} steps done · ${when}${next ? ` · next: ${next.title}` : ''}`,
+      link: '/payroll?tab=deferred',
+    });
+  }
 
   if (!tax.filing) {
     items.push({

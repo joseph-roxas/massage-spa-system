@@ -21,6 +21,7 @@ import {
   payWeekOf,
   receptionistDay,
   receptionistPayroll,
+  refundSplit,
   suggestBonus,
   therapistPayroll,
   thirteenthMonth,
@@ -44,6 +45,7 @@ import {
   cashTransfers,
   commissionRates,
   deductionLedger,
+  deductionRefunds,
   dtr,
   holidays,
   openingBasicPay,
@@ -86,6 +88,12 @@ const ADVANCE: Record<Kind, Capability> = { therapist: 'cash_advance.therapist',
 
 const kindOf = (s: Staff): Kind => s.kind;
 const today = () => businessDayOf(new Date());
+/** The Pay Week start `n` weeks after `start`. */
+const shiftWeek = (start: string, n: number) => {
+  const d = new Date(`${start}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 7 * n);
+  return d.toISOString().slice(0, 10);
+};
 
 /** Relief pay per day for a person's closed Relief Shifts in a Pay Week. */
 async function reliefWeek(db: Db, person: Staff, week: PayWeek) {
@@ -127,10 +135,10 @@ const DEFAULT_PROFIT_SHARE_BP = 3000;
 
 const sumOf = (rows: readonly { amount: number }[] | undefined) => (rows ?? []).reduce((s, r) => s + r.amount, 0);
 
-/** What a Therapist owes in Government Deductions: opening + deferred − collected − bonus. */
+/** What a Therapist owes in Government Deductions: opening + deferred − collected − bonus − refund. */
 async function deductionBalances(db: Db, staffIds?: string[]) {
   const rows = await db
-    .select({ staffId: deductionLedger.staffId, balance: sql<number>`sum(case when ${deductionLedger.entry} in ('collected', 'bonus') then -${deductionLedger.amount} else ${deductionLedger.amount} end)` })
+    .select({ staffId: deductionLedger.staffId, balance: sql<number>`sum(case when ${deductionLedger.entry} in ('collected', 'bonus', 'refund') then -${deductionLedger.amount} else ${deductionLedger.amount} end)` })
     .from(deductionLedger)
     .where(staffIds ? inArray(deductionLedger.staffId, staffIds) : undefined)
     .groupBy(deductionLedger.staffId);
@@ -285,22 +293,45 @@ function canSee(c: Context<AuthedEnv>, kind: Kind) {
   return can(c.var.user.role, PREPARE[kind]);
 }
 
+type RefundRow = typeof deductionRefunds.$inferSelect;
+const refundOut = (r: RefundRow) => ({ weekStart: r.weekStart, sss: r.sss, phic: r.phic, pagibig: r.pagibig, total: r.sss + r.phic + r.pagibig, applied: r.applied, cash: r.cash, adjustmentId: r.adjustmentId });
+
+/** The label a Government Deduction Refund's cash carries on the Payslip. */
+const REFUND_LABEL = 'Government Deduction Refund';
+const pesoText = (n: number) => `${n < 0 ? '-' : ''}₱${(Math.abs(n) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Refunds cover both kinds of staff, so only someone who approves both sets them: the Super Admin. */
+const canRefund = (c: Context<AuthedEnv>) => can(c.var.user.role, 'payroll.therapist.approve') && can(c.var.user.role, 'payroll.receptionist.manage');
+const agencyAmount = z.number().int().min(-10_000_000).max(10_000_000);
+const refundBody = z.object({ staffId: z.string().min(1), weekStart: isoDate, sss: agencyAmount, phic: agencyAmount, pagibig: agencyAmount });
+
 /** Payrolls with names, days, Adjustments and Payslip lines. Adjustment reasons only `withReasons`. */
 const withNames = async (db: Db, rows: PayrollRow[], withReasons = false) => {
   const ids = [...new Set(rows.map((r) => r.staffId))];
   const weeks = [...new Set(rows.map((r) => r.weekStart))];
-  const [people, adjustments, ledger] = await Promise.all([
+  const [people, adjustments, ledger, refunds] = await Promise.all([
     ids.length ? db.select().from(staff).where(inArray(staff.id, ids)) : Promise.resolve([]),
     Promise.all(weeks.map(async (w) => [w, await adjustmentsFor(db, w, ids)] as const)).then((xs) => new Map(xs)),
     ledgerLines(db, [...new Set(rows.filter((r) => r.kind === 'therapist').map((r) => r.staffId))]),
+    ids.length ? db.select().from(deductionRefunds).where(inArray(deductionRefunds.staffId, ids)) : Promise.resolve([]),
   ]);
   return rows.map(({ breakdownJson, ...r }) => {
+    const refund = refunds.find((x) => x.staffId === r.staffId && x.weekStart === r.weekStart);
     const p = people.find((x) => x.id === r.staffId)!;
     const days = JSON.parse(breakdownJson) as (TherapistDay | ReceptionistDay)[];
     const adj = (adjustments.get(r.weekStart)?.get(r.staffId) ?? []).map((a) => ({ id: a.id, label: a.label, amount: a.amount, ...(withReasons ? { reason: a.reason } : {}) }));
     const lines = payLines({ ...(r as unknown as PayrollTotals), govDeferred: r.govDeferred, govCollected: r.govCollected, commissionBefore: r.commissionBefore, kind: r.kind, days, adjustments: sumOf(adj) } as Parameters<typeof payLines>[0]);
     const deferredOwed = r.kind === 'therapist' ? deductionsOwed(ledger, r.staffId, r.status === 'draft' ? r : undefined) : null;
-    return { ...r, displayName: p.displayName, fullName: `${p.firstName} ${p.lastName}`, therapistClass: p.therapistClass, days, adjustments: adj, lines, deferredOwed };
+    return {
+      ...r,
+      displayName: p.displayName,
+      fullName: `${p.firstName} ${p.lastName}`,
+      therapistClass: p.therapistClass,
+      days,
+      adjustments: adj,
+      lines,
+      deferredOwed,
+      refund: refund ? refundOut(refund) : null,
+    };
   });
 };
 
@@ -606,6 +637,8 @@ export const payrollRoutes = new Hono<AuthedEnv>()
       .where(and(eq(payrollAdjustments.id, c.req.param('adjustmentId')), eq(payrollAdjustments.weekStart, row.weekStart), eq(payrollAdjustments.staffId, row.staffId)))
       .get();
     if (!adj) return fail(c, 404, 'not_found', 'Adjustment not found.');
+    const refund = await db.select({ id: deductionRefunds.id }).from(deductionRefunds).where(eq(deductionRefunds.adjustmentId, adj.id)).get();
+    if (refund) return fail(c, 409, 'refund', 'This is a Government Deduction Refund. Remove it on the Deferred Deductions page.');
     await db.batch([
       db.delete(payrollAdjustments).where(eq(payrollAdjustments.id, adj.id)),
       db.update(payrolls).set({ gross: row.gross - adj.amount, net: row.net - adj.amount }).where(eq(payrolls.id, row.id)),
@@ -859,6 +892,135 @@ export const payrollRoutes = new Hono<AuthedEnv>()
       db.delete(deductionLedger).where(and(eq(deductionLedger.staffId, staffId), eq(deductionLedger.entry, 'opening'))),
       ...(amount > 0 ? [db.insert(deductionLedger).values({ id: crypto.randomUUID(), staffId, entry: 'opening', amount, weeksJson: weeks.length ? JSON.stringify(weeks) : null, createdAt: nowIso(), createdBy: c.var.user.id })] : []),
     ]);
+    return c.json({ ok: true });
+  })
+
+  // ------------------------------------------- Government Deduction Refund (ADR 0010)
+
+  /** Everyone with Government Deductions, what they owe now, and any refund already set. */
+  .get('/deduction-refunds', async (c) => {
+    if (!canRefund(c)) return fail(c, 403, 'forbidden', 'Only the Super Admin sets refunds.');
+    const db = c.var.db;
+    const [people, balances, refunds] = await Promise.all([
+      db
+        .select()
+        .from(staff)
+        .where(and(inArray(staff.kind, ['therapist', 'receptionist']), eq(staff.isOnCall, false)))
+        .orderBy(asc(staff.kind), asc(staff.displayName)),
+      deductionBalances(db),
+      db.select().from(deductionRefunds),
+    ]);
+    const shown = people.filter((p) => refunds.some((r) => r.staffId === p.id) || (p.active && !p.notEnrolled));
+    const ledger = await ledgerLines(db, shown.filter((p) => p.kind === 'therapist').map((p) => p.id));
+    const rows = shown.length
+      ? await db
+          .select({ staffId: payrolls.staffId, weekStart: payrolls.weekStart, status: payrolls.status })
+          .from(payrolls)
+          .where(inArray(payrolls.staffId, shown.map((p) => p.id)))
+      : [];
+    const statusOf = (staffId: string, start: string) => rows.find((r) => r.staffId === staffId && r.weekStart === start)?.status ?? null;
+    return c.json({
+      people: shown.map((p) => {
+        const kind = p.kind as 'therapist' | 'receptionist';
+        const refund = refunds.find((r) => r.staffId === p.id);
+        // The last finished Pay Week and the four after it.
+        const first = lastCompletedPayWeek(today(), kind).start;
+        return {
+          staffId: p.id,
+          displayName: p.displayName,
+          kind,
+          owed: kind === 'therapist' ? (balances.get(p.id) ?? 0) : 0,
+          owedWeeks: kind === 'therapist' ? deductionsOwed(ledger, p.id).weeks : [],
+          weeks: [0, 1, 2, 3, 4].map((i) => {
+            const start = shiftWeek(first, i);
+            return { weekStart: start, number: weekNumber(start), status: statusOf(p.id, start) };
+          }),
+          refund: refund ? { ...refundOut(refund), status: statusOf(p.id, refund.weekStart) } : null,
+        };
+      }),
+    });
+  })
+
+  /** Sets a staff member's refund: it clears what they owe first, and the rest is added to the chosen Payroll. */
+  .post('/deduction-refunds', zValidator('json', refundBody, invalidInput), async (c) => {
+    if (!canRefund(c)) return fail(c, 403, 'forbidden', 'Only the Super Admin sets refunds.');
+    const db = c.var.db;
+    const input = c.req.valid('json');
+    const person = await db.select().from(staff).where(eq(staff.id, input.staffId)).get();
+    if (!person || (person.kind !== 'therapist' && person.kind !== 'receptionist') || person.isOnCall) return fail(c, 404, 'not_found', 'Staff member not found.');
+    const kind = person.kind;
+    if (payWeekOf(input.weekStart, kind).start !== input.weekStart)
+      return fail(c, 422, 'invalid_week', kind === 'therapist' ? 'A Therapist’s Pay Week starts on a Monday.' : 'The Receptionist’s Pay Week starts on a Sunday.');
+    const total = input.sss + input.phic + input.pagibig;
+    if (total <= 0) return fail(c, 422, 'nothing_to_refund', 'The refund must be more than zero. Someone who was not over-deducted gets nothing.');
+    if (await db.select({ id: deductionRefunds.id }).from(deductionRefunds).where(eq(deductionRefunds.staffId, person.id)).get())
+      return fail(c, 409, 'already_set', `${person.displayName} already has a refund. Remove it first to change it.`);
+    const row = await db
+      .select()
+      .from(payrolls)
+      .where(and(eq(payrolls.staffId, person.id), eq(payrolls.weekStart, input.weekStart)))
+      .get();
+    if (row && row.status !== 'draft') return fail(c, 409, 'not_draft', 'That week’s Payroll is already approved. Pick a later week, or send the Payroll back to draft first.');
+    const owed = kind === 'therapist' ? ((await deductionBalances(db, [person.id])).get(person.id) ?? 0) : 0;
+    const { applied, cash } = refundSplit(total, owed);
+    const now = nowIso();
+    const adjustment =
+      cash > 0
+        ? {
+            id: crypto.randomUUID(),
+            weekStart: input.weekStart,
+            staffId: person.id,
+            label: REFUND_LABEL,
+            amount: cash,
+            reason: `SSS ${pesoText(input.sss)}, PhilHealth ${pesoText(input.phic)}, Pag-IBIG ${pesoText(input.pagibig)}; ${pesoText(applied)} applied to Deferred Deductions (ADR 0010).`,
+            createdAt: now,
+            createdBy: c.var.user.id,
+          }
+        : null;
+    const refund = {
+      id: crypto.randomUUID(),
+      staffId: person.id,
+      weekStart: input.weekStart,
+      sss: input.sss,
+      phic: input.phic,
+      pagibig: input.pagibig,
+      applied,
+      cash,
+      adjustmentId: adjustment?.id ?? null,
+      createdAt: now,
+      createdBy: c.var.user.id,
+    };
+    await db.batch([
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'deduction_refund.set', entity: 'staff', entityId: person.id, after: refund }),
+      ...(adjustment ? [db.insert(payrollAdjustments).values(adjustment)] : []),
+      db.insert(deductionRefunds).values(refund),
+      ...(applied > 0 ? [db.insert(deductionLedger).values({ id: crypto.randomUUID(), staffId: person.id, entry: 'refund', amount: applied, createdAt: now, createdBy: c.var.user.id })] : []),
+      ...(row && adjustment ? [db.update(payrolls).set({ gross: row.gross + cash, net: row.net + cash }).where(eq(payrolls.id, row.id))] : []),
+    ]);
+    if (row) await refreshDraft(db, row);
+    return c.json(refundOut(refund), 201);
+  })
+
+  /** Takes a refund back while its Payroll is still a draft. */
+  .delete('/deduction-refunds/:staffId', async (c) => {
+    if (!canRefund(c)) return fail(c, 403, 'forbidden', 'Only the Super Admin sets refunds.');
+    const db = c.var.db;
+    const refund = await db.select().from(deductionRefunds).where(eq(deductionRefunds.staffId, c.req.param('staffId'))).get();
+    if (!refund) return fail(c, 404, 'not_found', 'No refund to remove.');
+    const row = await db
+      .select()
+      .from(payrolls)
+      .where(and(eq(payrolls.staffId, refund.staffId), eq(payrolls.weekStart, refund.weekStart)))
+      .get();
+    if (row && row.status !== 'draft') return fail(c, 409, 'not_draft', 'That week’s Payroll is already approved. Send it back to draft first.');
+    await db.batch([
+      db.delete(deductionRefunds).where(eq(deductionRefunds.id, refund.id)),
+      ...(refund.adjustmentId ? [db.delete(payrollAdjustments).where(eq(payrollAdjustments.id, refund.adjustmentId))] : []),
+      db.delete(deductionLedger).where(and(eq(deductionLedger.staffId, refund.staffId), eq(deductionLedger.entry, 'refund'))),
+      ...(row && refund.cash ? [db.update(payrolls).set({ gross: row.gross - refund.cash, net: row.net - refund.cash }).where(eq(payrolls.id, row.id))] : []),
+      auditInsert(db, { actorUserId: c.var.user.id, action: 'deduction_refund.remove', entity: 'staff', entityId: refund.staffId, before: refund }),
+    ]);
+    if (row) await refreshDraft(db, row);
     return c.json({ ok: true });
   })
 

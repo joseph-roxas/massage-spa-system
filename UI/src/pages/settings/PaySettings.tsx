@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { DEFAULT_CONTRIBUTION_RATES, type ContributionRates } from '@spa/domain';
-import { Alert, Button, Card, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
+import { withDefaultRates, type ContributionRates } from '@spa/domain';
+import { Alert, Button, Card, Checkbox, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
 import { useCommissionRates, usePayRules, useSave } from '../../lib/catalogue';
 import { longDate, parsePesos, percent, pesosText, todayManila } from '../../lib/format';
 import { TimeInput } from '../../components/TimeInput';
@@ -272,6 +272,7 @@ function ContributionRatesCard({ value }: { value: Rates }) {
     return kind === 'bp' ? bpText(v) : pesosText(v);
   };
   const [d, setD] = useState<Record<string, string>>(() => Object.fromEntries(fields.map(([a, k, , kind]) => [`${a}.${k}`, read(a, k, kind)])));
+  const [atMaximum, setAtMaximum] = useState(value.pagibig.atMaximum ?? true);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const save = usePayRule<Rates>('contribution_rates');
@@ -284,6 +285,7 @@ function ContributionRatesCard({ value }: { value: Rates }) {
       if (v === null) return setError('Every rate must be a number.');
       (next[a] as Record<string, number>)[k] = v;
     }
+    next.pagibig.atMaximum = atMaximum;
     setError(null);
     save.mutate(next, { onSuccess: () => setSaved(true) });
   }
@@ -312,6 +314,14 @@ function ContributionRatesCard({ value }: { value: Rates }) {
             </Field>
           ))}
         </div>
+        <Checkbox
+          label="Remit Pag-IBIG on the maximum fund salary for everyone, whatever their salary basis"
+          checked={atMaximum}
+          onChange={(e) => {
+            setAtMaximum(e.target.checked);
+            setSaved(false);
+          }}
+        />
         <Button type="submit" disabled={save.isPending}>Save rates</Button>
       </form>
     </Card>
@@ -398,7 +408,7 @@ export function PaySettings() {
           <ReceptionistRules rules={data.payRules} />
           <MinimumWageCard value={(data.payRules.minimum_wage_daily as number | undefined) ?? 58_200} />
           <TakeHomeFloorCard value={(data.payRules.take_home_floor as number | undefined) ?? 100_000} />
-          <ContributionRatesCard value={(data.payRules.contribution_rates as Rates | undefined) ?? DEFAULT_CONTRIBUTION_RATES} />
+          <ContributionRatesCard value={withDefaultRates(data.payRules.contribution_rates as Partial<Rates> | undefined)} />
           <GovDefaultsCard value={data.payRules.gov_deduction_defaults as GovDefaults} />
         </>
       )}

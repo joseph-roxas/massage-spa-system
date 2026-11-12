@@ -128,13 +128,17 @@ function Adjustments({ payroll: p }: { payroll: Payroll }) {
                 {a.reason && <span className="text-stone-500"> · {a.reason}</span>}
               </span>
               <span className="tabular-nums">{peso(a.amount)}</span>
-              <button
-                type="button"
-                className="text-xs text-stone-500 underline"
-                onClick={() => act.mutate({ path: `/payrolls/${p.id}/adjustments/${a.id}`, method: 'DELETE' })}
-              >
-                Remove
-              </button>
+              {a.id === p.refund?.adjustmentId ? (
+                <span className="text-xs text-stone-500">Remove under Deferred Deductions</span>
+              ) : (
+                <button
+                  type="button"
+                  className="text-xs text-stone-500 underline"
+                  onClick={() => act.mutate({ path: `/payrolls/${p.id}/adjustments/${a.id}`, method: 'DELETE' })}
+                >
+                  Remove
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -280,6 +284,19 @@ export function PayslipSheet({ payroll: p, week, children }: { payroll: Payroll 
         <Line label="Net pay" value={p.net} strong />
       </div>
 
+      {p.refund && (
+        <div className="rounded-md border border-teal-300 bg-teal-50 p-3 text-sm text-teal-950">
+          <p className="font-semibold">Government Deduction Refund, January–November 2026: {peso(p.refund.total)}</p>
+          <p>
+            SSS {peso(p.refund.sss)} · PhilHealth {peso(p.refund.phic)} · Pag-IBIG {peso(p.refund.pagibig)}
+          </p>
+          <p className="text-xs">
+            Deductions taken over a month&rsquo;s share, less any month taken under it.
+            {p.refund.applied > 0 && <> {peso(p.refund.applied)} came off your Deferred Deductions.</>}
+            {p.refund.cash > 0 && <> {peso(p.refund.cash)} is paid on this payslip.</>}
+          </p>
+        </div>
+      )}
       {p.govAgreed && <p className="text-sm text-stone-600">The Therapist agreed to have this week&rsquo;s Government Deductions taken.</p>}
       {p.deferredOwed && p.deferredOwed.total > 0 && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">

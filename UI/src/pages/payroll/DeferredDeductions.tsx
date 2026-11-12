@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Badge, Button, Card, Input, td, th } from '../../components/ui';
+import { Alert, Badge, Button, Card, Input, Select, td, th } from '../../components/ui';
 import { api } from '../../lib/api';
 import { longDate, parsePesos, peso, pesosText } from '../../lib/format';
-import { usePayrollAction } from '../../lib/payroll';
+import { STATUS_LABELS, STATUS_TONE, usePayrollAction, type PayrollStatus, type Refund } from '../../lib/payroll';
 
 type Week = { weekStart: string; number: number; amount: number };
 type Person = { staffId: string; displayName: string; notEnrolled: boolean; balance: number; opening: number | null; openingWeeks: Week[] | null; suggested: number; suggestedWeeks: Week[]; owedWeeks: Week[] };
@@ -74,26 +74,198 @@ export function DeferredDeductions() {
   if (error) return <Alert>{error.message}</Alert>;
   if (!data) return null;
   return (
-    <Card title="Deferred Deductions">
-      <p className="mb-4 text-sm text-stone-600">
-        Each Payroll takes only that week&rsquo;s Government Deductions, as long as the therapist keeps at least {peso(data.takeHomeFloor)}. What can&rsquo;t be taken stays here, and so does a week away with no work. Nothing is collected
-        automatically after that: it comes off their last working week or the Year-end Bonus, or sooner if they ask. Every Payslip shows the weeks and the total. Before setting an opening balance, click off any week the shop did not remit.
-      </p>
-      <table className="w-full">
-        <thead>
-          <tr className="border-b border-stone-200">
-            <th className={th}>Therapist</th>
-            <th className={`${th} text-right`}>Owed now</th>
-            <th className={`${th} text-right`}>From your records</th>
-            <th className={`${th} text-right`}>Opening balance</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-stone-100">
-          {data.people.map((p) => (
-            <OpeningRow key={p.staffId} person={p} />
+    <div className="space-y-6">
+      <Card title="Deferred Deductions">
+        <p className="mb-4 text-sm text-stone-600">
+          Each Payroll takes only that week&rsquo;s Government Deductions, as long as the therapist keeps at least {peso(data.takeHomeFloor)}. What can&rsquo;t be taken stays here, and so does a week away with no work. Nothing is collected
+          automatically after that: it comes off their last working week or the Year-end Bonus, or sooner if they ask. Every Payslip shows the weeks and the total. Before setting an opening balance, click off any week the shop did not remit.
+        </p>
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-stone-200">
+              <th className={th}>Therapist</th>
+              <th className={`${th} text-right`}>Owed now</th>
+              <th className={`${th} text-right`}>From your records</th>
+              <th className={`${th} text-right`}>Opening balance</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100">
+            {data.people.map((p) => (
+              <OpeningRow key={p.staffId} person={p} />
+            ))}
+          </tbody>
+        </table>
+      </Card>
+      <RefundCard />
+    </div>
+  );
+}
+
+type RefundPerson = {
+  staffId: string;
+  displayName: string;
+  kind: 'therapist' | 'receptionist';
+  owed: number;
+  owedWeeks: Week[];
+  weeks: { weekStart: string; number: number; status: PayrollStatus | null }[];
+  refund: (Refund & { status: PayrollStatus | null }) | null;
+};
+
+/** Pesos that may be below zero, for an agency taken short: "-32" → -3200 centavos. */
+function parseSigned(text: string): number | null {
+  const t = text.trim();
+  const minus = t.startsWith('-');
+  const n = parsePesos(minus ? t.slice(1) : t);
+  return n === null ? null : minus ? -n : n;
+}
+
+const AGENCIES = [
+  ['sss', 'SSS'],
+  ['phic', 'PhilHealth'],
+  ['pagibig', 'Pag-IBIG'],
+] as const;
+
+function SetRefund({ person }: { person: RefundPerson }) {
+  const act = usePayrollAction();
+  const open = person.weeks.find((w) => !w.status || w.status === 'draft');
+  const [text, setText] = useState({ sss: '', phic: '', pagibig: '' });
+  const [weekStart, setWeekStart] = useState(open?.weekStart ?? '');
+  const shares = { sss: parseSigned(text.sss), phic: parseSigned(text.phic), pagibig: parseSigned(text.pagibig) };
+  const total = shares.sss !== null && shares.phic !== null && shares.pagibig !== null ? shares.sss + shares.phic + shares.pagibig : null;
+  const valid = total !== null && total > 0;
+  const applied = valid ? Math.min(total, person.owed) : 0;
+  return (
+    <>
+      <td className={`${td} text-right`}>
+        <div className="flex flex-col items-end gap-1">
+          {AGENCIES.map(([k, label]) => (
+            <label key={k} className="flex items-center gap-2 text-xs text-stone-500">
+              {label}
+              <Input
+                aria-label={`${label} refund for ${person.displayName}`}
+                inputMode="decimal"
+                placeholder="0.00"
+                className="w-24 rounded-md border border-stone-300 px-2 py-1 text-right text-sm tabular-nums"
+                value={text[k]}
+                onChange={(e) => setText({ ...text, [k]: e.target.value })}
+              />
+            </label>
           ))}
-        </tbody>
-      </table>
+          <span className="text-xs font-semibold tabular-nums">Refund {total === null ? '—' : peso(total)}</span>
+        </div>
+      </td>
+      <td className={`${td} text-right tabular-nums`}>{valid ? peso(applied) : '—'}</td>
+      <td className={`${td} text-right font-semibold tabular-nums`}>{valid ? peso(total - applied) : '—'}</td>
+      <td className={`${td} text-right tabular-nums`}>{person.kind === 'therapist' && valid ? peso(person.owed - applied) : '—'}</td>
+      <td className={td}>
+        <Select aria-label={`Pay Week for ${person.displayName}`} value={weekStart} onChange={(e) => setWeekStart(e.target.value)}>
+          {person.weeks.map((w) => (
+            <option key={w.weekStart} value={w.weekStart} disabled={!!w.status && w.status !== 'draft'}>
+              Week {w.number} · {longDate(w.weekStart)}
+              {w.status ? ` · ${STATUS_LABELS[w.status]}` : ''}
+            </option>
+          ))}
+        </Select>
+        <div className="mt-1">
+          <Button
+            className="h-7 px-2 text-xs"
+            disabled={!valid || !weekStart || act.isPending}
+            onClick={() => valid && act.mutate({ path: '/deduction-refunds', body: { staffId: person.staffId, weekStart, ...shares } })}
+          >
+            Save refund
+          </Button>
+        </div>
+        {total !== null && total <= 0 && <p className="mt-1 text-xs text-stone-500">Not over-deducted: no refund.</p>}
+        {act.error && <p className="mt-1 text-xs text-red-700">{act.error.message}</p>}
+      </td>
+    </>
+  );
+}
+
+function RefundRow({ person }: { person: RefundPerson }) {
+  const act = usePayrollAction();
+  const r = person.refund;
+  const locked = !!r?.status && r.status !== 'draft';
+  return (
+    <tr className="align-top">
+      <td className={td}>
+        {person.displayName} <span className="text-xs text-stone-500">{person.kind === 'receptionist' ? 'Receptionist' : 'Therapist'}</span>
+        {person.owedWeeks.length > 0 && (
+          <p className="mt-1 text-xs text-stone-500">
+            Owes week{person.owedWeeks.length === 1 ? '' : 's'} {person.owedWeeks.map((w) => w.number).join(', ')}
+          </p>
+        )}
+      </td>
+      <td className={`${td} text-right tabular-nums`}>{person.kind === 'therapist' ? peso(person.owed + (r?.applied ?? 0)) : '—'}</td>
+      {r ? (
+        <>
+          <td className={`${td} text-right tabular-nums`}>
+            {peso(r.total)}
+            <p className="text-xs text-stone-500">
+              SSS {peso(r.sss)} · PhilHealth {peso(r.phic)} · Pag-IBIG {peso(r.pagibig)}
+            </p>
+          </td>
+          <td className={`${td} text-right tabular-nums`}>{peso(r.applied)}</td>
+          <td className={`${td} text-right font-semibold tabular-nums`}>{peso(r.cash)}</td>
+          <td className={`${td} text-right tabular-nums`}>{person.kind === 'therapist' ? peso(person.owed) : '—'}</td>
+          <td className={td}>
+            <p>
+              Week of {longDate(r.weekStart)} {r.status && <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</Badge>}
+            </p>
+            <Button
+              variant="secondary"
+              className="mt-1 h-7 px-2 text-xs"
+              disabled={act.isPending || locked}
+              title={locked ? 'Send that Payroll back to draft first' : undefined}
+              onClick={() => act.mutate({ path: `/deduction-refunds/${person.staffId}`, method: 'DELETE' })}
+            >
+              Remove
+            </Button>
+            {act.error && <p className="mt-1 text-xs text-red-700">{act.error.message}</p>}
+          </td>
+        </>
+      ) : (
+        <SetRefund person={person} />
+      )}
+    </tr>
+  );
+}
+
+/** The one-time Government Deduction Refund for January–November 2026 (ADR 0010). */
+function RefundCard() {
+  const { data, error } = useQuery({
+    queryKey: ['payroll', 'refunds'],
+    queryFn: () => api<{ people: RefundPerson[] }>('/deduction-refunds'),
+  });
+  if (error) return <Alert>{error.message}</Alert>;
+  if (!data) return null;
+  return (
+    <Card title="Government Deduction Refund">
+      <p className="mb-4 text-sm text-stone-600">
+        For January to November 2026: what each person was charged, deducted or deferred, less their true monthly share for the months you remitted. Enter it by agency, with
+        a minus sign for an agency taken short. It first comes off what they still owe in Deferred Deductions; the rest is added to the Payroll you pick as its own line, and
+        the Payslip shows the agencies. One refund per person.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-stone-200">
+              <th className={th}>Staff</th>
+              <th className={`${th} text-right`}>Owed before</th>
+              <th className={`${th} text-right`}>Refund</th>
+              <th className={`${th} text-right`}>Off what they owe</th>
+              <th className={`${th} text-right`}>Cash on Payroll</th>
+              <th className={`${th} text-right`}>Still owes after</th>
+              <th className={th}>Pay Week</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100">
+            {data.people.map((p) => (
+              <RefundRow key={p.staffId} person={p} />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }

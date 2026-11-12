@@ -915,3 +915,20 @@ Asked by the owner on 2026-11-11: a Guest may prefer a certain Room, and the sho
 3. **Scheduled bookings** have no Room option and nothing is held; the Room is picked when the Service starts.
 4. **Where the Room shows:** the Front Desk's Finished list, the Guest's visit history (now with the time too), a Room column in the Therapist Sales report, and the Correct sales page.
 5. **Correct room** (Correct sales, Super Admin, `POST /sales/correct-room`): records the Room a finished Service was really in, with a reason; refused if another Guest was in that Room at the time. Nothing is re-priced. Audit `booking.correct_room`.
+
+## 22. Pag-IBIG on the maximum and the Government Deduction Refund (branch `cr-8`)
+
+Agreed with the owner on 2026-11-12 after a grilling on weekly Government Deductions. Vocabulary: Government Deductions, Government Deduction Refund (`GLOSSARY.md`). Decision: ADR 0010. Migration `0036_deduction_refunds`; next is 0037.
+
+1. **Monthly split stays.** Each month's employee share is split evenly over the Pay Weeks ending in that month (Sundays for Therapists, Saturdays for the Receptionist), so a month withholds exactly what is remitted. A five-week month therefore takes less per week than a four-week month.
+2. **Pag-IBIG on the maximum, shop-wide.** New rate setting `pagibig.atMaximum` (Settings → Pay, a checkbox under the SSS, PhilHealth and Pag-IBIG rates), on by default: the employee and employer Pag-IBIG shares use the maximum fund salary for everyone, whatever their salary basis. Rates saved before the setting existed get the default through `withDefaultRates`, so no data change is needed. The employer contributions draft follows.
+3. **Government Deduction Refund**, one time, for January to November 2026 (2025 is closed). Per person: what was charged (taken or deferred) less the true employee share for the months the shop remitted, entered by agency (signed; an agency taken short is negative). Never below zero.
+   - Table `deduction_refunds` (one per staff member: Pay Week, SSS, PhilHealth, Pag-IBIG, applied, cash, Adjustment id). `deduction_ledger` gains the entry `refund`, which lowers the balance and clears the oldest weeks first, like any payment.
+   - `refundSplit` (domain): the refund first comes off the Deferred Deductions balance; the rest is cash, added to the chosen Payroll as an Adjustment labelled "Government Deduction Refund" (reason holds the agency figures). The Receptionist has no balance, so hers is all cash.
+   - Routes (Super Admin only): `GET /deduction-refunds`, `POST /deduction-refunds`, `DELETE /deduction-refunds/:staffId`. Refused for an approved or released Payroll's week; the refund's Adjustment can't be removed from the Payslip, only with the refund. Audit `deduction_refund.set` / `deduction_refund.remove`.
+   - UI: a "Government Deduction Refund" card under Payroll → Deferred Deductions, with a live preview of what comes off the balance, the cash and what is still owed; the Payslip shows the refund by agency, what came off Deferred Deductions and what is paid.
+4. **Owner steps before the December Payroll:** on Deferred Deductions, click off any opening week the shop did not remit, then enter each person's refund on the first December Payroll, before the Year-end Bonus takes Deferred Deductions. The per-person figures are kept outside the repo.
+
+## 23. Therapist Commission report (branch `cr-8`)
+
+Asked by the owner on 2026-11-12: the **Therapist Sales** report (`therapist-detail`) is now called **Therapist Commission**, and it always opens on today, also for the Super Admin and when picked from the report list. Other reports keep their defaults.

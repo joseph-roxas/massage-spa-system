@@ -54,7 +54,7 @@ export const PAY_RULE_SCHEMAS = {
   contribution_rates: z.object({
     sss: z.object({ eeBp: basisPoints, erBp: basisPoints, mscMin: centavos, mscMax: centavos, mscStep: centavos.min(1), ecLow: centavos, ecHigh: centavos, ecHighFromMsc: centavos }),
     phic: z.object({ bp: basisPoints, floor: centavos, ceiling: centavos }),
-    pagibig: z.object({ eeBp: basisPoints, eeLowBp: basisPoints, lowUpTo: centavos, erBp: basisPoints, fundSalaryMax: centavos }),
+    pagibig: z.object({ eeBp: basisPoints, eeLowBp: basisPoints, lowUpTo: centavos, erBp: basisPoints, fundSalaryMax: centavos, atMaximum: z.boolean().optional() }),
   }),
 } as const;
 

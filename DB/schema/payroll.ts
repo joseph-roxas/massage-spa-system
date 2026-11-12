@@ -120,9 +120,9 @@ export const caLedger = sqliteTable(
   (t) => [index('ca_ledger_staff_idx').on(t.staffId)],
 );
 
-export const DEDUCTION_ENTRIES = ['opening', 'deferred', 'collected', 'bonus'] as const;
+export const DEDUCTION_ENTRIES = ['opening', 'deferred', 'collected', 'bonus', 'refund'] as const;
 
-/** What each Therapist still owes in Government Deductions: balance = opening + deferred − collected − bonus. */
+/** What each Therapist still owes in Government Deductions: balance = opening + deferred − collected − bonus − refund. */
 export const deductionLedger = sqliteTable(
   'deduction_ledger',
   {
@@ -141,6 +141,31 @@ export const deductionLedger = sqliteTable(
   },
   (t) => [index('deduction_ledger_staff_idx').on(t.staffId), index('deduction_ledger_payroll_idx').on(t.payrollId)],
 );
+
+/**
+ * The one-time Government Deduction Refund (ADR 0010): what a staff member was over-charged,
+ * by agency, applied first to their Deferred Deductions and the rest paid on one Payroll.
+ */
+export const deductionRefunds = sqliteTable('deduction_refunds', {
+  id: text('id').primaryKey(),
+  staffId: text('staff_id')
+    .notNull()
+    .unique()
+    .references(() => staff.id),
+  /** The Pay Week whose Payroll carries it. */
+  weekStart: text('week_start').notNull(),
+  /** Centavos, signed per agency; their sum is the refund and is never below zero. */
+  sss: integer('sss').notNull(),
+  phic: integer('phic').notNull(),
+  pagibig: integer('pagibig').notNull(),
+  /** Taken off the Deferred Deductions balance. */
+  applied: integer('applied').notNull(),
+  /** Paid on the Payroll, as an Adjustment. */
+  cash: integer('cash').notNull(),
+  adjustmentId: text('adjustment_id').references(() => payrollAdjustments.id),
+  createdAt: text('created_at').notNull(),
+  createdBy: text('created_by').references(() => users.id),
+});
 
 export const BONUS_KINDS = ['year_end_bonus', 'thirteenth_month'] as const;
 

@@ -932,3 +932,11 @@ Agreed with the owner on 2026-11-12 after a grilling on weekly Government Deduct
 ## 23. Therapist Commission report (branch `cr-8`)
 
 Asked by the owner on 2026-11-12: the **Therapist Sales** report (`therapist-detail`) is now called **Therapist Commission**, and it always opens on today, also for the Super Admin and when picked from the report list. Other reports keep their defaults.
+
+## 24. Refund reminder and to-do list (branch `cr-8`)
+
+Asked by the owner on 2026-11-12: a reminder two weeks before the Government Deduction Refund is paid, with a detailed to-do list, kept up until the Payroll carrying the refund is released. No migration.
+
+1. **Payout date** on the refund card (Payroll → Deferred Deductions), default Sat 2026-12-12: the release of the Therapists' first December Payroll (week of Nov 30 – Dec 6). Stored in `pay_rules` as `deduction_refund_plan` (`payoutDate`, ticked steps); `PUT /deduction-refunds/plan`, Super Admin only.
+2. **To-do list** (`REFUND_STEPS`, `refundChecklist` in `packages/domain/src/refund.ts`): approve the last November Payrolls (ticks itself), remove opening weeks not remitted, check the Receptionist's January–February remittances, recompute each refund by agency, enter every refund (shows "n of m entered"; ticks itself when everyone has one), approve the payout week's Payrolls and release them (both tick themselves). Manual steps have a Done box.
+3. **Reminder** in the Super Admin's Needs Attention (`deduction-refund`, link `/payroll?tab=deferred`) from 14 days before the payout date until every Payroll carrying a refund is released, even past the date; urgent from 3 days before. It shows steps done, days to payout and the next step. The Payroll page now opens on a tab named in `?tab=`.

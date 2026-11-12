@@ -194,7 +194,11 @@ export function PayrollPage() {
   const canDesk = useCan('payroll.receptionist.manage');
   const { data, error } = usePayWeek(start);
   const canDecember = useCan('payroll.therapist.approve');
-  const [tab, setTab] = useState<'payroll' | 'breakdown' | 'totals' | 'ca' | 'deferred' | 'december'>('payroll');
+  // `?tab=deferred` opens on a tab, e.g. from Needs Attention.
+  const [tab, setTab] = useState<'payroll' | 'breakdown' | 'totals' | 'ca' | 'deferred' | 'december'>(() => {
+    const asked = params.get('tab');
+    return asked === 'deferred' || asked === 'december' || asked === 'totals' || asked === 'ca' || asked === 'breakdown' ? asked : 'payroll';
+  });
   const go = (week: string) => setParams({ week });
 
   const ready = !!data && data.ended && data.unclosedDays.length === 0;

@@ -56,6 +56,7 @@ beforeEach(async () => {
     env.DB.prepare(`DELETE FROM cash_advances`),
     env.DB.prepare(`DELETE FROM cash_outs`),
     env.DB.prepare(`DELETE FROM deduction_refunds`),
+    env.DB.prepare(`DELETE FROM pay_rules WHERE key = 'deduction_refund_plan'`),
     env.DB.prepare(`DELETE FROM payroll_adjustments`),
     env.DB.prepare(`DELETE FROM payrolls`),
     env.DB.prepare(`DELETE FROM payments`),
@@ -318,6 +319,40 @@ describe('Government Deduction Refund', () => {
     expect((await admin.post(`/payrolls/${row.id}/approve`)).status).toBe(200);
     expect((await admin.send('DELETE', `/deduction-refunds/${t}`)).status).toBe(409);
     expect((await refunds(admin)).people.find((p) => p.staffId === t)?.refund).toMatchObject({ cash: 9_150, status: 'approved' });
+  });
+
+  it('reminds the Super Admin from two weeks before payout until the refund Payroll is released', async () => {
+    type Plan = { payoutDate: string; done: number; finished: boolean; steps: { key: string; done: boolean }[] };
+    const reminder = async () => (await json<{ items: { key: string; tone: string; detail: string; link: string }[] }>(await admin.get('/attention'))).items.find((i) => i.key === 'deduction-refund');
+    const shift = (days: number) => {
+      const d = new Date(`${businessDayOf(new Date())}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    const t = await therapist(admin);
+    const [, day] = daysOf(thisWeek());
+    await worked(t, day!, 300_000);
+    await generate(desk, thisWeek().start);
+
+    expect((await desk.send('PUT', '/deduction-refunds/plan', { payoutDate: shift(20), ticked: [] })).status).toBe(403);
+    expect((await admin.send('PUT', '/deduction-refunds/plan', { payoutDate: shift(20), ticked: ['released'] })).status).toBe(400); // ticks itself
+    expect((await admin.send('PUT', '/deduction-refunds/plan', { payoutDate: shift(20), ticked: [] })).status).toBe(200);
+    expect(await reminder()).toBeUndefined();
+
+    const res = await admin.send('PUT', '/deduction-refunds/plan', { payoutDate: shift(10), ticked: ['recompute'] });
+    expect(await json<Plan>(res)).toMatchObject({ payoutDate: shift(10), done: 1, finished: false });
+    expect(await reminder()).toMatchObject({ tone: 'normal', link: '/payroll?tab=deferred', detail: expect.stringContaining('1 of 7 steps done · payout in 10 days') });
+
+    // Past payout it stays, now urgent, until the Payroll carrying the refund is released.
+    await admin.send('PUT', '/deduction-refunds/plan', { payoutDate: shift(-1), ticked: [] });
+    await refund(admin, t, thisWeek().start);
+    expect(await reminder()).toMatchObject({ tone: 'urgent', detail: expect.stringContaining('payout was 1 day ago') });
+    const row = await mine(desk, thisWeek().start, t);
+    await admin.post(`/payrolls/${row.id}/approve`);
+    expect((await refunds(admin)) as unknown as { plan: Plan }).toMatchObject({ plan: { steps: expect.arrayContaining([expect.objectContaining({ key: 'approved', done: true })]) } });
+    expect((await admin.post(`/payrolls/${row.id}/release`, { fromShopCash: false })).status).toBe(200);
+    expect(await reminder()).toBeUndefined();
+    expect(((await refunds(admin)) as unknown as { plan: Plan }).plan.finished).toBe(true);
   });
 
   it('pays the Receptionist in cash on a Sunday Pay Week, and never refunds below zero', async () => {

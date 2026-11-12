@@ -776,6 +776,8 @@ Grilled with the owner on 2026-11-08 (three rounds), then adjusted while the own
 
 Grilled with the owner on 2026-11-10 (two rounds). Vocabulary is in `GLOSSARY.md` (new: Auto Clock-out, Late Entry, Opening Count; Day Close, DTR Review and Shop Stock updated). Migrations 0033 (`dtr.auto_clock_out`) and 0034 (`bookings.entered_late`, `late_checked_at`). **Next migration is 0035.**
 
+**Newer status: see §26 (2026-11-12).**
+
 **Status (2026-11-11):** CR-5 is merged to `main` (`3bfab98`) and deployed: migrations 0033-0034 are on production, and 16.1-16.8 are live. The only CI failure on the PR was the Top-up test during Happy Hours; its checkout now passes no Promo. One follow-up is on branch `cr-6` (16.9), pushed at `8149942`, **not merged or deployed**; it has no migration. 463 tests pass (249 domain, 214 API). Typecheck, lint and build pass. Not tried by hand: the 6:00am cron, a Late Entry that is still in service, and saving an uploaded Opening Count (covered by an API test).
 
 **Pick up here, in order:**
@@ -944,3 +946,19 @@ Asked by the owner on 2026-11-12: a reminder two weeks before the Government Ded
 ## 25. "To receive" banner on the Front Desk (branch `cr-8`)
 
 Asked by the owner on 2026-11-12: the desk had no sign that something was sent for Receiving. `GET /front-desk` now returns `toReceive` (Turnovers and Voucher card ranges not yet received), and the Front Desk shows a banner under the cash reminder, e.g. "2 deliveries to receive · 1 voucher range to receive", naming up to three items, with **Receive items** (Inventory, Stock tab) and **Receive vouchers** (Vouchers page) buttons. It shows to whoever can receive each kind and goes once everything is received; the board refreshes every 15 seconds. No migration.
+
+## 26. Current status and cr-9 (branch `cr-9`)
+
+**Status (2026-11-12): start here.** `cr-8` (§21–§25) is merged to `main` (`f9fa078`) and deployed: production health reports `0036_deduction_refunds`; the next migration is 0037. `cr-9` was branched from that `main`.
+
+**Built on `cr-9` so far:**
+
+1. **Dashboard month and year picker** (asked 2026-11-12, after the 2026 workbooks were uploaded and the Dashboard only offered October and November). The two-button switch is replaced by a Month and a Year box: any month from January 2026 (`FIRST_YEAR` in `UI/src/pages/DashboardPage.tsx`) up to this month; future months are greyed out, and picking a year that would land in the future falls back to this month. It opens on the current month and year, and a "This month" link appears when another month is shown. No API change: `GET /dashboard?month=` already took any month. Months before Go-live show their Daily Summaries in the daily chart and their monthly records in the totals. No migration.
+
+**Pick up here, in order:**
+
+1. Continue `cr-9` with the owner's next requests (a new session). Commit each slice on `cr-9`; the owner opens the PR and merges.
+2. **Government Deduction Refund** (§22, §24), before the first December Payroll. The reminder shows in Needs Attention from Sat 2026-11-28; payout date defaults to Sat 2026-12-12.
+   - After the last November Payrolls (Therapists' week of Nov 23, Receptionist's week of Nov 22) are approved, recompute each person's refund by agency from the updated workbooks. The per-person figures and how they were worked out are in the local `docs/HANDOFF.md`, never in the repo.
+   - Owner removes the unremitted opening weeks on Deferred Deductions, then enters each refund on the payout week.
+3. **Offered, not yet asked for:** showing the Receptionist's Past Payslips on the Payroll page's pre-Go-live weeks (owner declined for now on 2026-11-12; they stay on the Backfill page and in her My Pay).

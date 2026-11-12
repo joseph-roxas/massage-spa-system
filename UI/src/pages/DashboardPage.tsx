@@ -7,9 +7,41 @@ import { Columns, monthName, Ranking, SalesExpensesChart } from './dashboard/Cha
 import { NeedsAttention } from './front-desk/CashDialogs';
 import { LateEntries } from './dashboard/LateEntries';
 
-function previousMonth(month: string) {
-  const [y, m] = month.split('-').map(Number) as [number, number];
-  return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
+/** The first year with records: the 2026 workbooks uploaded at Go-live. */
+const FIRST_YEAR = 2026;
+const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+
+/** Any month from January of the first year up to this month; future months can't be picked. */
+function MonthPicker({ month, thisMonth, onChange }: { month: string; thisMonth: string; onChange: (month: string) => void }) {
+  const [year, mm] = month.split('-') as [string, string];
+  const lastYear = Number(thisMonth.slice(0, 4));
+  const years = Array.from({ length: lastYear - FIRST_YEAR + 1 }, (_, i) => String(lastYear - i));
+  // A month past this one in the chosen year falls back to this month.
+  const pick = (y: string, m: string) => onChange(`${y}-${m}` > thisMonth ? thisMonth : `${y}-${m}`);
+  const select = 'rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm';
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select aria-label="Month" className={select} value={mm} onChange={(e) => pick(year, e.target.value)}>
+        {MONTHS.map((m) => (
+          <option key={m} value={m} disabled={`${year}-${m}` > thisMonth}>
+            {new Date(`${year}-${m}-15T00:00:00+08:00`).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'long' })}
+          </option>
+        ))}
+      </select>
+      <select aria-label="Year" className={select} value={year} onChange={(e) => pick(e.target.value, mm)}>
+        {years.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
+        ))}
+      </select>
+      {month !== thisMonth && (
+        <button type="button" className="rounded-md px-2 py-1.5 text-sm font-medium text-teal-800 hover:bg-teal-50" onClick={() => onChange(thisMonth)}>
+          This month
+        </button>
+      )}
+    </div>
+  );
 }
 
 function Stat({ label, value, note, tone }: { label: string; value: string; note?: ReactNode; tone?: 'bad' }) {
@@ -198,20 +230,13 @@ function Body({ d }: { d: Dashboard }) {
 /** The Super Admin's landing page: insights only; detail stays in Reports. */
 export function DashboardPage() {
   const thisMonth = todayManila().slice(0, 7);
-  const lastMonth = previousMonth(thisMonth);
   const [month, setMonth] = useState(thisMonth);
   const { data, error, isPending } = useDashboard(month);
   return (
     <div className="max-w-6xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <div className="flex gap-1 rounded-md border border-stone-200 bg-white p-1 text-sm">
-          {[thisMonth, lastMonth].map((m) => (
-            <button key={m} type="button" className={`rounded px-3 py-1 font-medium ${m === month ? 'bg-teal-700 text-white' : 'text-stone-600 hover:bg-stone-100'}`} onClick={() => setMonth(m)}>
-              {monthName(m, 'long')}
-            </button>
-          ))}
-        </div>
+        <MonthPicker month={month} thisMonth={thisMonth} onChange={setMonth} />
       </div>
       <NeedsAttention enabled />
       <LateEntries />

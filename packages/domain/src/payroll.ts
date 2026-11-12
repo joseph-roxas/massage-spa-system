@@ -158,6 +158,15 @@ export function deferDeductions(input: { earned: number; week: number; balance: 
 export type DeferredWeek = { weekStart: IsoDate; amount: number };
 
 /**
+ * How a Government Deduction Refund is paid (ADR 0010): first off what the
+ * staff member still owes in Deferred Deductions, the rest in cash.
+ */
+export function refundSplit(refund: number, owed: number): { applied: Centavos; cash: Centavos } {
+  const applied = Math.max(0, Math.min(refund, owed));
+  return { applied: applied as Centavos, cash: Math.max(0, refund - applied) as Centavos };
+}
+
+/**
  * The weeks a Therapist already owed Government Deductions for at Go-live, from
  * the weekly record: each week with nothing taken, worked or not, at their usual
  * deduction. The Super Admin leaves out any week the shop did not remit.

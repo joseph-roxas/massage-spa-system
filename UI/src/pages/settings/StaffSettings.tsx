@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { certificateStatus, DEFAULT_CONTRIBUTION_RATES, govIdWarning, monthlyContributions, type ContributionRates, type GovId } from '@spa/domain';
+import { certificateStatus, govIdWarning, monthlyContributions, withDefaultRates, type ContributionRates, type GovId } from '@spa/domain';
 import { Alert, Badge, Button, Card, Checkbox, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
 import { usePayRules, useSave, useStaff, type Certificate, type Qualification, type StaffMember } from '../../lib/catalogue';
 import { api, invalidFields } from '../../lib/api';
@@ -119,7 +119,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
     queryFn: () => api<{ users: { id: string; firstName: string; lastName: string; email: string; role: string | null }[] }>('/users?status=active'),
     enabled: isReceptionist,
   });
-  const rates = (rules.data?.payRules.contribution_rates as ContributionRates | undefined) ?? DEFAULT_CONTRIBUTION_RATES;
+  const rates = withDefaultRates(rules.data?.payRules.contribution_rates as Partial<ContributionRates> | undefined);
 
   function submit(e: FormEvent) {
     e.preventDefault();

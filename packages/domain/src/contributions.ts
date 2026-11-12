@@ -10,16 +10,25 @@ export type ContributionRates = {
   sss: { eeBp: number; erBp: number; mscMin: number; mscMax: number; mscStep: number; ecLow: number; ecHigh: number; ecHighFromMsc: number };
   /** 5% of the salary between the floor and ceiling, split equally. */
   phic: { bp: number; floor: number; ceiling: number };
-  /** 2% each on the fund salary up to its maximum; 1% for the employee at or below `lowUpTo`. */
-  pagibig: { eeBp: number; eeLowBp: number; lowUpTo: number; erBp: number; fundSalaryMax: number };
+  /**
+   * 2% each on the fund salary up to its maximum; 1% for the employee at or below `lowUpTo`.
+   * `atMaximum`: the shop remits on the maximum fund salary for everyone, whatever their salary basis.
+   */
+  pagibig: { eeBp: number; eeLowBp: number; lowUpTo: number; erBp: number; fundSalaryMax: number; atMaximum?: boolean };
 };
 
 /** SSS Circular 2024-006, PhilHealth Advisory 2025-0002, HDMF Circular 460 (rates in force from 2025). */
 export const DEFAULT_CONTRIBUTION_RATES: ContributionRates = {
   sss: { eeBp: 500, erBp: 1000, mscMin: 500_000, mscMax: 3_500_000, mscStep: 50_000, ecLow: 1_000, ecHigh: 3_000, ecHighFromMsc: 1_500_000 },
   phic: { bp: 500, floor: 1_000_000, ceiling: 10_000_000 },
-  pagibig: { eeBp: 200, eeLowBp: 100, lowUpTo: 150_000, erBp: 200, fundSalaryMax: 1_000_000 },
+  pagibig: { eeBp: 200, eeLowBp: 100, lowUpTo: 150_000, erBp: 200, fundSalaryMax: 1_000_000, atMaximum: true },
 };
+
+/** Saved rates over the defaults, so a setting added later has its default until it is saved. */
+export function withDefaultRates(saved: Partial<ContributionRates> | null | undefined): ContributionRates {
+  const d = DEFAULT_CONTRIBUTION_RATES;
+  return { sss: { ...d.sss, ...saved?.sss }, phic: { ...d.phic, ...saved?.phic }, pagibig: { ...d.pagibig, ...saved?.pagibig } };
+}
 
 const pct = (amount: number, bp: number) => Math.round((amount * bp) / 10_000);
 
@@ -46,7 +55,7 @@ export function monthlyContributions(salary: number, r: ContributionRates, ids: 
   const phicEe = Math.round(premium / 2);
   const phic: Share = ids.phic ? { ee: phicEe as Centavos, er: (premium - phicEe) as Centavos } : NONE;
 
-  const fund = Math.min(salary, r.pagibig.fundSalaryMax);
+  const fund = r.pagibig.atMaximum ? r.pagibig.fundSalaryMax : Math.min(salary, r.pagibig.fundSalaryMax);
   const pagibig: Share = ids.pagibig
     ? { ee: pct(fund, salary <= r.pagibig.lowUpTo ? r.pagibig.eeLowBp : r.pagibig.eeBp) as Centavos, er: pct(fund, r.pagibig.erBp) as Centavos }
     : NONE;

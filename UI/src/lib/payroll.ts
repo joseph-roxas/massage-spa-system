@@ -37,7 +37,12 @@ export type Payroll = {
   releasedAt: string | null;
   adjustments: Adjustment[];
   lines: PayLines;
+  /** The Government Deduction Refund this Payroll carries (ADR 0010). */
+  refund?: Refund | null;
 };
+
+/** By agency, signed; `applied` came off Deferred Deductions and `cash` is paid as an Adjustment. */
+export type Refund = { weekStart: string; sss: number; phic: number; pagibig: number; total: number; applied: number; cash: number; adjustmentId: string | null };
 
 /** The reason is sent to the Super Admin only. */
 export type Adjustment = { id: string; label: string; amount: number; reason?: string };

@@ -286,7 +286,11 @@ A blank printed form for writing a Therapist's or the Receptionist's Payslip by 
 The current daily minimum wage in Cebu, set by the Super Admin; what a Reliever earns for a Relief Shift. Separate from the Receptionist's own daily rate, which is usually higher.
 
 **Government Deductions**:
-The employee share of SSS, PhilHealth (PHIC) and Pag-IBIG withheld each Pay Week. The shop remits the full amount every month whether or not it was withheld.
+The employee share of SSS, PhilHealth (PHIC) and Pag-IBIG withheld each Pay Week: each month's share split evenly over the Pay Weeks ending in that month, so a month withholds exactly what is remitted for it. The shop remits the full amount every month whether or not it was withheld. Pag-IBIG is always on the maximum fund salary, whatever the contribution bracket.
+
+**Government Deduction Refund**:
+A one-time correction for Government Deductions taken at a flat weekly amount before the monthly split, from January to the end of November 2026 (2025 is closed): what each staff member was charged (taken or deferred) less their true employee share for the months the shop remitted. It first reduces their Deferred Deductions; any remainder is paid on one Payroll as its own line, broken down by agency. Never below zero.
+_Avoid_: Over-deduction refund, reimbursement
 
 **Not Enrolled**:
 A Therapist marked as having no government contributions: no Government Deductions, no Employer Contributions, and no missing-ID alert. The mark stays visible on their Staff record.

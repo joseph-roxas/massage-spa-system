@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CONTRIBUTION_RATES as R, monthlyContributions, payWeekEndsIn, sssMsc, weeklyPart } from './contributions';
+import { DEFAULT_CONTRIBUTION_RATES as R, monthlyContributions, withDefaultRates, payWeekEndsIn, sssMsc, weeklyPart } from './contributions';
 import { pesos } from './money';
 import { daysUntil, incomeStatement, percentageTax, percentageTaxDue, previousQuarter, quarterOf, quarterRange } from './tax';
 
@@ -10,8 +10,19 @@ describe('employer and employee contributions', () => {
     const c = monthlyContributions(pesos(8000), R, ALL);
     expect(c.sss).toEqual({ ee: pesos(400), er: pesos(810) });
     expect(c.phic).toEqual({ ee: pesos(250), er: pesos(250) }); // ₱10,000 floor
+    expect(c.pagibig).toEqual({ ee: pesos(200), er: pesos(200) }); // the shop remits on the ₱10,000 maximum
+    expect(c.er).toBe(pesos(1260));
+  });
+
+  it('takes Pag-IBIG on the salary basis when the maximum is turned off', () => {
+    const c = monthlyContributions(pesos(8000), { ...R, pagibig: { ...R.pagibig, atMaximum: false } }, ALL);
     expect(c.pagibig).toEqual({ ee: pesos(160), er: pesos(160) });
-    expect(c.er).toBe(pesos(1220));
+  });
+
+  it('gives rates saved before the Pag-IBIG maximum setting existed its default', () => {
+    const { atMaximum: _, ...old } = R.pagibig;
+    expect(withDefaultRates({ ...R, pagibig: old }).pagibig.atMaximum).toBe(true);
+    expect(withDefaultRates({ ...R, pagibig: { ...old, atMaximum: false } }).pagibig.atMaximum).toBe(false);
   });
 
   it('match the owner’s figures for the receptionist on ₱16,900', () => {

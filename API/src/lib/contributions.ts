@@ -1,14 +1,14 @@
 import { eq } from 'drizzle-orm';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
-import { DEFAULT_CONTRIBUTION_RATES, monthlyContributions, weeklyPart, type ContributionRates, type Contributions } from '@spa/domain';
+import { monthlyContributions, withDefaultRates, weeklyPart, type ContributionRates, type Contributions } from '@spa/domain';
 import { payRules, staff } from '@spa/db';
 
 type Staff = typeof staff.$inferSelect;
 
-/** The rates in Settings, or the defaults if never saved. */
+/** The rates in Settings over the defaults. */
 export async function contributionRates(db: DrizzleD1Database): Promise<ContributionRates> {
   const row = await db.select().from(payRules).where(eq(payRules.key, 'contribution_rates')).get();
-  return row ? (JSON.parse(row.valueJson) as ContributionRates) : DEFAULT_CONTRIBUTION_RATES;
+  return withDefaultRates(row ? (JSON.parse(row.valueJson) as Partial<ContributionRates>) : null);
 }
 
 /** A staff member's monthly shares from their salary basis, or null (On-call, or no basis set). */

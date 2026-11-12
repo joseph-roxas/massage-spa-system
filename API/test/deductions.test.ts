@@ -55,6 +55,7 @@ beforeEach(async () => {
     env.DB.prepare(`DELETE FROM cash_transfers`),
     env.DB.prepare(`DELETE FROM cash_advances`),
     env.DB.prepare(`DELETE FROM cash_outs`),
+    env.DB.prepare(`DELETE FROM deduction_refunds`),
     env.DB.prepare(`DELETE FROM payroll_adjustments`),
     env.DB.prepare(`DELETE FROM payrolls`),
     env.DB.prepare(`DELETE FROM payments`),
@@ -262,6 +263,71 @@ describe('The first Pay Week', () => {
     const w = thisWeek();
     expect((await week(desk, w.start)).beforeGoLive).toBeNull();
     expect((await desk.send('PUT', `/payroll/weeks/${w.start}/before-go-live`, { staffId: 'x', amount: 1 })).status).toBe(409);
+  });
+});
+
+describe('Government Deduction Refund', () => {
+  type Refund = { sss: number; phic: number; pagibig: number; total: number; applied: number; cash: number; status?: string | null };
+  const refunds = async (c: Client) => json<{ people: { staffId: string; kind: string; owed: number; refund: Refund | null }[] }>(await c.get('/deduction-refunds'));
+  const refund = (c: Client, staffId: string, weekStart: string, shares = { sss: -3_200, phic: 20_000, pagibig: 12_800 }) => c.post('/deduction-refunds', { staffId, weekStart, ...shares });
+  const opening = (t: string, weeks: { weekStart: string; amount: number }[]) => admin.send('PUT', '/deferred-deductions/opening', { staffId: t, amount: weeks.reduce((s, w) => s + w.amount, 0), weeks });
+
+  it('clears what a Therapist owes first, oldest week first, and pays no cash while they still owe', async () => {
+    const t = await therapist(admin);
+    await opening(t, [
+      { weekStart: '2025-12-29', amount: 20_450 },
+      { weekStart: '2026-01-05', amount: 20_450 },
+      { weekStart: '2026-03-30', amount: 20_450 },
+    ]);
+    const [, day] = daysOf(thisWeek());
+    await worked(t, day!, 300_000);
+    await generate(desk, thisWeek().start);
+
+    expect((await refund(desk, t, thisWeek().start)).status).toBe(403);
+    expect((await desk.get('/deduction-refunds')).status).toBe(403);
+    const res = await refund(admin, t, thisWeek().start);
+    expect(res.status).toBe(201);
+    expect(await json<Refund>(res)).toMatchObject({ total: 29_600, applied: 29_600, cash: 0 });
+    expect((await owed(admin, t)).balance).toBe(61_350 - 29_600);
+
+    const row = await mine(desk, thisWeek().start, t);
+    expect(row).toMatchObject({ gross: 300_000, refund: { sss: -3_200, phic: 20_000, pagibig: 12_800, applied: 29_600, cash: 0 } });
+    expect(row.deferredOwed).toMatchObject({ total: 31_750, weeks: [{ number: 2, amount: 11_300 }, { number: 14, amount: 20_450 }] });
+
+    expect((await refund(admin, t, thisWeek().start)).status).toBe(409); // one refund each
+    expect((await admin.send('DELETE', `/deduction-refunds/${t}`)).status).toBe(200);
+    expect((await owed(admin, t)).balance).toBe(61_350);
+  });
+
+  it('adds what is left after the balance to the Payroll as its own line', async () => {
+    const t = await therapist(admin);
+    await opening(t, [{ weekStart: '2026-02-16', amount: 20_450 }]);
+    const [, day] = daysOf(thisWeek());
+    await worked(t, day!, 300_000);
+    await generate(desk, thisWeek().start);
+    const before = await mine(desk, thisWeek().start, t);
+
+    expect(await json<Refund>(await refund(admin, t, thisWeek().start))).toMatchObject({ applied: 20_450, cash: 9_150 });
+    const row = await mine(desk, thisWeek().start, t);
+    expect(row).toMatchObject({ gross: 309_150, net: before.net + 9_150, deferredOwed: { total: 0 } });
+    const adjustments = (row as unknown as { adjustments: { id: string; label: string; amount: number }[] }).adjustments;
+    expect(adjustments).toEqual([expect.objectContaining({ label: 'Government Deduction Refund', amount: 9_150 })]);
+
+    // Removed only with the refund itself, so the balance and the cash stay together.
+    expect((await admin.send('DELETE', `/payrolls/${row.id}/adjustments/${adjustments[0]!.id}`)).status).toBe(409);
+    expect((await admin.post(`/payrolls/${row.id}/approve`)).status).toBe(200);
+    expect((await admin.send('DELETE', `/deduction-refunds/${t}`)).status).toBe(409);
+    expect((await refunds(admin)).people.find((p) => p.staffId === t)?.refund).toMatchObject({ cash: 9_150, status: 'approved' });
+  });
+
+  it('pays the Receptionist in cash on a Sunday Pay Week, and never refunds below zero', async () => {
+    const { id: r } = await json<{ id: string }>(await admin.post('/settings/staff', { ...PERSON, firstName: 'Desk', lastName: 'Test', displayName: 'Desk', kind: 'receptionist', dailyRate: 69_200 }));
+    const sunday = lastCompletedPayWeek(businessDayOf(new Date())).start;
+    expect((await refund(admin, r, thisWeek().start)).status).toBe(422); // a Monday
+    expect((await refund(admin, r, sunday, { sss: -10_000, phic: 5_000, pagibig: 5_000 })).status).toBe(422);
+    const res = await refund(admin, r, sunday, { sss: 38_740, phic: 25_154, pagibig: 37_361 });
+    expect(await json<Refund>(res)).toMatchObject({ total: 101_255, applied: 0, cash: 101_255 });
+    expect((await refunds(admin)).people.find((p) => p.staffId === r)).toMatchObject({ kind: 'receptionist', owed: 0, refund: { cash: 101_255, status: null } });
   });
 });
 

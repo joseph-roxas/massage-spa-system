@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { manilaInstant } from './business-day';
 import {
+  refundSplit,
   cashAdvanceCap,
   caRepaymentFor,
   dayKind,
@@ -352,6 +353,14 @@ describe('Pay Weeks', () => {
     expect(lastCompletedPayWeek('2026-11-09').start).toBe('2026-11-01');
     expect(weekKindsOf('2026-11-02')).toEqual(['therapist']);
     expect(weekKindsOf('2026-11-08')).toEqual(['receptionist', 'reliever']);
+  });
+});
+
+describe('Government Deduction Refund', () => {
+  it('clears what is owed first and pays the rest in cash', () => {
+    expect(refundSplit(29_600, 61_350)).toEqual({ applied: 29_600, cash: 0 });
+    expect(refundSplit(29_600, 20_450)).toEqual({ applied: 20_450, cash: 9_150 });
+    expect(refundSplit(29_600, 0)).toEqual({ applied: 0, cash: 29_600 });
   });
 });
 

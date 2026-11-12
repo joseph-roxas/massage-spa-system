@@ -59,9 +59,9 @@ describe('employer contributions', () => {
     expect((await admin.post('/settings/staff', { ...PERSON, firstName: 'X', lastName: 'Y', displayName: 'XY', kind: 'therapist', therapistClass: 'regular', isOnCall: true, contributionBase: 800000 })).status).toBe(400);
 
     const month = monthOf(today());
-    expect(await json(await admin.post('/expenses/contributions/draft', { month }))).toEqual({ amount: 122000 + 235250 });
+    expect(await json(await admin.post('/expenses/contributions/draft', { month }))).toEqual({ amount: 126000 + 235250 }); // Pag-IBIG on the ₱10,000 maximum for everyone
     const row = await env.DB.prepare(`SELECT amount, status, category_id FROM expenses WHERE contributions_month = ?`).bind(month).first<{ amount: number; status: string; category_id: string }>();
-    expect(row).toEqual({ amount: 357250, status: 'pending', category_id: 'employer-contributions' });
+    expect(row).toEqual({ amount: 361250, status: 'pending', category_id: 'employer-contributions' });
     // Recomputing replaces the draft rather than adding another.
     await admin.post('/expenses/contributions/draft', { month });
     expect((await env.DB.prepare(`SELECT count(*) AS n FROM expenses WHERE contributions_month = ?`).bind(month).first<{ n: number }>())!.n).toBe(1);

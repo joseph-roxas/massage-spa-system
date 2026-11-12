@@ -253,6 +253,13 @@
       "when": 1794371296410,
       "tag": "0035_laundry_breakdown",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1794448365228,
+      "tag": "0036_deduction_refunds",
+      "breakpoints": true
     }
   ]
 }

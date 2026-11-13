@@ -954,6 +954,7 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
 **Built on `cr-9` so far:**
 
 1. **Dashboard month and year picker** (asked 2026-11-12, after the 2026 workbooks were uploaded and the Dashboard only offered October and November). The two-button switch is replaced by a Month and a Year box: any month from January 2026 (`FIRST_YEAR` in `UI/src/pages/DashboardPage.tsx`) up to this month; future months are greyed out, and picking a year that would land in the future falls back to this month. It opens on the current month and year, and a "This month" link appears when another month is shown. No API change: `GET /dashboard?month=` already took any month. Months before Go-live show their Daily Summaries in the daily chart and their monthly records in the totals. No migration.
+2. **Draft payrolls reminder** (asked 2026-11-13). Needs Attention item `draft-payrolls`: every Payroll still in draft for a Pay Week that has ended, e.g. "Approve 4 payrolls still in draft · Therapists · 2 weeks, oldest the week of Nov 2", linking to the oldest week. Urgent once the oldest has been waiting more than 7 days past its week's end. Weeks that ended before Go-live are left out (paid outside the system). Goes once every one is approved. No migration.
 
 **Pick up here, in order:**
 

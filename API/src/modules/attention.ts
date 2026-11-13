@@ -1,13 +1,14 @@
 import { Hono } from 'hono';
 import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { businessDayOf, certificateStatus, previousQuarter, quarterOf } from '@spa/domain';
-import { bookings, cashTransfers, certificates, expenses, staff, takeoutRequests, turnovers } from '@spa/db';
+import { bookings, cashTransfers, certificates, expenses, payrolls, staff, takeoutRequests, turnovers } from '@spa/db';
 import { dtrToReviewCount } from './attendance';
 import { handoverState } from '../lib/sales-cash';
 import type { AuthedEnv } from '../env';
 import { requireAuth, requireCapability } from '../auth/middleware';
 import { quarterStatus } from './finance';
 import { refundStatus } from '../lib/refund';
+import { goLiveDate } from '../lib/pay-rules';
 
 export type AttentionItem = {
   key: string;
@@ -23,11 +24,18 @@ const HANDOVER_OVERDUE_HOURS = 24;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** A draft Payroll this many days past its Pay Week's end reaches the Super Admin as urgent. */
+const DRAFT_OVERDUE_DAYS = 7;
+const dayMs = (d: string) => Date.parse(`${d}T00:00:00Z`);
+const weekEnd = (start: string) => new Date(dayMs(start) + 6 * 86_400_000).toISOString().slice(0, 10);
+const daysBetween = (from: string, to: string) => Math.round((dayMs(to) - dayMs(from)) / 86_400_000);
+const shortDate = (d: string) => new Date(`${d}T00:00:00+08:00`).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' });
+
 /** Everything waiting on the Super Admin, most urgent first; each item links to where it is acted on. */
 export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAuth, requireCapability('settings.manage'), async (c) => {
   const db = c.var.db;
   const today = businessDayOf(new Date());
-  const [requests, shortfalls, handovers, people, certs, drafts, tax, dtrToReview, cash, late, refund] = await Promise.all([
+  const [requests, shortfalls, handovers, people, certs, drafts, tax, dtrToReview, cash, late, refund, draftPayrolls, goLive] = await Promise.all([
     db.select({ id: takeoutRequests.id, level: takeoutRequests.level }).from(takeoutRequests).where(isNull(takeoutRequests.resolvedAt)),
     db
       .select({ id: turnovers.id })
@@ -42,6 +50,8 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
     handoverState(db, today),
     db.select({ n: sql<number>`count(*)` }).from(bookings).where(and(eq(bookings.enteredLate, true), isNull(bookings.lateCheckedAt))).get(),
     refundStatus(db, today),
+    db.select({ weekStart: payrolls.weekStart, kind: payrolls.kind }).from(payrolls).where(eq(payrolls.status, 'draft')),
+    goLiveDate(db),
   ]);
 
   const items: AttentionItem[] = [];
@@ -151,6 +161,25 @@ export const attentionRoutes = new Hono<AuthedEnv>().get('/attention', requireAu
   }
 
   const pending = Number(drafts?.n ?? 0);
+  // Payrolls for a finished Pay Week still waiting for approval: nothing is paid, and held-over deductions don't count yet.
+  // Weeks that ended before Go-live were paid outside the system, so a draft for one is left out.
+  const unapproved = draftPayrolls.filter((p) => weekEnd(p.weekStart) < today && weekEnd(p.weekStart) >= goLive);
+  if (unapproved.length) {
+    const weeks = [...new Set(unapproved.map((p) => p.weekStart))].sort();
+    const oldest = weeks[0]!;
+    const kinds = (['therapist', 'receptionist', 'reliever'] as const)
+      .filter((k) => unapproved.some((p) => p.kind === k))
+      .map((k) => ({ therapist: 'Therapists', receptionist: 'Receptionist', reliever: 'Outside Reliever' })[k]);
+    items.push({
+      key: 'draft-payrolls',
+      // A week left unapproved for another full week is overdue.
+      tone: daysBetween(weekEnd(oldest), today) > DRAFT_OVERDUE_DAYS ? 'urgent' : 'normal',
+      title: `Approve ${plural(unapproved.length, 'payroll')} still in draft`,
+      detail: `${kinds.join(' and ')} · ${plural(weeks.length, 'week')}, oldest the week of ${shortDate(oldest)}`,
+      link: `/payroll?week=${oldest}`,
+    });
+  }
+
   if (dtrToReview) {
     items.push({ key: 'dtr-review', tone: 'normal', title: `${plural(dtrToReview, 'time record')} to review`, detail: 'Added by hand, corrected, or never clocked out', link: '/dtr?tab=review' });
   }

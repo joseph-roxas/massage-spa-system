@@ -234,6 +234,29 @@ describe('Deferred Deductions', () => {
   });
 });
 
+describe('Draft payrolls reminder', () => {
+  it('asks the Super Admin to approve payrolls of finished weeks still in draft, until they are approved', async () => {
+    const reminder = async () => (await json<{ items: { key: string; tone: string; title: string; detail: string; link: string }[] }>(await admin.get('/attention'))).items.find((i) => i.key === 'draft-payrolls');
+    const t = await therapist(admin);
+    const u = await therapist(admin);
+    expect(await reminder()).toBeUndefined();
+
+    await generate(desk, earlier().start);
+    await generate(desk, thisWeek().start);
+    expect(await reminder()).toMatchObject({ title: 'Approve 4 payrolls still in draft', detail: expect.stringMatching(/^Therapists · 2 weeks, oldest the week of /), link: `/payroll?week=${earlier().start}` });
+
+    // A week that ended before Go-live was paid outside the system.
+    await env.DB.prepare(`UPDATE pay_rules SET value_json = ? WHERE key = 'go_live_date'`).bind(JSON.stringify(thisWeek().start)).run();
+    expect(await reminder()).toMatchObject({ title: 'Approve 2 payrolls still in draft', link: `/payroll?week=${thisWeek().start}` });
+    await env.DB.prepare(`UPDATE pay_rules SET value_json = '"2020-01-05"' WHERE key = 'go_live_date'`).run();
+
+    for (const start of [earlier().start, thisWeek().start]) {
+      for (const id of [t, u]) expect((await admin.post(`/payrolls/${(await mine(desk, start, id)).id}/approve`)).status).toBe(200);
+    }
+    expect(await reminder()).toBeUndefined();
+  });
+});
+
 describe('The first Pay Week', () => {
   it('adds Commission from before Go-live and can’t be approved without it', async () => {
     const w = thisWeek();

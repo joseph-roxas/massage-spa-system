@@ -142,6 +142,8 @@ export type Balance = {
   kind: PayrollKind;
   balance: number;
   cap?: { week: PayWeek; net: number; taken: number; cap: number };
+  /** Therapist: an approved payroll not yet fully released; no Cash Advance until it is. */
+  unreleased?: { payrollId: string; weekStart: string; left: number } | null;
   /** Receptionist: the standing CA Repayment per Payroll. */
   caRepayment?: number;
   /** Receptionist: the balance her Past Payslips last recorded. */

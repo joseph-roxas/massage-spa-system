@@ -286,6 +286,21 @@ async function caTargetWeek(db: Db, staffId: string): Promise<PayWeek> {
   return !row || row.status === 'draft' ? last : payWeekOf(today(), 'therapist');
 }
 
+/**
+ * A Therapist's approved Payroll not yet fully released: while one exists, money for them goes out as a
+ * Release on it, not a Cash Advance, which would land on a later week.
+ */
+async function unreleasedPayroll(db: Db, staffId: string) {
+  const row = await db
+    .select()
+    .from(payrolls)
+    .where(and(eq(payrolls.staffId, staffId), eq(payrolls.kind, 'therapist'), eq(payrolls.status, 'approved')))
+    .orderBy(asc(payrolls.weekStart))
+    .get();
+  if (!row) return null;
+  return { payrollId: row.id, weekStart: row.weekStart, left: Math.max(0, row.net - sumOf((await releasesOf(db, [row.id])).get(row.id))) };
+}
+
 async function therapistCap(db: Db, person: Staff) {
   const week = await caTargetWeek(db, person.id);
   const { pay, taken } = await therapistWeek(db, person, week);
@@ -796,7 +811,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
         displayName: p.displayName,
         kind: kindOf(p),
         balance,
-        ...(kindOf(p) === 'therapist' ? { cap: await therapistCap(db, p) } : { caRepayment: p.caRepayment, suggestedOpening: recorded.find((r) => r.staffId === p.id)?.caBalance ?? null }),
+        ...(kindOf(p) === 'therapist' ? { cap: await therapistCap(db, p), unreleased: await unreleasedPayroll(db, p.id) } : { caRepayment: p.caRepayment, suggestedOpening: recorded.find((r) => r.staffId === p.id)?.caBalance ?? null }),
       });
     }
     return c.json({ balances: out });
@@ -824,6 +839,15 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     let against: string | null = null;
     let overrideBy: string | null = null;
     if (kind === 'therapist') {
+      const held = await unreleasedPayroll(db, person.id);
+      if (held) {
+        return fail(
+          c,
+          409,
+          'payroll_unreleased',
+          `${person.displayName}’s payroll for the week of ${held.weekStart} is approved but not fully released (₱${(held.left / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })} to go). Use Hand over part on that payroll; Cash Advances open again once it is fully released.`,
+        );
+      }
       const cap = await therapistCap(db, person);
       against = cap.week.start;
       if (input.amount > cap.cap) {

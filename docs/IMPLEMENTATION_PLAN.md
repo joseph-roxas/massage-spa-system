@@ -949,7 +949,7 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
 
 ## 26. Current status and cr-9 (branch `cr-9`)
 
-**Status (2026-11-12): start here.** `cr-8` (§21–§25) is merged to `main` (`f9fa078`) and deployed: production health reports `0036_deduction_refunds`; the next migration is 0038 (0037 is on `cr-9`). `cr-9` was branched from that `main`.
+**Status (2026-11-14): start here.** `cr-8` (§21–§25) is merged to `main` (`f9fa078`) and deployed: production health reports `0036_deduction_refunds`. `cr-9` (items 1–6 below) is pushed to GitHub, not merged or deployed; it carries migration `0037_payroll_releases`, so the next one is 0038. 271 domain and 231 API tests pass; typecheck and lint are clean.
 
 **Built on `cr-9` so far:**
 
@@ -962,8 +962,12 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
 
 **Pick up here, in order:**
 
-1. Continue `cr-9` with the owner's next requests (a new session). Commit each slice on `cr-9`; the owner opens the PR and merges.
+1. **Owner opens the PR from `cr-9` to `main`** and merges; migration 0037 runs on deploy (health should then report `0037_payroll_releases`). Then continue with the next batch on a new branch, or on `cr-9` if it is not merged yet.
+   - After deploy, tell the Receptionist: money for a Therapist goes out with **Hand over part** / **Paid in full** on the approved payroll; a Cash Advance only exists while last week's payroll is generated and still a draft.
+   - A ₱0 net payroll still needs **Paid in full** once, or that Therapist's Cash Advances stay closed.
+   - Leftover local test drafts (Receptionist weeks of Aug 16, Aug 23, Oct 18, Oct 25) are only in the owner's local database; the draft reminder ignores weeks before Go-live.
 2. **Government Deduction Refund** (§22, §24), before the first December Payroll. The reminder shows in Needs Attention from Sat 2026-11-28; payout date defaults to Sat 2026-12-12.
    - After the last November Payrolls (Therapists' week of Nov 23, Receptionist's week of Nov 22) are approved, recompute each person's refund by agency from the updated workbooks. The per-person figures and how they were worked out are in the local `docs/HANDOFF.md`, never in the repo.
    - Owner removes the unremitted opening weeks on Deferred Deductions, then enters each refund on the payout week.
-3. **Offered, not yet asked for:** showing the Receptionist's Past Payslips on the Payroll page's pre-Go-live weeks (owner declined for now on 2026-11-12; they stay on the Backfill page and in her My Pay).
+3. **Refund figures shift with the Pag-IBIG change:** November weeks regenerated after `cr-8` take the higher Pag-IBIG share, so the November part of each Therapist's refund changes. Use the actual payrolls when recomputing; the figures are in the local `docs/HANDOFF.md`.
+4. **Offered, not yet asked for:** showing the Receptionist's Past Payslips on the Payroll page's pre-Go-live weeks (owner declined for now on 2026-11-12; they stay on the Backfill page and in her My Pay).

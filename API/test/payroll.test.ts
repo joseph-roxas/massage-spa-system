@@ -72,6 +72,7 @@ beforeEach(async () => {
     env.DB.prepare(`UPDATE pay_rules SET value_json = '"2020-01-05"' WHERE key = 'go_live_date'`),
     // These weeks are counted back from today; keep them ordinary.
     env.DB.prepare(`DELETE FROM holidays WHERE date = '2026-11-02'`),
+    env.DB.prepare(`DELETE FROM payroll_releases`),
     env.DB.prepare(`DELETE FROM cash_transfers`),
     env.DB.prepare(`DELETE FROM cash_advances`),
     env.DB.prepare(`DELETE FROM cash_outs`),
@@ -131,6 +132,50 @@ describe('therapist payroll', () => {
     const mineNow = after.balances.find((b) => b.staffId === t)!;
     expect(mineNow.balance).toBe(0);
     expect(mineNow.cap.week.start).toBe(payWeekOf(businessDayOf(new Date()), 'therapist').start);
+  });
+
+  it('hands pay over in parts; the last part releases it', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
+    const [, mon] = tDays();
+    await pastSales(mon!, t, [100000]);
+    await punched(t, mon!, '14:00', '23:00');
+    await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' });
+    const p = mine(await weekOf(desk, tw().start), t);
+    expect(p.net).toBe(100000 - 20250);
+    type Paid = Payroll & { paid: number; releases: { amount: number; fromShopCash: boolean }[] };
+    const now = async () => mine(await weekOf(desk, tw().start), t) as Paid;
+
+    expect((await desk.post(`/payrolls/${p.id}/releases`, { amount: 50000 })).status).toBe(409); // not approved yet
+    await admin.post(`/payrolls/${p.id}/approve`);
+
+    expect(await json(await desk.post(`/payrolls/${p.id}/releases`, { amount: 50000 }))).toMatchObject({ released: false, left: 29750 });
+    expect(await now()).toMatchObject({ status: 'approved', paid: 50000, releases: [{ amount: 50000, fromShopCash: true }] });
+    expect((await desk.post(`/payrolls/${p.id}/releases`, { amount: 30000 })).status).toBe(409); // more than is left
+    expect((await admin.post(`/payrolls/${p.id}/unapprove`, { reason: 'Recheck' })).status).toBe(409); // money already handed over
+
+    // Paid in full hands over the rest.
+    expect((await desk.post(`/payrolls/${p.id}/release`)).status).toBe(200);
+    expect(await now()).toMatchObject({ status: 'released', paid: 79750, releases: [{ amount: 50000 }, { amount: 29750 }] });
+    const { results } = await env.DB.prepare(`SELECT amount FROM cash_transfers WHERE kind = 'payroll' AND payroll_id = ? ORDER BY amount DESC`).bind(p.id).all<{ amount: number }>();
+    expect(results.map((r) => r.amount)).toEqual([50000, 29750]);
+    expect((await desk.post(`/payrolls/${p.id}/releases`, { amount: 1 })).status).toBe(409);
+  });
+
+  it('releases on the part that reaches net pay, and can be paid outside the shop’s cash', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
+    const [, mon] = tDays();
+    await pastSales(mon!, t, [100000]);
+    await punched(t, mon!, '14:00', '23:00');
+    await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' });
+    const p = mine(await weekOf(desk, tw().start), t);
+    await admin.post(`/payrolls/${p.id}/approve`);
+    expect(await json(await desk.post(`/payrolls/${p.id}/releases`, { amount: 79750, fromShopCash: false }))).toMatchObject({ released: true, left: 0 });
+    expect(mine(await weekOf(desk, tw().start), t)).toMatchObject({ status: 'released', paid: 79750 });
+    expect(await env.DB.prepare(`SELECT count(*) AS n FROM cash_transfers WHERE payroll_id = ?`).bind(p.id).first<{ n: number }>()).toEqual({ n: 0 });
   });
 
   it('waits for every day of the week to be closed, and regenerates drafts with new CAs', async () => {

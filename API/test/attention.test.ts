@@ -18,6 +18,7 @@ const inDays = (n: number) => {
 beforeEach(async () => {
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM takeout_requests`),
+    env.DB.prepare(`DELETE FROM payroll_releases`),
     env.DB.prepare(`DELETE FROM cash_transfers`),
     env.DB.prepare(`DELETE FROM certificates`),
     env.DB.prepare(`UPDATE staff SET active = 0`),

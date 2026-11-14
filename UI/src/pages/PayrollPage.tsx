@@ -23,6 +23,18 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
   const gov = (r: Payroll) => r.govSss + r.govPhic + r.govPagibig - r.govDeferred + r.govCollected;
 
   const [fromShopCash, setFromShopCash] = useState(true);
+  const left = (r: Payroll) => (r.status === 'approved' ? Math.max(0, r.net - r.paid) : 0);
+  const released = rows.filter((r) => r.status === 'released').length;
+  const toRelease = rows.reduce((s, r) => s + left(r), 0);
+
+  /** Part of the pay handed over now; the rest stays to be released. */
+  function handOverPart(r: Payroll) {
+    const text = prompt(`How much did you hand to ${r.displayName} now? ${peso(left(r))} is still to be released.`);
+    if (text === null) return;
+    const amount = parsePesos(text);
+    if (!amount) return alert('Enter an amount, e.g. 1000.');
+    act.mutate({ path: `/payrolls/${r.id}/releases`, body: { amount, fromShopCash } });
+  }
 
   async function each(list: Payroll[], step: 'approve' | 'release') {
     const body = step === 'release' ? { fromShopCash } : {};
@@ -48,14 +60,19 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
             <Checkbox label="Paid from shop cash" checked={fromShopCash} onChange={(e) => setFromShopCash(e.target.checked)} />
           )}
           {approved.length > 0 && (
-            <Button disabled={act.isPending} onClick={() => each(approved, 'release')}>
-              Mark {approved.length === 1 ? '1' : approved.length} paid
+            <Button disabled={act.isPending} onClick={() => confirm(`Hand over everything still owed to ${approved.length === 1 ? approved[0]!.displayName : `all ${approved.length}`}?`) && each(approved, 'release')}>
+              {approved.length === 1 ? 'Paid in full' : `All ${approved.length} paid in full`}
             </Button>
           )}
         </div>
       }
     >
       {act.error && <Alert>{act.error.message}</Alert>}
+      {allFixed && (
+        <p className="mb-3 text-sm text-stone-600">
+          {released} of {rows.length} fully released{toRelease > 0 && <> · <span className="font-semibold text-amber-800">{peso(toRelease)} still to be released</span></>}
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="text-sm text-stone-500">{ready ? 'Not generated yet.' : 'Generate once the week has ended and every day is closed.'}</p>
       ) : (
@@ -67,6 +84,7 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
               <th className={`${th} text-right`}>SSS · PHIC · Pag-IBIG</th>
               <th className={`${th} text-right`}>CA</th>
               <th className={`${th} text-right`}>Net pay</th>
+              <th className={`${th} text-right`}>Released</th>
               <th className={th}>Status</th>
             </tr>
           </thead>
@@ -82,8 +100,35 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
                 <td className={`${td} text-right tabular-nums text-stone-600`}>−{peso(gov(r))}</td>
                 <td className={`${td} text-right tabular-nums text-stone-600`}>{r.caDeduction ? `−${peso(r.caDeduction)}` : '—'}</td>
                 <td className={`${td} text-right font-semibold tabular-nums ${r.net < 0 ? 'text-red-700' : ''}`}>{peso(r.net)}</td>
+                <td className={`${td} text-right tabular-nums`}>
+                  {r.status === 'draft' ? '—' : peso(r.paid)}
+                  {left(r) > 0 && <span className="block text-xs text-amber-800">{peso(left(r))} to go</span>}
+                </td>
                 <td className={td}>
-                  <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</Badge>
+                  {r.status === 'released' ? (
+                    <Badge tone="stone">Fully released</Badge>
+                  ) : r.status === 'approved' && r.paid > 0 ? (
+                    <Badge tone="amber">Part released</Badge>
+                  ) : (
+                    <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABELS[r.status]}</Badge>
+                  )}
+                  {r.status === 'approved' && (
+                    <div className="mt-1 flex flex-wrap gap-1 print:hidden">
+                      {left(r) > 0 && (
+                        <button type="button" className="text-xs text-teal-800 underline" disabled={act.isPending} onClick={() => handOverPart(r)}>
+                          Hand over part
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-teal-800 underline"
+                        disabled={act.isPending}
+                        onClick={() => (left(r) === 0 || confirm(`Hand over the rest, ${peso(left(r))}, to ${r.displayName}?`)) && act.mutate({ path: `/payrolls/${r.id}/release`, body: { fromShopCash } })}
+                      >
+                        Paid in full
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -96,6 +141,7 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
                 <td className={td} />
                 <td className={`${td} text-right tabular-nums`}>{total('caDeduction') ? `−${peso(total('caDeduction'))}` : '—'}</td>
                 <td className={`${td} text-right tabular-nums`}>{peso(total('net'))}</td>
+                <td className={`${td} text-right tabular-nums`}>{peso(rows.reduce((s, r) => s + r.paid, 0))}</td>
                 <td className={td} />
               </tr>
             </tfoot>

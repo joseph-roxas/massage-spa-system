@@ -50,6 +50,7 @@ beforeEach(async () => {
     env.DB.prepare(`UPDATE dtr SET clock_out = ? WHERE clock_out IS NULL`).bind(new Date().toISOString()),
     env.DB.prepare(`DELETE FROM ca_ledger`),
     env.DB.prepare(`DELETE FROM payroll_adjustments`),
+    env.DB.prepare(`DELETE FROM payroll_releases`),
     env.DB.prepare(`DELETE FROM payrolls`),
     env.DB.prepare(`DELETE FROM cash_outs`),
     env.DB.prepare(`DELETE FROM holidays WHERE date BETWEEN ? AND ?`).bind(w.start, tw().end),

@@ -949,12 +949,13 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
 
 ## 26. Current status and cr-9 (branch `cr-9`)
 
-**Status (2026-11-12): start here.** `cr-8` (§21–§25) is merged to `main` (`f9fa078`) and deployed: production health reports `0036_deduction_refunds`; the next migration is 0037. `cr-9` was branched from that `main`.
+**Status (2026-11-12): start here.** `cr-8` (§21–§25) is merged to `main` (`f9fa078`) and deployed: production health reports `0036_deduction_refunds`; the next migration is 0038 (0037 is on `cr-9`). `cr-9` was branched from that `main`.
 
 **Built on `cr-9` so far:**
 
 1. **Dashboard month and year picker** (asked 2026-11-12, after the 2026 workbooks were uploaded and the Dashboard only offered October and November). The two-button switch is replaced by a Month and a Year box: any month from January 2026 (`FIRST_YEAR` in `UI/src/pages/DashboardPage.tsx`) up to this month; future months are greyed out, and picking a year that would land in the future falls back to this month. It opens on the current month and year, and a "This month" link appears when another month is shown. No API change: `GET /dashboard?month=` already took any month. Months before Go-live show their Daily Summaries in the daily chart and their monthly records in the totals. No migration.
 2. **Draft payrolls reminder** (asked 2026-11-13). Needs Attention item `draft-payrolls`: every Payroll still in draft for a Pay Week that has ended, e.g. "Approve 4 payrolls still in draft · Therapists · 2 weeks, oldest the week of Nov 2", linking to the oldest week. Urgent once the oldest has been waiting more than 7 days past its week's end. Weeks that ended before Go-live are left out (paid outside the system). Goes once every one is approved. No migration.
+3. **Releasing pay in parts** (asked 2026-11-14): the Receptionist hands Therapists their pay as Sales Cash allows, some today and the rest tomorrow. Migration `0037_payroll_releases` (table `payroll_releases`: Payroll, amount, Business Day, the Sales Cash transfer when paid from the shop). `POST /payrolls/:id/releases {amount, fromShopCash}` hands over a part (refused above what is left); `POST /payrolls/:id/release` is now "Paid in full" and hands over whatever is left; the part that reaches net pay releases the Payroll and repays its CA deduction. Each part from the shop's cash leaves Sales Cash that day, so Day Close counts stay right. A Payroll with money handed over can't go back to draft. Weekly payroll table: a Released column, "Part released" / "Fully released" badges, "Hand over part" and "Paid in full" on each approved row, and "N of M fully released · ₱X still to be released"; the Payslip page lists each part. Glossary: Release.
 
 **Pick up here, in order:**
 

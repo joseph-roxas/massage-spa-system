@@ -1,5 +1,5 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { cashOuts } from './days';
+import { cashOuts, cashTransfers } from './days';
 import { staff } from './staff';
 import { users } from './users';
 
@@ -50,6 +50,29 @@ export const payrolls = sqliteTable(
     releasedBy: text('released_by').references(() => users.id),
   },
   (t) => [uniqueIndex('payrolls_week_staff_idx').on(t.weekStart, t.staffId)],
+);
+
+/**
+ * Part of an approved Payroll's net pay handed to the staff member, e.g. some today and the rest
+ * tomorrow. The Payroll is Released once these add up to its net pay.
+ */
+export const payrollReleases = sqliteTable(
+  'payroll_releases',
+  {
+    id: text('id').primaryKey(),
+    payrollId: text('payroll_id')
+      .notNull()
+      .references(() => payrolls.id),
+    /** Centavos, more than zero. */
+    amount: integer('amount').notNull(),
+    /** The Business Day it was handed over. */
+    businessDay: text('business_day').notNull(),
+    /** The Sales Cash movement when it came from the shop's cash; null when paid another way. */
+    cashTransferId: text('cash_transfer_id').references(() => cashTransfers.id),
+    createdAt: text('created_at').notNull(),
+    createdBy: text('created_by').references(() => users.id),
+  },
+  (t) => [index('payroll_releases_payroll_idx').on(t.payrollId)],
 );
 
 /**

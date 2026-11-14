@@ -42,6 +42,7 @@ beforeEach(async () => {
     env.DB.prepare(`DELETE FROM sale_addons`),
     env.DB.prepare(`DELETE FROM sales`),
     env.DB.prepare(`DELETE FROM bookings`),
+    env.DB.prepare(`DELETE FROM payroll_releases`),
     env.DB.prepare(`DELETE FROM payrolls`),
     env.DB.prepare(`DELETE FROM dtr`),
     env.DB.prepare(`DELETE FROM business_days`),

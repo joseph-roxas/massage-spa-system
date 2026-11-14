@@ -277,16 +277,6 @@ async function receptionistDays(db: Db, person: Staff, week: PayWeek, rules: Rec
 }
 
 /**
- * Which week a Therapist's CA counts against: last week while its Payroll is
- * still unapproved, otherwise this week.
- */
-async function caTargetWeek(db: Db, staffId: string): Promise<PayWeek> {
-  const last = lastCompletedPayWeek(today(), 'therapist');
-  const row = await db.select({ status: payrolls.status }).from(payrolls).where(and(eq(payrolls.staffId, staffId), eq(payrolls.weekStart, last.start))).get();
-  return !row || row.status === 'draft' ? last : payWeekOf(today(), 'therapist');
-}
-
-/**
  * A Therapist's approved Payroll not yet fully released: while one exists, money for them goes out as a
  * Release on it, not a Cash Advance, which would land on a later week.
  */
@@ -301,11 +291,22 @@ async function unreleasedPayroll(db: Db, staffId: string) {
   return { payrollId: row.id, weekStart: row.weekStart, left: Math.max(0, row.net - sumOf((await releasesOf(db, [row.id])).get(row.id))) };
 }
 
+/**
+ * What a Therapist may take as a Cash Advance: only what they have earned, out of a computed Payroll,
+ * i.e. last week's Payroll once it is generated and while it is still a draft, up to its net pay.
+ * Before it is generated, or once it is approved, there is nothing to advance from: `open` is false
+ * and `reason` says why. The next chance is the following week's Payroll, generated after it ends.
+ */
 async function therapistCap(db: Db, person: Staff) {
-  const week = await caTargetWeek(db, person.id);
+  const week = lastCompletedPayWeek(today(), 'therapist');
+  const row = await db.select({ status: payrolls.status }).from(payrolls).where(and(eq(payrolls.staffId, person.id), eq(payrolls.weekStart, week.start))).get();
+  if (!row || row.status !== 'draft') {
+    const next = payWeekOf(today(), 'therapist');
+    return { week, net: 0, taken: 0, cap: 0, open: false, reason: row ? ('approved' as const) : ('not_generated' as const), nextWeek: next.start, nextFrom: shiftWeek(next.start, 1) };
+  }
   const { pay, taken } = await therapistWeek(db, person, week);
   const netBefore = pay.net + taken;
-  return { week, net: netBefore, taken, cap: cashAdvanceCap(netBefore, taken) };
+  return { week, net: netBefore, taken, cap: cashAdvanceCap(netBefore, taken), open: true, reason: null, nextWeek: null, nextFrom: null };
 }
 
 function canSee(c: Context<AuthedEnv>, kind: Kind) {
@@ -849,6 +850,16 @@ export const payrollRoutes = new Hono<AuthedEnv>()
         );
       }
       const cap = await therapistCap(db, person);
+      if (!cap.open) {
+        return fail(
+          c,
+          409,
+          'no_payroll',
+          cap.reason === 'not_generated'
+            ? `Generate the payroll for the week of ${cap.week.start} first: a Cash Advance only comes out of what ${person.displayName} has earned on a computed payroll.`
+            : `${person.displayName}’s payroll for the week of ${cap.week.start} is already approved. The next Cash Advance comes out of the payroll for the week of ${cap.nextWeek}, once it is generated (from ${cap.nextFrom}).`,
+        );
+      }
       against = cap.week.start;
       if (input.amount > cap.cap) {
         if (!input.override || !can(c.var.user.role, 'cash_advance.override')) {

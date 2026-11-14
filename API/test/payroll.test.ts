@@ -100,7 +100,12 @@ describe('therapist payroll', () => {
     await punched(t, mon!, '14:00', '23:00');
     await punched(t, wed!, '14:00', '23:00');
 
-    // Net so far: 510.00 − 202.50 government shares = 307.50.
+    // No Cash Advance before the payroll is generated: only what was earned on a computed payroll.
+    const early = await desk.post('/cash-advances', { staffId: t, amount: 1000 });
+    expect(await json(early)).toMatchObject({ error: 'no_payroll', message: expect.stringMatching(/Generate the payroll/) });
+    expect((await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' })).status).toBe(200);
+
+    // Net: 510.00 − 202.50 government shares = 307.50.
     const { balances } = await json<{ balances: { staffId: string; cap: { cap: number; week: { start: string } } }[] }>(await desk.get('/cash-advances/balances'));
     expect(balances.find((b) => b.staffId === t)!.cap).toMatchObject({ cap: 30750, week: { start: tw().start } });
     expect((await desk.post('/cash-advances', { staffId: t, amount: 20000 })).status).toBe(201);
@@ -115,7 +120,6 @@ describe('therapist payroll', () => {
     expect(cashOuts).toEqual([expect.objectContaining({ category: 'cash_advance', amount: 20000, staffId: t })]);
 
     expect((await desk.post(`/payroll/weeks/${payWeekOf(businessDayOf(new Date()), 'therapist').start}/generate`, { kind: 'therapist' })).status).toBe(409);
-    expect((await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' })).status).toBe(200);
     const p = mine(await weekOf(desk, tw().start), t);
     expect(p).toMatchObject({ status: 'draft', gross: 51000, govSss: 10000, govPhic: 6250, govPagibig: 4000, caDeduction: 20000, net: 10750 });
 
@@ -127,11 +131,12 @@ describe('therapist payroll', () => {
     const paid = await env.DB.prepare(`SELECT amount FROM cash_transfers WHERE kind = 'payroll' AND payroll_id = ?`).bind(p.id).first<{ amount: number }>();
     expect(paid?.amount).toBe(10750);
 
-    // Repaid in full; the next CA counts against this week.
-    const after = await json<{ balances: { staffId: string; balance: number; cap: { week: { start: string } } }[] }>(await desk.get('/cash-advances/balances'));
+    // Repaid in full; the next CA waits for this week's payroll to be generated.
+    const after = await json<{ balances: { staffId: string; balance: number; cap: { open: boolean; nextWeek: string } }[] }>(await desk.get('/cash-advances/balances'));
     const mineNow = after.balances.find((b) => b.staffId === t)!;
     expect(mineNow.balance).toBe(0);
-    expect(mineNow.cap.week.start).toBe(payWeekOf(businessDayOf(new Date()), 'therapist').start);
+    expect(mineNow.cap).toMatchObject({ open: false, nextWeek: payWeekOf(businessDayOf(new Date()), 'therapist').start });
+    expect(await json(await desk.post('/cash-advances', { staffId: t, amount: 1000 }))).toMatchObject({ error: 'no_payroll' });
   });
 
   it('hands pay over in parts; the last part releases it', async () => {
@@ -188,9 +193,9 @@ describe('therapist payroll', () => {
 
     await desk.post(`/payrolls/${p.id}/release`);
     expect(await held()).toBeNull();
-    // Open again: only the usual limit applies now, against this week's earnings.
-    expect(await json(await desk.post('/cash-advances', { staffId: t, amount: 10000, fromDrawer: false }))).toMatchObject({ error: 'above_cap' });
-    expect((await admin.post('/cash-advances', { staffId: t, amount: 10000, fromDrawer: false, override: true })).status).toBe(201);
+    // Released: still none until next week's payroll is generated, even for the Super Admin.
+    expect(await json(await desk.post('/cash-advances', { staffId: t, amount: 10000, fromDrawer: false }))).toMatchObject({ error: 'no_payroll' });
+    expect(await json(await admin.post('/cash-advances', { staffId: t, amount: 10000, fromDrawer: false, override: true }))).toMatchObject({ error: 'no_payroll' });
   });
 
   it('releases on the part that reaches net pay, and can be paid outside the shop’s cash', async () => {

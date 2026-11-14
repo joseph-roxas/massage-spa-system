@@ -34,7 +34,7 @@ const slip = (staffId: string, start: string, end: string, gross: number, net: n
 
 beforeEach(async () => {
   admin = await loggedIn('super_admin');
-  await env.DB.batch([env.DB.prepare(`DELETE FROM past_therapist_weeks`), env.DB.prepare(`DELETE FROM past_payslips`), env.DB.prepare(`DELETE FROM payroll_adjustments`), env.DB.prepare(`DELETE FROM deduction_ledger`), env.DB.prepare(`DELETE FROM payrolls`)]);
+  await env.DB.batch([env.DB.prepare(`DELETE FROM past_therapist_weeks`), env.DB.prepare(`DELETE FROM past_payslips`), env.DB.prepare(`DELETE FROM payroll_adjustments`), env.DB.prepare(`DELETE FROM deduction_ledger`), env.DB.prepare(`DELETE FROM payroll_releases`), env.DB.prepare(`DELETE FROM payrolls`)]);
   await env.DB.prepare(`UPDATE pay_rules SET value_json = '"2026-11-08"' WHERE key = 'go_live_date'`).run();
   t = await person(`T${crypto.randomUUID().slice(0, 6)}`, 'therapist');
   r = await person(`R${crypto.randomUUID().slice(0, 6)}`, 'receptionist');

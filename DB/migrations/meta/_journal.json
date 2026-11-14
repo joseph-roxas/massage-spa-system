@@ -260,6 +260,13 @@
       "when": 1794448365228,
       "tag": "0036_deduction_refunds",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1794621431964,
+      "tag": "0037_payroll_releases",
+      "breakpoints": true
     }
   ]
 }

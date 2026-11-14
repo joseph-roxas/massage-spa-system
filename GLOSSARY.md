@@ -264,6 +264,10 @@ Monday through Sunday for Therapists, Sunday through Saturday for the Receptioni
 **Payroll**:
 The weekly computation of each staff member's pay for one Pay Week, net of Government Deductions and Cash Advance repayment.
 
+**Release**:
+Handing a staff member the net pay of an approved Payroll, all at once or in parts as Sales Cash allows (some today, the rest tomorrow). Each part paid from the shop's cash leaves Sales Cash that day. The Payroll is fully released once the parts reach its net pay; until then it is part released, with the rest still to be released.
+_Avoid_: Payout (that is the refund's payout date), disbursement
+
 **Payslip**:
 One staff member's Payroll as they see it: coverage (their Pay Week), what was earned and what was deducted, line by line. The Receptionist sees hers once released, with her Cash Advance history.
 

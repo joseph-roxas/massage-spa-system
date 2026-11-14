@@ -39,6 +39,9 @@ export type Payroll = {
   lines: PayLines;
   /** The Government Deduction Refund this Payroll carries (ADR 0010). */
   refund?: Refund | null;
+  /** Net pay handed over so far, part by part; Released once it reaches net pay. */
+  paid: number;
+  releases: { amount: number; businessDay: string; fromShopCash: boolean; createdAt: string }[];
 };
 
 /** By agency, signed; `applied` came off Deferred Deductions and `cash` is paid as an Adjustment. */

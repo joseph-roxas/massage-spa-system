@@ -339,7 +339,7 @@ export function PayslipPage() {
               Approve
             </Button>
           )}
-          {canApprove && p.status === 'approved' && (
+          {canApprove && p.status === 'approved' && p.paid === 0 && (
             <Button
               variant="secondary"
               disabled={act.isPending}
@@ -352,8 +352,22 @@ export function PayslipPage() {
             </Button>
           )}
           {p.status === 'approved' && (
-            <Button disabled={act.isPending} onClick={() => act.mutate({ path: `/payrolls/${p.id}/release` })}>
-              Mark paid
+            <Button
+              variant="secondary"
+              disabled={act.isPending}
+              onClick={() => {
+                const text = prompt(`How much did you hand over now? ${peso(p.net - p.paid)} is still to be released.`);
+                const amount = text === null ? null : parsePesos(text);
+                if (text !== null && !amount) return alert('Enter an amount, e.g. 1000.');
+                if (amount) act.mutate({ path: `/payrolls/${p.id}/releases`, body: { amount } });
+              }}
+            >
+              Hand over part
+            </Button>
+          )}
+          {p.status === 'approved' && (
+            <Button disabled={act.isPending} onClick={() => confirm(`Hand over the rest, ${peso(p.net - p.paid)}?`) && act.mutate({ path: `/payrolls/${p.id}/release` })}>
+              Paid in full
             </Button>
           )}
           <Button variant="secondary" onClick={() => window.print()}>
@@ -362,6 +376,22 @@ export function PayslipPage() {
         </div>
       </div>
       {act.error && <Alert>{act.error.message}</Alert>}
+      {p.status !== 'draft' && p.releases.length > 0 && (
+        <section className="rounded-lg border border-stone-200 bg-white p-4 text-sm print:hidden">
+          <p className="font-semibold">
+            Released {peso(p.paid)} of {peso(p.net)}
+            {p.status === 'released' ? ' · fully released' : ` · ${peso(p.net - p.paid)} still to be released`}
+          </p>
+          <ul className="mt-1 text-stone-600">
+            {p.releases.map((r) => (
+              <li key={r.createdAt}>
+                {longDate(r.businessDay)}: {peso(r.amount)}
+                {r.fromShopCash ? '' : ' · not from the shop’s cash'}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <PayslipSheet payroll={p} week={week}>
         {advances.length > 0 && (

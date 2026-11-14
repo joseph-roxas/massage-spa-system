@@ -143,6 +143,7 @@ describe('Cash Handover overdue', () => {
     const week = payWeekOf(today, 'therapist');
     const lastWeek = lastCompletedPayWeek(today, 'therapist');
     await env.DB.batch([
+      env.DB.prepare(`DELETE FROM payroll_releases`),
       env.DB.prepare(`DELETE FROM cash_transfers`),
       env.DB.prepare(`DELETE FROM cash_outs WHERE category = 'laundry'`),
       env.DB.prepare(`DELETE FROM payrolls WHERE week_start = ?`).bind(lastWeek.start),

@@ -51,6 +51,7 @@ import {
   holidays,
   openingBasicPay,
   payrollAdjustments,
+  payrollReleases,
   payrolls,
   PAYROLL_KINDS,
   pastPayslips,
@@ -296,6 +297,46 @@ function canSee(c: Context<AuthedEnv>, kind: Kind) {
   return can(c.var.user.role, PREPARE[kind]);
 }
 
+/** Each Payroll's releases so far, oldest first. */
+async function releasesOf(db: Db, payrollIds: string[]) {
+  const rows = payrollIds.length
+    ? await db
+        .select({ payrollId: payrollReleases.payrollId, amount: payrollReleases.amount, businessDay: payrollReleases.businessDay, fromShopCash: sql<number>`${payrollReleases.cashTransferId} is not null`, createdAt: payrollReleases.createdAt })
+        .from(payrollReleases)
+        .where(inArray(payrollReleases.payrollId, payrollIds))
+        .orderBy(asc(payrollReleases.createdAt))
+    : [];
+  const byPayroll = new Map<string, { amount: number; businessDay: string; fromShopCash: boolean; createdAt: string }[]>();
+  for (const { payrollId, ...r } of rows) byPayroll.set(payrollId, [...(byPayroll.get(payrollId) ?? []), { ...r, fromShopCash: !!r.fromShopCash }]);
+  return byPayroll;
+}
+
+/**
+ * Hands over part or the rest of an approved Payroll's net pay. From the shop's cash it leaves Sales
+ * Cash today; once the releases reach net pay the Payroll is Released and its CA deduction repaid.
+ */
+async function releaseStatements(db: Db, row: PayrollRow, amount: number, fromShopCash: boolean, userId: string) {
+  const paid = sumOf((await releasesOf(db, [row.id])).get(row.id));
+  const now = nowIso();
+  const transferId = fromShopCash && amount > 0 ? crypto.randomUUID() : null;
+  const day = transferId ? await currentTransferDay(db) : today();
+  const full = paid + amount >= row.net;
+  return {
+    full,
+    statements: [
+      auditInsert(db, { actorUserId: userId, action: full ? 'payroll.release' : 'payroll.release_part', entity: 'payroll', entityId: row.id, after: { amount, paidBefore: paid, net: row.net, fromShopCash } }),
+      ...(transferId ? [db.insert(cashTransfers).values({ id: transferId, kind: 'payroll', amount, businessDay: day, payrollId: row.id, createdAt: now, createdBy: userId })] : []),
+      ...(amount > 0 ? [db.insert(payrollReleases).values({ id: crypto.randomUUID(), payrollId: row.id, amount, businessDay: day, cashTransferId: transferId, createdAt: now, createdBy: userId })] : []),
+      ...(full
+        ? [
+            db.update(payrolls).set({ status: 'released', releasedAt: now, releasedBy: userId }).where(and(eq(payrolls.id, row.id), eq(payrolls.status, 'approved'))),
+            ...(row.caDeduction > 0 ? [db.insert(caLedger).values({ id: crypto.randomUUID(), staffId: row.staffId, entry: 'repayment', amount: row.caDeduction, payrollId: row.id, createdAt: now, createdBy: userId })] : []),
+          ]
+        : []),
+    ] as const,
+  };
+}
+
 type RefundRow = typeof deductionRefunds.$inferSelect;
 const refundOut = (r: RefundRow) => ({ weekStart: r.weekStart, sss: r.sss, phic: r.phic, pagibig: r.pagibig, total: r.sss + r.phic + r.pagibig, applied: r.applied, cash: r.cash, adjustmentId: r.adjustmentId });
 
@@ -315,11 +356,12 @@ const refundBody = z.object({ staffId: z.string().min(1), weekStart: isoDate, ss
 const withNames = async (db: Db, rows: PayrollRow[], withReasons = false) => {
   const ids = [...new Set(rows.map((r) => r.staffId))];
   const weeks = [...new Set(rows.map((r) => r.weekStart))];
-  const [people, adjustments, ledger, refunds] = await Promise.all([
+  const [people, adjustments, ledger, refunds, releases] = await Promise.all([
     ids.length ? db.select().from(staff).where(inArray(staff.id, ids)) : Promise.resolve([]),
     Promise.all(weeks.map(async (w) => [w, await adjustmentsFor(db, w, ids)] as const)).then((xs) => new Map(xs)),
     ledgerLines(db, [...new Set(rows.filter((r) => r.kind === 'therapist').map((r) => r.staffId))]),
     ids.length ? db.select().from(deductionRefunds).where(inArray(deductionRefunds.staffId, ids)) : Promise.resolve([]),
+    releasesOf(db, rows.filter((r) => r.status !== 'draft').map((r) => r.id)),
   ]);
   return rows.map(({ breakdownJson, ...r }) => {
     const refund = refunds.find((x) => x.staffId === r.staffId && x.weekStart === r.weekStart);
@@ -338,6 +380,9 @@ const withNames = async (db: Db, rows: PayrollRow[], withReasons = false) => {
       lines,
       deferredOwed,
       refund: refund ? refundOut(refund) : null,
+      // Handed over so far; a Payroll released before part payments existed counts as paid in full.
+      releases: releases.get(r.id) ?? [],
+      paid: r.status === 'released' && !releases.get(r.id) ? r.net : sumOf(releases.get(r.id)),
     };
   });
 };
@@ -692,6 +737,7 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     if (!row || !canSee(c, row.kind)) return fail(c, 404, 'not_found', 'Payroll not found.');
     if (!can(c.var.user.role, APPROVE[row.kind])) return fail(c, 403, 'forbidden', 'Only the Super Admin approves Payroll.');
     if (row.status !== 'approved') return fail(c, 409, 'not_approved', 'Only an approved, unreleased Payroll can go back to draft.');
+    if ((await releasesOf(db, [row.id])).get(row.id)) return fail(c, 409, 'part_paid', 'Part of this pay was already handed over, so it can’t go back to draft.');
     await db.batch([
       db.update(payrolls).set({ status: 'draft', approvedAt: null, approvedBy: null }).where(eq(payrolls.id, row.id)),
       db.delete(deductionLedger).where(eq(deductionLedger.payrollId, row.id)),
@@ -700,28 +746,36 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     return c.json({ ok: true });
   })
 
-  /** Paid out, by default from Sales Cash at the shop. The CA deduction is now repaid. */
+  /** Paid in full: hands over whatever is left of net pay, by default from Sales Cash at the shop. The CA deduction is now repaid. */
   .post('/payrolls/:id/release', zValidator('json', z.object({ fromShopCash: z.boolean().default(true) }).default({ fromShopCash: true }), invalidInput), async (c) => {
     const db = c.var.db;
     const { fromShopCash } = c.req.valid('json');
     const row = await db.select().from(payrolls).where(eq(payrolls.id, c.req.param('id'))).get();
     if (!row || !canSee(c, row.kind)) return fail(c, 404, 'not_found', 'Payroll not found.');
     if (row.status !== 'approved') return fail(c, 409, 'not_approved', row.status === 'draft' ? 'The Super Admin must approve this Payroll first.' : 'Already released.');
-    const now = nowIso();
-    const paidFromShop = fromShopCash && row.net > 0;
-    const day = paidFromShop ? await currentTransferDay(db) : null;
-    await db.batch([
-      db.update(payrolls).set({ status: 'released', releasedAt: now, releasedBy: c.var.user.id }).where(and(eq(payrolls.id, row.id), eq(payrolls.status, 'approved'))),
-      ...(paidFromShop
-        ? [db.insert(cashTransfers).values({ id: crypto.randomUUID(), kind: 'payroll', amount: row.net, businessDay: day!, payrollId: row.id, createdAt: now, createdBy: c.var.user.id })]
-        : []),
-      auditInsert(db, { actorUserId: c.var.user.id, action: 'payroll.release', entity: 'payroll', entityId: row.id, after: { net: row.net } }),
-      ...(row.caDeduction > 0
-        ? [db.insert(caLedger).values({ id: crypto.randomUUID(), staffId: row.staffId, entry: 'repayment', amount: row.caDeduction, payrollId: row.id, createdAt: now, createdBy: c.var.user.id })]
-        : []),
-    ]);
+    const paid = sumOf((await releasesOf(db, [row.id])).get(row.id));
+    const { statements } = await releaseStatements(db, row, Math.max(0, row.net - paid), fromShopCash, c.var.user.id);
+    await db.batch(statements);
     return c.json({ ok: true });
   })
+
+  /** Part of the pay handed over now, the rest later; the last part releases the Payroll. */
+  .post(
+    '/payrolls/:id/releases',
+    zValidator('json', z.object({ amount: z.number().int().min(1).max(10_000_000), fromShopCash: z.boolean().default(true) }), invalidInput),
+    async (c) => {
+      const db = c.var.db;
+      const { amount, fromShopCash } = c.req.valid('json');
+      const row = await db.select().from(payrolls).where(eq(payrolls.id, c.req.param('id'))).get();
+      if (!row || !canSee(c, row.kind)) return fail(c, 404, 'not_found', 'Payroll not found.');
+      if (row.status !== 'approved') return fail(c, 409, 'not_approved', row.status === 'draft' ? 'The Super Admin must approve this Payroll first.' : 'Already released.');
+      const left = row.net - sumOf((await releasesOf(db, [row.id])).get(row.id));
+      if (amount > left) return fail(c, 409, 'too_much', `Only ₱${(left / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })} is left to hand over.`);
+      const { statements, full } = await releaseStatements(db, row, amount, fromShopCash, c.var.user.id);
+      await db.batch(statements);
+      return c.json({ ok: true, released: full, left: left - amount }, 201);
+    },
+  )
 
   // ------------------------------------------------------------ Cash Advances
 

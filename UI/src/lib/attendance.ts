@@ -80,7 +80,6 @@ export function usePunch() {
         firstName: string;
         action: 'in' | 'out';
         at: string;
-        earnings: { from: string; commission: number; services: number } | null;
         /** First clock-in of the day on their birthday. */
         birthday: boolean;
       }>('/clock/punch', {

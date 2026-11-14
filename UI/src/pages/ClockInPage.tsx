@@ -4,7 +4,6 @@ import { BrandMark } from '../components/Brand';
 import { ApiError } from '../lib/api';
 import { manilaTime, useClockStaff, usePunch, type ClockStaff, type ClockToday } from '../lib/attendance';
 import { useCurrentUser } from '../lib/auth';
-import { peso } from '../lib/format';
 
 /** Today's date and a running clock, Manila time, and whether today is a Holiday. */
 function TodayPanel({ today }: { today: ClockToday | undefined }) {
@@ -66,7 +65,41 @@ const ROLE = (s: ClockStaff) =>
       ? 'Outside Reliever'
       : `${s.therapistClass === 'lmt' ? 'LMT' : 'Therapist'}${s.isOnCall ? ' · On-call' : ''}`;
 
-function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () => void; onDone: (msg: string, birthdayName: string | null) => void }) {
+/** Picked at random after each clock-in and clock-out, for everyone. */
+const WELCOMES = [
+  (n: string) => `Welcome, ${n}! Let’s make today wonderful!`,
+  (n: string) => `Good to see you, ${n}! Have a great shift.`,
+  (n: string) => `Hello, ${n}! Your guests are lucky to have you today.`,
+  (n: string) => `Welcome back, ${n}! Wishing you a calm and happy shift.`,
+  (n: string) => `Hi, ${n}! Let’s give every guest our best today.`,
+  (n: string) => `Welcome, ${n}! May today bring you kind guests and good vibes.`,
+  (n: string) => `Good day, ${n}! Thank you for being here.`,
+  (n: string) => `Welcome, ${n}! Take a deep breath, and let’s have a lovely day.`,
+];
+const GOODBYES = [
+  (n: string) => `Thank you for today, ${n}! Take care and see you next shift!`,
+  (n: string) => `Great work today, ${n}! Rest well.`,
+  (n: string) => `Thank you, ${n}! Get home safe and have a good rest.`,
+  (n: string) => `Well done today, ${n}! Your hard work is appreciated.`,
+  (n: string) => `Salamat, ${n}! Take care on the way home.`,
+  (n: string) => `Thank you for all your care today, ${n}! See you soon.`,
+  (n: string) => `Time to rest, ${n}! Thank you for a good day’s work.`,
+  (n: string) => `Goodbye for now, ${n}! You did great today.`,
+];
+/** The name staff go by, written normally: "ANA MARIA" → "Ana Maria". */
+const calledBy = (displayName: string) => displayName.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase());
+const greeting = (action: 'in' | 'out', name: string) => {
+  const list = action === 'in' ? WELCOMES : GOODBYES;
+  return list[Math.floor(Math.random() * list.length)]!(name);
+};
+
+/** What the screen shows after a punch: the time recorded, then a greeting. */
+type PunchMessage = { time: string; greeting: string };
+
+/** Long enough to read both lines. */
+const MESSAGE_MS = 6000;
+
+function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () => void; onDone: (msg: PunchMessage, birthdayName: string | null) => void }) {
   const [pin, setPin] = useState('');
   const punch = usePunch();
   const action = person.clockedInAt ? 'out' : 'in';
@@ -81,8 +114,7 @@ function PinPad({ person, onClose, onDone }: { person: ClockStaff; onClose: () =
       {
         onSuccess: (r) =>
           onDone(
-            `${r.displayName} clocked ${r.action} at ${manilaTime(r.at)}` +
-              (r.earnings ? ` · ${person.isOnCall ? 'Today' : 'This week'} so far: ${peso(r.earnings.commission)} from ${r.earnings.services} guest${r.earnings.services === 1 ? '' : 's'}` : ''),
+            { time: `You clocked ${r.action} at ${manilaTime(r.at)}.`, greeting: greeting(r.action, calledBy(r.displayName)) },
             r.birthday ? r.firstName : null,
           ),
         onError: () => setPin(''),
@@ -146,12 +178,12 @@ export function ClockInPage() {
   const { data, error } = useClockStaff();
   const { data: user } = useCurrentUser();
   const [selected, setSelected] = useState<ClockStaff | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<PunchMessage | null>(null);
   const [birthday, setBirthday] = useState<string | null>(null);
 
   useEffect(() => {
     if (!message) return;
-    const t = setTimeout(() => setMessage(null), 4000);
+    const t = setTimeout(() => setMessage(null), MESSAGE_MS);
     return () => clearTimeout(t);
   }, [message]);
 
@@ -176,8 +208,9 @@ export function ClockInPage() {
       </header>
 
       {message && (
-        <div role="status" className="mb-6 rounded-xl bg-teal-700 px-6 py-4 text-center text-lg font-medium text-white">
-          {message}
+        <div role="status" className="mb-6 rounded-xl bg-teal-700 px-6 py-5 text-center text-white">
+          <p className="text-2xl font-semibold">{message.time}</p>
+          <p className="mt-1 text-xl">{message.greeting}</p>
         </div>
       )}
       {error && <p role="alert" className="text-red-700">{error.message}</p>}

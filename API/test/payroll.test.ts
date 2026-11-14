@@ -417,12 +417,13 @@ describe('Year-end Bonus', () => {
 });
 
 describe('Clock-in Screen', () => {
-  it('shows a Therapist this week’s Commission so far', async () => {
+  it('confirms the time recorded and shows no pay figures', async () => {
     const admin = await loggedIn('super_admin');
     const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
     await admin.post(`/settings/staff/${t}/pin`, { pin: '4321' });
     await pastSales(businessDayOf(new Date()), t, [15000]);
-    const res = await json<{ earnings: { commission: number; services: number } }>(await admin.post('/clock/punch', { staffId: t, pin: '4321', action: 'in' }));
-    expect(res.earnings).toMatchObject({ commission: 15000, services: 1 });
+    const res = await json<Record<string, unknown>>(await admin.post('/clock/punch', { staffId: t, pin: '4321', action: 'in' }));
+    expect(res).toMatchObject({ staffId: t, action: 'in', at: expect.any(String), firstName: expect.any(String) });
+    expect(res).not.toHaveProperty('earnings');
   });
 });

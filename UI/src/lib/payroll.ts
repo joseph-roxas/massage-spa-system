@@ -141,7 +141,8 @@ export type Balance = {
   displayName: string;
   kind: PayrollKind;
   balance: number;
-  cap?: { week: PayWeek; net: number; taken: number; cap: number };
+  /** Therapist: only open while last week's payroll is generated and still a draft. */
+  cap?: { week: PayWeek; net: number; taken: number; cap: number; open: boolean; reason: 'not_generated' | 'approved' | null; nextWeek: string | null; nextFrom: string | null };
   /** Therapist: an approved payroll not yet fully released; no Cash Advance until it is. */
   unreleased?: { payrollId: string; weekStart: string; left: number } | null;
   /** Receptionist: the standing CA Repayment per Payroll. */

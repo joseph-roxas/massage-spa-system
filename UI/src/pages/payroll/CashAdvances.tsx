@@ -182,9 +182,9 @@ export function CashAdvances() {
     <Card title="Cash Advances">
       {error && <Alert>{error.message}</Alert>}
       <p className="mb-3 text-sm text-stone-500">
-        Therapists can take up to what they earned last week (net) until that payroll is approved; after that, up to what they have earned this week. While a
-        Therapist&rsquo;s approved payroll is not fully released, give them money with Hand over part on that payroll instead; Cash Advances open again once it is
-        fully released.
+        A Therapist can only advance what they have earned: up to last week&rsquo;s net pay, once that payroll is generated and while it is still a draft. Before it is
+        generated, and from its approval until the next week&rsquo;s payroll is generated, there is no Cash Advance. While an approved payroll is not fully released,
+        give them money with Hand over part on that payroll instead.
       </p>
       <table className="w-full">
         <thead>
@@ -212,6 +212,12 @@ export function CashAdvances() {
                       Payroll for the week of {longDate(b.unreleased.weekStart)} not fully released
                       {b.unreleased.left > 0 && <> · {peso(b.unreleased.left)} to go</>}
                     </span>
+                  ) : b.cap && !b.cap.open ? (
+                    <span className="text-xs text-stone-500">
+                      {b.cap.reason === 'not_generated'
+                        ? `None until the payroll for the week of ${longDate(b.cap.week.start)} is generated`
+                        : `None until the payroll for the week of ${longDate(b.cap.nextWeek!)} is generated, from ${longDate(b.cap.nextFrom!)}`}
+                    </span>
                   ) : b.cap ? (
                     peso(b.cap.cap)
                   ) : (
@@ -235,7 +241,7 @@ export function CashAdvances() {
                         {b.unreleased.left > 0 ? 'Hand over part' : 'Mark paid in full'}
                       </Link>
                     ) : (
-                      <Button variant="secondary" className="h-8" onClick={() => setGiving(b)}>
+                      <Button variant="secondary" className="h-8" disabled={!!b.cap && !b.cap.open} onClick={() => setGiving(b)}>
                         Give CA
                       </Button>
                     )}

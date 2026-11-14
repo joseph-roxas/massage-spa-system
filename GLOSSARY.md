@@ -308,7 +308,7 @@ _Avoid_: Carry-over, double deduction, missing deductions
 The least a Therapist should take home from a Payroll; Government Deductions stop there and the rest becomes Deferred Deductions. Set by the Super Admin, who alone can override it on a single Payroll, for example when the Therapist agrees to have the week taken anyway.
 
 **Cash Advance (CA)**:
-Money given to a staff member ahead of Payroll and deducted from a later Payroll. A Therapist's CAs are capped at their unreleased net pay; the Receptionist repays her CA Repayment each Payroll against a running balance.
+Money given to a staff member ahead of Payroll and deducted from a later Payroll. A Therapist's CAs are capped at their unreleased net pay, and none can be given while one of their approved Payrolls is not fully released (that money goes out as a Release); the Receptionist repays her CA Repayment each Payroll against a running balance.
 _Avoid_: Vale, loan
 
 **CA Repayment**:

@@ -1,4 +1,5 @@
 import { Fragment, useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Badge, Button, Card, Checkbox, Field, Input, td, th } from '../../components/ui';
 import { Modal } from '../../components/Modal';
@@ -181,7 +182,9 @@ export function CashAdvances() {
     <Card title="Cash Advances">
       {error && <Alert>{error.message}</Alert>}
       <p className="mb-3 text-sm text-stone-500">
-        Therapists can take up to what they earned last week (net) until that payroll is approved; after that, up to what they have earned this week.
+        Therapists can take up to what they earned last week (net) until that payroll is approved; after that, up to what they have earned this week. While a
+        Therapist&rsquo;s approved payroll is not fully released, give them money with Hand over part on that payroll instead; Cash Advances open again once it is
+        fully released.
       </p>
       <table className="w-full">
         <thead>
@@ -203,7 +206,18 @@ export function CashAdvances() {
                   {b.kind === 'receptionist' && <span className="ml-2 text-xs text-stone-500">Receptionist</span>}
                 </td>
                 <td className={`${td} text-right tabular-nums`}>{b.balance ? peso(b.balance) : '—'}</td>
-                <td className={`${td} text-right tabular-nums`}>{b.cap ? peso(b.cap.cap) : 'No limit'}</td>
+                <td className={`${td} text-right tabular-nums`}>
+                  {b.unreleased ? (
+                    <span className="text-xs text-amber-800">
+                      Payroll for the week of {longDate(b.unreleased.weekStart)} not fully released
+                      {b.unreleased.left > 0 && <> · {peso(b.unreleased.left)} to go</>}
+                    </span>
+                  ) : b.cap ? (
+                    peso(b.cap.cap)
+                  ) : (
+                    'No limit'
+                  )}
+                </td>
                 <td className={`${td} text-right`}>
                   <div className="flex justify-end gap-2">
                     {b.kind === 'receptionist' && canOpening && (
@@ -216,9 +230,15 @@ export function CashAdvances() {
                         Opening balance
                       </button>
                     )}
-                    <Button variant="secondary" className="h-8" onClick={() => setGiving(b)}>
-                      Give CA
-                    </Button>
+                    {b.unreleased ? (
+                      <Link to={`/payroll/${b.unreleased.payrollId}`} className="inline-flex h-8 items-center rounded-md border border-amber-300 bg-amber-50 px-3 text-sm font-medium text-amber-900 hover:bg-amber-100">
+                        {b.unreleased.left > 0 ? 'Hand over part' : 'Mark paid in full'}
+                      </Link>
+                    ) : (
+                      <Button variant="secondary" className="h-8" onClick={() => setGiving(b)}>
+                        Give CA
+                      </Button>
+                    )}
                   </div>
                 </td>
               </tr>

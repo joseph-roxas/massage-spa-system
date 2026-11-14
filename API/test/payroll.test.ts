@@ -163,6 +163,36 @@ describe('therapist payroll', () => {
     expect((await desk.post(`/payrolls/${p.id}/releases`, { amount: 1 })).status).toBe(409);
   });
 
+  it('allows no Cash Advance while the Therapist’s approved payroll is not fully released', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
+    const [, mon] = tDays();
+    await pastSales(mon!, t, [100000]);
+    await punched(t, mon!, '14:00', '23:00');
+    await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' });
+    const p = mine(await weekOf(desk, tw().start), t);
+    const held = async () => (await json<{ balances: { staffId: string; unreleased: { weekStart: string; left: number } | null }[] }>(await desk.get('/cash-advances/balances'))).balances.find((b) => b.staffId === t)!.unreleased;
+
+    expect(await held()).toBeNull(); // a draft doesn't hold anything back
+    await admin.post(`/payrolls/${p.id}/approve`);
+    expect(await held()).toMatchObject({ weekStart: tw().start, left: 79750 });
+    const refused = await desk.post('/cash-advances', { staffId: t, amount: 10000 });
+    expect(refused.status).toBe(409);
+    expect((await json<{ error: string; message: string }>(refused)).message).toMatch(/Hand over part/);
+    expect((await admin.post('/cash-advances', { staffId: t, amount: 10000, override: true })).status).toBe(409);
+
+    await desk.post(`/payrolls/${p.id}/releases`, { amount: 50000 });
+    expect(await held()).toMatchObject({ left: 29750 });
+    expect((await desk.post('/cash-advances', { staffId: t, amount: 10000 })).status).toBe(409);
+
+    await desk.post(`/payrolls/${p.id}/release`);
+    expect(await held()).toBeNull();
+    // Open again: only the usual limit applies now, against this week's earnings.
+    expect(await json(await desk.post('/cash-advances', { staffId: t, amount: 10000, fromDrawer: false }))).toMatchObject({ error: 'above_cap' });
+    expect((await admin.post('/cash-advances', { staffId: t, amount: 10000, fromDrawer: false, override: true })).status).toBe(201);
+  });
+
   it('releases on the part that reaches net pay, and can be paid outside the shop’s cash', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');

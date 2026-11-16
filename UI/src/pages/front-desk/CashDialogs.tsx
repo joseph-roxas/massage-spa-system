@@ -28,10 +28,11 @@ export function CashReminder({ onHandover, onTopUp }: { onHandover: () => void; 
       {s.waiting.length > 0 && ` · ${s.waiting.length} handover${s.waiting.length === 1 ? '' : 's'} waiting for the owner to confirm`}
     </span>
   );
+  // Shown whenever petty cash is below ₱800, in amber so it isn't forgotten.
   const topUp = s.topUpDue > 0 && (
-    <Button variant="secondary" className="h-8 px-3" onClick={onTopUp}>
+    <button type="button" className="h-8 rounded-md bg-amber-500 px-3 text-sm font-semibold text-white hover:bg-amber-600" onClick={onTopUp}>
       Top up petty cash {peso(s.topUpDue)}
-    </Button>
+    </button>
   );
 
   if (s.reminder === 'hand_over') {
@@ -57,7 +58,7 @@ export function CashReminder({ onHandover, onTopUp }: { onHandover: () => void; 
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
       <span className="flex-1">
         Sales cash in the shop: <span className="font-semibold">{peso(s.salesCash)}</span>
-        {since}. {s.salesCash > 0 && 'Held for payroll, laundry and the petty cash top-up, paid on Saturday; then the rest goes to the owner. Keep petty cash at ₱800.'}
+        {since}. {s.salesCash > 0 && 'Held for payroll and laundry, paid on Saturday; then the rest goes to the owner. Keep petty cash at ₱800: top it up whenever it runs low.'}
         {footnote}
       </span>
       {topUp}

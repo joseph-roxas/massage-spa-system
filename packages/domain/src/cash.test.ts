@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { handoverReminder, isTopUpDay, pettyCashBalance, salesCashAnchor, topUpNeeded, transferDay } from './cash';
+import { handoverReminder, pettyCashBalance, salesCashAnchor, topUpNeeded, transferDay } from './cash';
 import { dayTotals } from './day-close';
 import { pesos } from './money';
 
@@ -9,12 +9,6 @@ describe('Petty Cash Fund', () => {
     expect(pettyCashBalance(pesos(300), pesos(450))).toBe(pesos(650));
     expect(topUpNeeded(pesos(650))).toBe(pesos(150));
     expect(topUpNeeded(pesos(800))).toBe(0);
-  });
-
-  it('is topped up on Saturday', () => {
-    expect(isTopUpDay('2026-11-14')).toBe(true); // Saturday
-    expect(isTopUpDay('2026-11-15')).toBe(false); // Sunday
-    expect(isTopUpDay('2026-11-16')).toBe(false); // Monday
   });
 });
 

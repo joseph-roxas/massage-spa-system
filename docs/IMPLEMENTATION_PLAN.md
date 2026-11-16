@@ -972,13 +972,13 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
 3. **Refund figures shift with the Pag-IBIG change:** November weeks regenerated after `cr-8` take the higher Pag-IBIG share, so the November part of each Therapist's refund changes. Use the actual payrolls when recomputing; the figures are in the local `docs/HANDOFF.md`.
 4. **Offered, not yet asked for:** showing the Receptionist's Past Payslips on the Payroll page's pre-Go-live weeks (owner declined for now on 2026-11-12; they stay on the Backfill page and in her My Pay).
 
-## 27. Remove added time (branch `cr-10`)
+## 27. Remove added time (`cr-10`, merged) and petty cash top-up any day (`cr-11`)
 
-**Status (2026-11-16): start here.** `cr-9` (§26) is merged to `main` (`e41a922`) and deployed: production health reports `0037_payroll_releases`. `cr-10` (this section) is pushed at `c784b11`, not merged or deployed; it has no migration, so the next is still 0038. 271 domain and 232 API tests pass; typecheck, lint and build are clean.
+**Status (2026-11-16): start here.** `cr-10` (items 1-6, Remove added time) is merged to `main` (`d6df8b5`, plan `f9f1fea`). `cr-11` holds item 7 (petty cash top-up any day), pushed, not merged or deployed. Neither has a migration, so the next is still 0038. 270 domain and 232 API tests pass (one Saturday-only domain test removed); typecheck, lint and build are clean.
 
 **Pick up here, in order:**
 
-1. Owner opens the PR from `cr-10` to `main` and merges. Health stays `0037_payroll_releases`.
+1. Owner opens the PR from `cr-11` to `main` and merges (petty cash top-up any day). Health stays `0037_payroll_releases`. Once deployed, tell the Receptionist the amber **Top up petty cash** button shows on the Front Desk any day petty cash is below ₱800.
 2. **Fix the Nov 15 service** entered as 3 hours: Correct sales, day 2026-11-15, Remove added time 1 hr with a reason. Then Correct count if the drawer held what the Guest really paid. Do it before approving that Therapist's payroll for the week of Nov 9, which is refused once approved.
 3. Still open from §26: after deploy of `cr-9`, tell the Receptionist about Hand over part / Paid in full and that a Therapist's Cash Advance needs last week's payroll generated and still a draft; a ₱0 net payroll still needs Paid in full once.
 4. Still open from §26: the Government Deduction Refund before the first December Payroll (reminder from Sat 2026-11-28, payout default Sat 2026-12-12), recomputed from the actual November payrolls; figures only in the local `docs/HANDOFF.md`.
@@ -994,5 +994,6 @@ Asked 2026-11-16: a Receptionist entered 3 hours for a Service the Guest had for
 5. Correct service on a sale with added time now says to remove the added time first. `GET /sales/day-detail` sends `addedMin` per Service; the page shows "+ 1 hr added" beside the Service.
 6. Tests: 271 domain, 232 API pass; typecheck, lint and build clean. Checked in a browser on a scratch copy: 2 hours added on a closed day, 1 hour removed -> 7:00-9:00 PM, ₱1,000, expected ₱1,000 against ₱1,500 counted.
 
-7. Not handled: a Voucher sale with added time (refused), and an Added Service that started at the old end time with the same Therapist (left as it is).
+7. **Petty cash top-up any day** (branch `cr-11`; asked 2026-11-16: the Receptionist forgets the Saturday top-up). `GET /cash/summary` sends `topUpDue` whenever petty cash is below ₱800, not only on Saturday, so the Front Desk banner shows **Top up petty cash ₱X** every day until it is done, now as an amber button. Wording on the banner and the Cash page follows; `isTopUpDay` is gone from the domain. `POST /cash/petty-topups` already allowed any day and still refuses more than brings the fund back to ₱800. The Saturday handover reminder is unchanged: it still waits for petty cash to be full. No migration.
+8. Not handled: a Voucher sale with added time (refused), and an Added Service that started at the old end time with the same Therapist (left as it is).
 

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
-import { businessDayOf, isTopUpDay, topUpNeeded } from '@spa/domain';
+import { businessDayOf, topUpNeeded } from '@spa/domain';
 import { cashTransfers, users } from '@spa/db';
 import type { AuthedEnv } from '../env';
 import { auditInsert } from '../lib/audit';
@@ -49,7 +49,8 @@ export const cashRoutes = new Hono<AuthedEnv>()
       day: now.day,
       salesCash: now.amount,
       pettyCash: petty,
-      topUpDue: isTopUpDay(today) ? topUpNeeded(petty) : 0,
+      // Any day petty cash is below ₱800, so it is topped up when it runs low, not only on Saturday.
+      topUpDue: topUpNeeded(petty),
       reminder,
       dueSince: relief ? null : state.dueSince,
       relief,

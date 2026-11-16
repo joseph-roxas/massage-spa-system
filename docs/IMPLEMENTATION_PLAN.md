@@ -949,7 +949,7 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
 
 ## 26. Current status and cr-9 (branch `cr-9`)
 
-**Status (2026-11-14): start here.** `cr-8` (§21–§25) is merged to `main` (`f9fa078`) and deployed: production health reports `0036_deduction_refunds`. `cr-9` (items 1–6 below) is pushed to GitHub, not merged or deployed; it carries migration `0037_payroll_releases`, so the next one is 0038. 271 domain and 231 API tests pass; typecheck and lint are clean.
+**Status (2026-11-14), superseded by §27's status:** `cr-8` (§21–§25) is merged to `main` (`f9fa078`) and deployed: production health reports `0036_deduction_refunds`. `cr-9` (items 1–6 below) is pushed to GitHub, not merged or deployed; it carries migration `0037_payroll_releases`, so the next one is 0038. 271 domain and 231 API tests pass; typecheck and lint are clean.
 
 **Built on `cr-9` so far:**
 
@@ -962,7 +962,7 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
 
 **Pick up here, in order:**
 
-1. **Owner opens the PR from `cr-9` to `main`** and merges; migration 0037 runs on deploy (health should then report `0037_payroll_releases`). Then continue with the next batch on a new branch, or on `cr-9` if it is not merged yet.
+1. **Done by 2026-11-16:** `cr-9` merged to `main` (`e41a922`) and deployed, health `0037_payroll_releases`. Owner opened the PR from `cr-9` to `main` and merged; migration 0037 runs on deploy (health should then report `0037_payroll_releases`). Then continue with the next batch on a new branch, or on `cr-9` if it is not merged yet.
    - After deploy, tell the Receptionist: money for a Therapist goes out with **Hand over part** / **Paid in full** on the approved payroll; a Cash Advance only exists while last week's payroll is generated and still a draft.
    - A ₱0 net payroll still needs **Paid in full** once, or that Therapist's Cash Advances stay closed.
    - Leftover local test drafts (Receptionist weeks of Aug 16, Aug 23, Oct 18, Oct 25) are only in the owner's local database; the draft reminder ignores weeks before Go-live.
@@ -974,6 +974,17 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
 
 ## 27. Remove added time (branch `cr-10`)
 
+**Status (2026-11-16): start here.** `cr-9` (§26) is merged to `main` (`e41a922`) and deployed: production health reports `0037_payroll_releases`. `cr-10` (this section) is pushed at `c784b11`, not merged or deployed; it has no migration, so the next is still 0038. 271 domain and 232 API tests pass; typecheck, lint and build are clean.
+
+**Pick up here, in order:**
+
+1. Owner opens the PR from `cr-10` to `main` and merges. Health stays `0037_payroll_releases`.
+2. **Fix the Nov 15 service** entered as 3 hours: Correct sales, day 2026-11-15, Remove added time 1 hr with a reason. Then Correct count if the drawer held what the Guest really paid. Do it before approving that Therapist's payroll for the week of Nov 9, which is refused once approved.
+3. Still open from §26: after deploy of `cr-9`, tell the Receptionist about Hand over part / Paid in full and that a Therapist's Cash Advance needs last week's payroll generated and still a draft; a ₱0 net payroll still needs Paid in full once.
+4. Still open from §26: the Government Deduction Refund before the first December Payroll (reminder from Sat 2026-11-28, payout default Sat 2026-12-12), recomputed from the actual November payrolls; figures only in the local `docs/HANDOFF.md`.
+5. **Skipping a Receptionist CA repayment for one week** (asked 2026-11-16, no change needed): on her draft payslip, set "CA Repayment this week" to 0 and Save, then approve. The balance stays; the standing amount under Cash Advances is untouched.
+6. **Offered, not yet asked for:** the Receptionist's Past Payslips on pre-Go-live payroll weeks (declined for now); an "Order" button on Shop requests; a reload prompt for tabs left open across a deploy.
+
 Asked 2026-11-16: a Receptionist entered 3 hours for a Service the Guest had for 2. Correct sales refused it ("has added time: void and check out again"), and voiding would not have helped: Top-ups belong to the Booking, so checking out again charges them again, and voiding needs the day reopened. No migration; the next is still 0038.
 
 1. **Correct sales -> Remove added time** (Super Admin, `day.reopen`), shown on a finished Service that has Top-ups: pick how much to remove in 30-minute steps (up to all of it) and give a reason. `POST /sales/remove-added-time {bookingId, minutes, reason}`.
@@ -983,5 +994,5 @@ Asked 2026-11-16: a Receptionist entered 3 hours for a Service the Guest had for
 5. Correct service on a sale with added time now says to remove the added time first. `GET /sales/day-detail` sends `addedMin` per Service; the page shows "+ 1 hr added" beside the Service.
 6. Tests: 271 domain, 232 API pass; typecheck, lint and build clean. Checked in a browser on a scratch copy: 2 hours added on a closed day, 1 hour removed -> 7:00-9:00 PM, ₱1,000, expected ₱1,000 against ₱1,500 counted.
 
-**Pick up:** owner opens the PR from `cr-10` to `main` and merges. Then on Correct sales, pick the Service from 2026-11-15, Remove added time 1 hr, and correct that day's count if the drawer held what the Guest really paid. Do this before approving that Therapist's payroll for the week of Nov 9.
+7. Not handled: a Voucher sale with added time (refused), and an Added Service that started at the old end time with the same Therapist (left as it is).
 

@@ -16,11 +16,6 @@ export function pettyCashBalance(topUps: number, pettyCashOuts: number): Centavo
   return (PETTY_CASH_FUND + topUps - pettyCashOuts) as Centavos;
 }
 
-/** Saturday: the week's Petty Cash Top-up is due, with Payroll and Laundry, before the Cash Handover. */
-export function isTopUpDay(date: IsoDate): boolean {
-  return weekdayOf(date) === 6;
-}
-
 /** The Top-up that brings the fund back to ₱800, or 0. */
 export function topUpNeeded(balance: number): Centavos {
   return Math.max(0, PETTY_CASH_FUND - balance) as Centavos;

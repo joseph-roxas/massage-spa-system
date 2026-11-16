@@ -346,7 +346,7 @@ _Avoid_: Laundry bill, laundry total
 A fixed ₱800 kept at the shop, apart from Sales Cash, for small buys (rice, ballpens, paper, tape, phone load).
 
 **Petty Cash Top-up**:
-Moving Sales Cash into the Petty Cash Fund to bring it back to ₱800, done weekly on Saturday, with Payroll and Laundry, before the Cash Handover.
+Moving Sales Cash into the Petty Cash Fund to bring it back to ₱800, any day the fund is below ₱800 (the Front Desk offers it in amber until it is done), and at the latest on Saturday, with Payroll and Laundry, before the Cash Handover.
 _Avoid_: Replenishment
 
 **Sales Cash**:

@@ -594,12 +594,13 @@ describe('Sales Cash, petty cash and handovers', () => {
     expect((await desk.post('/cash-outs', { category: 'petty_cash', amount: 30000, purpose: 'Rice 5 kg' })).status).toBe(201);
     expect((await desk.post('/cash-outs', { category: 'petty_cash', amount: 60000, purpose: 'Too much' })).status).toBe(409);
     let s = await json<Summary>(await desk.get('/cash/summary'));
-    expect(s).toMatchObject({ salesCash: 50000, pettyCash: 50000 });
+    // The Top-up is offered any day petty cash is short, not only on Saturday.
+    expect(s).toMatchObject({ salesCash: 50000, pettyCash: 50000, topUpDue: 30000 });
 
     expect((await desk.post('/cash/petty-topups', { amount: 40000 })).status).toBe(409); // only 300 needed
     expect((await desk.post('/cash/petty-topups', { amount: 30000 })).status).toBe(201);
     s = await json<Summary>(await desk.get('/cash/summary'));
-    expect(s).toMatchObject({ salesCash: 20000, pettyCash: 80000 });
+    expect(s).toMatchObject({ salesCash: 20000, pettyCash: 80000, topUpDue: 0 });
 
     // Day Close expects Sales Cash only: the petty Cash-out is not in it, the Top-up is.
     const p = await json<Preview>(await desk.get(`/days/${today()}/close-preview`));

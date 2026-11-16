@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import {
   addMinutes,
   businessDayOf,
@@ -21,9 +21,12 @@ import {
   splitPayments,
   stayOf,
   toManila,
+  TOP_UP_STEP_MIN,
+  topUpStepPrices,
   type Centavos,
   type PaymentLine,
   type Quote,
+  type TopUpPart,
 } from '@spa/domain';
 import { bookings, bookingTopUps, businessDays, commissionRates, holidays, PAYMENT_METHODS, payments, payrolls, promos, rooms, sales, servicePrices, serviceSetAsides, services, staff, vouchers, voucherSales } from '@spa/db';
 import type { AuthedEnv } from '../env';
@@ -31,6 +34,7 @@ import { auditInsert } from '../lib/audit';
 import { openDayFor, requireOpenDay } from '../lib/business-days';
 import { fail, invalidInput } from '../lib/http';
 import { nowIso } from '../lib/time';
+import { priceTopUp } from '../lib/top-ups';
 import { centavos, isoDate } from '../lib/validation';
 import { requireAuth, requireCapability } from '../auth/middleware';
 
@@ -101,9 +105,14 @@ type Priced = {
 
 /**
  * Prices a finished Booking from the catalogue in force on its Business Day.
- * A start-time correction passes the Booking as corrected and the Sale it is re-pricing.
+ * A correction passes the Booking as corrected and the Sale it is re-pricing, and, when it removes added
+ * time, the prices of the Top-up steps that stay.
  */
-async function price(c: Context<AuthedEnv>, input: PriceInput, correcting?: { booking: typeof bookings.$inferSelect; saleId: string }): Promise<Priced | Response> {
+async function price(
+  c: Context<AuthedEnv>,
+  input: PriceInput,
+  correcting?: { booking: typeof bookings.$inferSelect; saleId: string; topUpPrices?: number[] },
+): Promise<Priced | Response> {
   const db = c.var.db;
   const booking = correcting?.booking ?? (await db.select().from(bookings).where(eq(bookings.id, input.bookingId)).get());
   if (!booking) return fail(c, 404, 'not_found', 'Booking not found.');
@@ -144,7 +153,9 @@ async function price(c: Context<AuthedEnv>, input: PriceInput, correcting?: { bo
     db.select().from(staff).where(eq(staff.id, booking.therapistId)).get(),
     db.select().from(holidays).where(eq(holidays.date, day)).get(),
     db.select().from(commissionRates),
-    db.select({ price: bookingTopUps.price }).from(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id)).orderBy(asc(bookingTopUps.createdAt)),
+    correcting?.topUpPrices
+      ? correcting.topUpPrices.map((p) => ({ price: p }))
+      : db.select({ price: bookingTopUps.price }).from(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id)).orderBy(asc(bookingTopUps.createdAt)),
   ]);
   // Each 30-minute step, in the order added: a Promo also covers the first full hour of them.
   const topUpSteps = topUps.map((t) => t.price as Centavos);
@@ -315,6 +326,17 @@ async function shiftPayment(c: Context<AuthedEnv>, sale: typeof sales.$inferSele
   return statements;
 }
 
+/** A correction that changes Commission is refused once that Therapist's Payroll for the week is approved. */
+async function payrollLocked(c: Context<AuthedEnv>, sale: typeof sales.$inferSelect) {
+  const week = payWeekOf(sale.businessDay, 'therapist').start;
+  const fixed = await c.var.db
+    .select({ id: payrolls.id })
+    .from(payrolls)
+    .where(and(eq(payrolls.staffId, sale.therapistId), eq(payrolls.weekStart, week), ne(payrolls.status, 'draft')))
+    .get();
+  return fixed ? fail(c, 409, 'payroll_locked', `The Payroll for the week of ${week} is already approved. Send it back to draft first.`) : null;
+}
+
 /** Turns a failed checkout write into the reason the desk sees. */
 function checkoutConflict(c: Context<AuthedEnv>, err: unknown, withVoucher: boolean) {
   if (!isUniqueViolation(err)) throw err;
@@ -411,7 +433,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
   .get('/day-detail', requireCapability('day.reopen'), zValidator('query', z.object({ day: isoDate }), invalidInput), async (c) => {
     const db = c.var.db;
     const { day } = c.req.valid('query');
-    const [rows, daySales, pays, dayRow] = await Promise.all([
+    const [rows, daySales, pays, dayRow, added] = await Promise.all([
       db
         .select({ booking: bookings, serviceName: services.name, therapistName: staff.displayName, roomName: rooms.name })
         .from(bookings)
@@ -423,6 +445,11 @@ export const salesRoutes = new Hono<AuthedEnv>()
       db.select().from(sales).where(and(eq(sales.businessDay, day), eq(sales.status, 'paid'))),
       db.select().from(payments).where(eq(payments.businessDay, day)),
       db.select().from(businessDays).where(eq(businessDays.date, day)).get(),
+      db
+        .select({ bookingId: bookingTopUps.bookingId, minutes: bookingTopUps.minutes })
+        .from(bookingTopUps)
+        .innerJoin(bookings, eq(bookings.id, bookingTopUps.bookingId))
+        .where(eq(bookings.businessDay, day)),
     ]);
     return c.json({
       day: dayRow ?? null,
@@ -439,6 +466,7 @@ export const salesRoutes = new Hono<AuthedEnv>()
           startedAt: b.startedAt,
           doneAt: b.doneAt,
           enteredLate: b.enteredLate,
+          addedMin: added.filter((a) => a.bookingId === b.id).reduce((s, a) => s + a.minutes, 0),
           sale: sale && {
             id: sale.id,
             regularPrice: sale.regularPrice,
@@ -535,14 +563,9 @@ export const salesRoutes = new Hono<AuthedEnv>()
       if (!service || !service.active) return fail(c, 400, 'unknown_service', 'Pick a service.');
       if (service.id === booking.serviceId) return fail(c, 400, 'same_service', 'That is already its service.');
       if (sale.discountType === 'voucher') return fail(c, 409, 'voucher_sale', 'A Voucher covers one specific Service. Void this sale and check out again instead.');
-      if (sale.topUpsTotal > 0) return fail(c, 409, 'has_top_ups', 'This sale has added time. Void it and check out again instead.');
-      const week = payWeekOf(sale.businessDay, 'therapist').start;
-      const fixed = await db
-        .select({ id: payrolls.id })
-        .from(payrolls)
-        .where(and(eq(payrolls.staffId, sale.therapistId), eq(payrolls.weekStart, week), ne(payrolls.status, 'draft')))
-        .get();
-      if (fixed) return fail(c, 409, 'payroll_locked', `The Payroll for the week of ${week} is already approved. Send it back to draft first.`);
+      if (sale.topUpsTotal > 0) return fail(c, 409, 'has_top_ups', 'This sale has added time. Remove the added time first, then correct the service.');
+      const locked = await payrollLocked(c, sale);
+      if (locked) return locked;
 
       const doneAt = addMinutes(booking.startedAt, service.durationMin);
       if (doneAt > nowIso()) return fail(c, 400, 'in_future', 'With that service, it would end later than now.');
@@ -587,6 +610,113 @@ export const salesRoutes = new Hono<AuthedEnv>()
           entity: 'sale',
           entityId: sale.id,
           before: { serviceId: booking.serviceId, durationMin: booking.durationMin, doneAt: booking.doneAt, regularPrice: sale.regularPrice, amountDue: sale.amountDue, commissionAmount: sale.commissionAmount },
+          after,
+          reason: input.reason,
+        }) as never,
+      ];
+      await db.batch(statements as [(typeof statements)[number], ...typeof statements]);
+      return c.json({ ok: true, ...after });
+    },
+  )
+
+  /**
+   * Super Admin: takes added time off a finished, paid Service, e.g. 3 hours entered for 2. The latest steps go
+   * first; the steps that stay are priced again (two halves still make a full hour), and the Sale is priced again
+   * by the checkout rules keeping its Discount, so Commission follows. The difference moves the payment as a
+   * start-time correction does, and its end comes back if it ran past the shorter length. Not for a Voucher sale.
+   */
+  .post(
+    '/remove-added-time',
+    requireCapability('day.reopen'),
+    zValidator(
+      'json',
+      z.object({
+        bookingId: z.string().min(1),
+        minutes: z.number().int().positive().multipleOf(TOP_UP_STEP_MIN, 'Remove added time in 30-minute steps.'),
+        reason: z.string().trim().min(3, 'Give a short reason.').max(300),
+      }),
+      invalidInput,
+    ),
+    async (c) => {
+      const db = c.var.db;
+      const input = c.req.valid('json');
+      const booking = await db.select().from(bookings).where(eq(bookings.id, input.bookingId)).get();
+      if (!booking || booking.status !== 'done' || !booking.startedAt || !booking.doneAt || !booking.therapistId) return fail(c, 409, 'not_done', 'Only a finished service can have added time removed.');
+      const [sale, service, steps] = await Promise.all([
+        db.select().from(sales).where(and(eq(sales.bookingId, booking.id), eq(sales.status, 'paid'))).get(),
+        db.select().from(services).where(eq(services.id, booking.serviceId)).get(),
+        db.select().from(bookingTopUps).where(eq(bookingTopUps.bookingId, booking.id)).orderBy(asc(bookingTopUps.createdAt), asc(bookingTopUps.id)),
+      ]);
+      if (!sale) return fail(c, 409, 'not_paid', 'This service has not been checked out yet.');
+      if (sale.discountType === 'voucher') return fail(c, 409, 'voucher_sale', 'This sale was paid with a Voucher, which this correction can’t re-price.');
+      const added = steps.reduce((s, t) => s + t.minutes, 0);
+      if (!added) return fail(c, 409, 'no_added_time', 'This service has no added time.');
+      if (input.minutes > added) return fail(c, 400, 'too_much', `Only ${added} minutes were added.`);
+      const locked = await payrollLocked(c, sale);
+      if (locked) return locked;
+
+      // The latest steps go; the rest are priced again per massage, so an odd half-hour left over costs a half-hour.
+      let left = input.minutes;
+      const removed: typeof steps = [];
+      for (const step of [...steps].reverse()) {
+        if (left <= 0) break;
+        removed.push(step);
+        left -= step.minutes;
+      }
+      const kept = steps.filter((s) => !removed.includes(s));
+      const keptPrices = new Map<string, number>();
+      for (const part of new Set(kept.map((s) => s.part))) {
+        const ofPart = kept.filter((s) => s.part === part);
+        const step = await priceTopUp(db, service!, booking.businessDay, part as TopUpPart | null);
+        if ('problem' in step) return fail(c, step.problem.status, step.problem.code, step.problem.message);
+        topUpStepPrices(ofPart.length, step.price, step.hourPrice).forEach((p, i) => keptPrices.set(ofPart[i]!.id, p));
+      }
+      const removedMin = removed.reduce((s, t) => s + t.minutes, 0);
+      const durationMin = booking.durationMin - removedMin;
+      const shortEnd = addMinutes(booking.startedAt, durationMin);
+      const doneAt = booking.doneAt > shortEnd ? shortEnd : booking.doneAt;
+      const corrected = { ...booking, durationMin, doneAt };
+
+      const statutory = sale.discountType === 'senior' || sale.discountType === 'pwd' ? sale.discountType : null;
+      const priced = await price(
+        c,
+        { bookingId: booking.id, statutory, promoId: undefined, complimentary: sale.discountType === 'complimentary', voucherSerial: null },
+        { booking: corrected, saleId: sale.id, topUpPrices: kept.map((s) => keptPrices.get(s.id)!) },
+      );
+      if (priced instanceof Response) return priced;
+      const q = priced.quote;
+      const diff = q.amountDue - sale.amountDue;
+      const shifted = await shiftPayment(c, sale, diff);
+      if (shifted instanceof Response) return shifted;
+      const after = { durationMin, doneAt, minutesRemoved: removedMin, regularPrice: q.regularPrice + q.topUpsTotal, topUpsTotal: q.topUpsTotal, discountType: q.discount.type, amountDue: q.amountDue, commissionAmount: priced.commission.amount, paymentChange: diff };
+      const statements = [
+        db.delete(bookingTopUps).where(inArray(bookingTopUps.id, removed.map((s) => s.id))),
+        ...kept.filter((s) => keptPrices.get(s.id) !== s.price).map((s) => db.update(bookingTopUps).set({ price: keptPrices.get(s.id)! }).where(eq(bookingTopUps.id, s.id))),
+        db.update(bookings).set({ durationMin, doneAt }).where(eq(bookings.id, booking.id)),
+        db
+          .update(sales)
+          .set({
+            regularPrice: q.regularPrice + q.topUpsTotal,
+            topUpsTotal: q.topUpsTotal,
+            discountType: q.discount.type,
+            // Senior/PWD keep the ID number they were given; a Promo names itself.
+            discountRef: q.discount.type === 'promo' ? q.discount.promoId : statutory ? sale.discountRef : null,
+            discountBp: q.discount.bp,
+            discountAmount: q.discount.amount,
+            serviceAmount: q.serviceAmount,
+            amountDue: q.amountDue,
+            focKind: q.focKind,
+            commissionBp: priced.commission.bp,
+            commissionAmount: priced.commission.amount,
+          })
+          .where(eq(sales.id, sale.id)) as never,
+        ...(shifted as never[]),
+        auditInsert(db, {
+          actorUserId: c.var.user.id,
+          action: 'sale.remove_added_time',
+          entity: 'sale',
+          entityId: sale.id,
+          before: { durationMin: booking.durationMin, doneAt: booking.doneAt, topUps: steps.map((s) => ({ minutes: s.minutes, price: s.price, part: s.part })), regularPrice: sale.regularPrice, amountDue: sale.amountDue, commissionAmount: sale.commissionAmount },
           after,
           reason: input.reason,
         }) as never,

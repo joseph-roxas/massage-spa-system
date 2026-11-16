@@ -971,3 +971,17 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
    - Owner removes the unremitted opening weeks on Deferred Deductions, then enters each refund on the payout week.
 3. **Refund figures shift with the Pag-IBIG change:** November weeks regenerated after `cr-8` take the higher Pag-IBIG share, so the November part of each Therapist's refund changes. Use the actual payrolls when recomputing; the figures are in the local `docs/HANDOFF.md`.
 4. **Offered, not yet asked for:** showing the Receptionist's Past Payslips on the Payroll page's pre-Go-live weeks (owner declined for now on 2026-11-12; they stay on the Backfill page and in her My Pay).
+
+## 27. Remove added time (branch `cr-10`)
+
+Asked 2026-11-16: a Receptionist entered 3 hours for a Service the Guest had for 2. Correct sales refused it ("has added time: void and check out again"), and voiding would not have helped: Top-ups belong to the Booking, so checking out again charges them again, and voiding needs the day reopened. No migration; the next is still 0038.
+
+1. **Correct sales -> Remove added time** (Super Admin, `day.reopen`), shown on a finished Service that has Top-ups: pick how much to remove in 30-minute steps (up to all of it) and give a reason. `POST /sales/remove-added-time {bookingId, minutes, reason}`.
+2. The latest steps go first. The steps that stay are priced again per massage (`topUpStepPrices`), so two halves left still make a full hour and an odd half-hour costs a half-hour. The Booking's length shrinks, and its end comes back if it ran past the shorter length.
+3. The Sale is priced again by the checkout rules with the Top-ups that stay: Senior/PWD and Complimentary kept, a Promo checked again. Commission follows. The difference comes off the cash payment (else the first), and on a closed day expected cash and variance follow; what was counted stays, so correct the count if the drawer matched what was really paid. Audit log `sale.remove_added_time` with the steps removed.
+4. Refused for a Voucher sale (`voucher_sale`), and once that Therapist's Payroll for the week is approved (`payroll_locked`, shared with Correct service as `payrollLocked`). `price()` takes the Top-up prices that stay when correcting.
+5. Correct service on a sale with added time now says to remove the added time first. `GET /sales/day-detail` sends `addedMin` per Service; the page shows "+ 1 hr added" beside the Service.
+6. Tests: 271 domain, 232 API pass; typecheck, lint and build clean. Checked in a browser on a scratch copy: 2 hours added on a closed day, 1 hour removed -> 7:00-9:00 PM, ₱1,000, expected ₱1,000 against ₱1,500 counted.
+
+**Pick up:** owner opens the PR from `cr-10` to `main` and merges. Then on Correct sales, pick the Service from 2026-11-15, Remove added time 1 hr, and correct that day's count if the drawer held what the Guest really paid. Do this before approving that Therapist's payroll for the week of Nov 9.
+

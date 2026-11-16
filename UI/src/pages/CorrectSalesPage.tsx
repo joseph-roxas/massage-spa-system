@@ -21,6 +21,8 @@ type Detail = {
     startedAt: string;
     doneAt: string;
     enteredLate: boolean;
+    /** Minutes of added time (Top-ups). */
+    addedMin: number;
     sale: { id: string; regularPrice: number; discountType: string; discountAmount: number; amountDue: number; topUpsTotal: number; payments: { method: string; amount: number }[] } | null;
   }[];
 };
@@ -44,7 +46,8 @@ export function CorrectSalesPage() {
       for (const key of ['day-detail', 'front-desk', 'cash', 'close-preview', 'reports', 'dashboard']) qc.invalidateQueries({ queryKey: [key] });
     },
   });
-  const [editing, setEditing] = useState<{ id: string; what: 'start' | 'service' | 'room' } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; what: 'start' | 'service' | 'room' | 'added' } | null>(null);
+  const [removeMin, setRemoveMin] = useState(30);
   const [roomId, setRoomId] = useState('');
   const rooms = useRooms();
   const [time, setTime] = useState('');
@@ -74,16 +77,24 @@ export function CorrectSalesPage() {
     setReason('');
     act.reset();
   };
+  const startAdded = (id: string) => {
+    setEditing({ id, what: 'added' });
+    setRemoveMin(30);
+    setReason('');
+    act.reset();
+  };
+  /** Why a sale's added time can't be removed here, or null. */
+  const addedBlock = (r: Detail['services'][number]) => (!r.sale ? 'Not checked out' : r.sale.discountType === 'voucher' ? 'Paid with a Voucher' : null);
   /** Why a sale's Service can't be corrected here, or null. */
   const serviceBlock = (r: Detail['services'][number]) =>
-    !r.sale ? 'Not checked out' : r.sale.discountType === 'voucher' ? 'Paid with a Voucher: void and check out again' : r.sale.topUpsTotal > 0 ? 'Has added time: void and check out again' : null;
+    !r.sale ? 'Not checked out' : r.sale.discountType === 'voucher' ? 'Paid with a Voucher: void and check out again' : r.addedMin > 0 ? 'Has added time: remove it first' : null;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Correct sales</h1>
-          <p className="text-sm text-stone-600">Fix when a service really started, which service or room it was, or what was really counted at a Day Close.</p>
+          <p className="text-sm text-stone-600">Fix when a service really started, which service or room it was, added time entered by mistake, or what was really counted at a Day Close.</p>
         </div>
         <Field label="Business Day">
           <div className="w-44">
@@ -170,6 +181,7 @@ export function CorrectSalesPage() {
                     </td>
                     <td className={td}>
                       {r.guestName || 'Walk-in guest'} · {r.serviceName}
+                      {r.addedMin > 0 && <span className="text-stone-500"> + {hoursText(r.addedMin)} added</span>}
                     </td>
                     <td className={td}>{r.therapistName}</td>
                     <td className={td}>{r.roomName ?? '—'}</td>
@@ -237,6 +249,38 @@ export function CorrectSalesPage() {
                             Cancel
                           </Button>
                         </form>
+                      ) : editing?.id === r.bookingId && editing.what === 'added' ? (
+                        <form
+                          className="flex flex-wrap items-end justify-end gap-2"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            act.mutate({ path: '/sales/remove-added-time', body: { bookingId: r.bookingId, minutes: removeMin, reason } }, { onSuccess: () => setEditing(null) });
+                          }}
+                        >
+                          <div className="w-44">
+                            <Field label="Remove">
+                              <Select required value={removeMin} onChange={(e) => setRemoveMin(Number(e.target.value))}>
+                                {Array.from({ length: r.addedMin / 30 }, (_, i) => (i + 1) * 30).map((m) => (
+                                  <option key={m} value={m}>
+                                    {hoursText(m)}
+                                    {m === r.addedMin ? ' (all of it)' : ''}
+                                  </option>
+                                ))}
+                              </Select>
+                            </Field>
+                          </div>
+                          <Field label="Why">
+                            <div className="w-56">
+                              <Input required minLength={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+                            </div>
+                          </Field>
+                          <Button type="submit" className="h-10" disabled={act.isPending}>
+                            Save
+                          </Button>
+                          <Button type="button" variant="secondary" className="h-10" onClick={() => setEditing(null)}>
+                            Cancel
+                          </Button>
+                        </form>
                       ) : editing?.id === r.bookingId && editing.what === 'room' ? (
                         <form
                           className="flex flex-wrap items-end justify-end gap-2"
@@ -279,6 +323,11 @@ export function CorrectSalesPage() {
                           <Button variant="secondary" className="h-8 px-3" disabled={!!serviceBlock(r)} title={serviceBlock(r) ?? undefined} onClick={() => startService(r.bookingId, r.serviceId)}>
                             Correct service
                           </Button>
+                          {r.addedMin > 0 && (
+                            <Button variant="secondary" className="h-8 px-3" disabled={!!addedBlock(r)} title={addedBlock(r) ?? undefined} onClick={() => startAdded(r.bookingId)}>
+                              Remove added time
+                            </Button>
+                          )}
                           <Button variant="secondary" className="h-8 px-3" onClick={() => startRoom(r.bookingId, r.roomId)}>
                             Correct room
                           </Button>
@@ -294,11 +343,20 @@ export function CorrectSalesPage() {
         <p className="mt-3 text-xs text-stone-500">
           <span className="font-medium">Start time:</span> the service keeps its length. A sale with no discount or a Promo is priced again by the checkout rules, so Happy Hours applies if the real
           time qualifies. Commission doesn’t change. <span className="font-medium">Service:</span> same start, the new service’s length and price; Senior, PWD and Complimentary are kept, a Promo is
-          checked again, and the Commission follows the new service. Either way the difference comes off the cash payment, and a closed day’s expected cash follows.
+          checked again, and the Commission follows the new service. <span className="font-medium">Added time:</span> the latest added time comes off, the end time comes back if it
+          ran past, and the sale and Commission are priced again for what is left. Each way the difference comes off the cash payment, and a closed day’s expected cash follows; what was
+          counted stays, so correct the count if needed.
         </p>
       </Card>
     </div>
   );
+}
+
+/** 30 → "30 min", 60 → "1 hr", 90 → "1 hr 30 min". */
+function hoursText(min: number) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return [h ? `${h} hr` : '', m ? `${m} min` : ''].filter(Boolean).join(' ');
 }
 
 /** An ISO instant as HH:MM in Manila, for a time box. */

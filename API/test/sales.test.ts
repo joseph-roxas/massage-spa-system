@@ -723,6 +723,58 @@ describe('Correcting a service', () => {
   });
 });
 
+describe('Removing added time', () => {
+  it('takes the latest steps off a sale on a closed day, and its payment, Commission and Day Close follow', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await therapist(admin);
+    const d = new Date(`${today()}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 1);
+    const day = d.toISOString().slice(0, 10);
+    const at = (hhmm: string) => new Date(`${day}T${hhmm}:00+08:00`).toISOString();
+    const [bookingId, saleId] = [crypto.randomUUID(), crypto.randomUUID()];
+    // A Swedish (1hr) entered as 3 hours: four 30-minute steps at ₱250 added, ₱1,500 paid in cash; really 2 hours.
+    const step = (i: number) =>
+      env.DB.prepare(`INSERT INTO booking_top_ups (id, booking_id, minutes, price, part, created_at) VALUES (?, ?, 30, 25000, NULL, ?)`).bind(crypto.randomUUID(), bookingId, at(`19:${10 + i}`));
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR REPLACE INTO business_days (date, opened_at, closed_at, expected_cash, expected_gcash, counted_cash, variance) VALUES (?, ?, ?, 150000, 0, 150000, 0)`).bind(day, at('14:00'), at('23:30')),
+      env.DB.prepare(`INSERT INTO bookings (id, business_day, kind, status, service_id, duration_min, therapist_id, room_id, started_at, done_at, created_at) VALUES (?, ?, 'walk_in', 'done', 'swedish-60', 180, ?, 1, ?, ?, ?)`).bind(bookingId, day, t, at('19:00'), at('22:00'), at('19:00')),
+      step(0), step(1), step(2), step(3),
+      env.DB.prepare(`INSERT INTO sales (id, booking_id, business_day, service_id, therapist_id, regular_price, top_ups_total, discount_type, service_amount, amount_due, commission_bp, commission_amount, created_at) VALUES (?, ?, ?, 'swedish-60', ?, 150000, 100000, 'none', 150000, 150000, 3000, 45000, ?)`).bind(saleId, bookingId, day, t, at('22:00')),
+      env.DB.prepare(`INSERT INTO payments (id, sale_id, business_day, method, amount, created_at) VALUES (?, ?, ?, 'cash', 150000, ?)`).bind(crypto.randomUUID(), saleId, day, at('22:00')),
+    ]);
+    type Detail = { services: { bookingId: string; addedMin: number }[] };
+    const before = await (await admin.get(`/sales/day-detail?day=${day}`)).json<Detail>();
+    expect(before.services.find((s) => s.bookingId === bookingId)?.addedMin).toBe(120);
+    const body = { bookingId, minutes: 60, reason: 'Entered 3 hours; the guest had 2' };
+
+    expect((await desk.post('/sales/remove-added-time', body)).status).toBe(403);
+    expect((await admin.post('/sales/remove-added-time', { ...body, minutes: 45 })).status).toBe(400);
+    expect((await admin.post('/sales/remove-added-time', { ...body, minutes: 150 })).status).toBe(400);
+    expect((await admin.post('/sales/correct-service', { bookingId, serviceId: 'aroma-90', reason: 'Try it first' })).status).toBe(409);
+    expect((await admin.post('/sales/remove-added-time', body)).status).toBe(200);
+
+    // ₱500 + 2 × ₱250 = ₱1,000; Commission 30%.
+    const sale = await env.DB.prepare(`SELECT regular_price, top_ups_total, amount_due, commission_amount FROM sales WHERE id = ?`).bind(saleId).first();
+    expect(sale).toEqual({ regular_price: 100000, top_ups_total: 50000, amount_due: 100000, commission_amount: 30000 });
+    const pay = await env.DB.prepare(`SELECT amount FROM payments WHERE sale_id = ?`).bind(saleId).first<{ amount: number }>();
+    expect(pay?.amount).toBe(100000);
+    const b = await env.DB.prepare(`SELECT duration_min, done_at FROM bookings WHERE id = ?`).bind(bookingId).first();
+    expect(b).toEqual({ duration_min: 120, done_at: at('21:00') });
+    const steps = await env.DB.prepare(`SELECT created_at FROM booking_top_ups WHERE booking_id = ? ORDER BY created_at`).bind(bookingId).all<{ created_at: string }>();
+    expect(steps.results.map((s) => s.created_at)).toEqual([at('19:10'), at('19:11')]);
+    // Expected ₱500 less; the count stays, so the day reads ₱500 over until the count is corrected.
+    const closed = await env.DB.prepare(`SELECT expected_cash, counted_cash, variance FROM business_days WHERE date = ?`).bind(day).first();
+    expect(closed).toEqual({ expected_cash: 100000, counted_cash: 150000, variance: 50000 });
+    const audit = await env.DB.prepare(`SELECT reason FROM audit_log WHERE action = 'sale.remove_added_time' AND entity_id = ?`).bind(saleId).first<{ reason: string }>();
+    expect(audit?.reason).toBe(body.reason);
+
+    // Removing the rest leaves no added time to remove.
+    expect((await admin.post('/sales/remove-added-time', body)).status).toBe(200);
+    expect((await admin.post('/sales/remove-added-time', { ...body, minutes: 30 })).status).toBe(409);
+  });
+});
+
 describe('Laundry Breakdown', () => {
   it('records Laundry day by day and pays their total from Sales Cash', async () => {
     const desk = await loggedIn('receptionist');

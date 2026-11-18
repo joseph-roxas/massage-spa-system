@@ -121,7 +121,7 @@ function BatchForm({ day, onDone }: { day: string; onDone: () => void }) {
       </table>
       <p className="text-xs text-stone-500">A time out earlier than the time in is after midnight. Leave Out blank only if they are still here.</p>
       {kind === 'therapist' && <Checkbox label="Relief Shifts: ran the front desk on these days" checked={isRelief} onChange={(e) => setRelief(e.target.checked)} />}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="button" variant="secondary" disabled={rows.length >= 14} onClick={() => setRows((all) => [...all, { ...last, day: nextDay(last.day), reason: '' }])}>
           + Another day
         </Button>
@@ -314,7 +314,7 @@ function EntryForm({ entry, day, onDone }: { entry?: DtrEntry; day: string; onDo
       {kind === 'therapist' && (
         <Checkbox label="Relief Shift: ran the front desk (paid the Minimum Wage Rate, out of the Rotation)" checked={d.isRelief} onChange={(e) => set('isRelief', e.target.checked)} />
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={change.isPending}>{entry ? 'Save correction' : 'Add entry'}</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>
@@ -407,7 +407,7 @@ export function DtrPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Time Records</h1>
         {canReview && (
-          <div className="flex rounded-md border border-stone-300 bg-white p-0.5 text-sm">
+          <div className="flex flex-wrap gap-0.5 rounded-md border border-stone-300 bg-white p-0.5 text-sm">
             {TABS.map(([key, label]) => (
               <button
                 key={key}

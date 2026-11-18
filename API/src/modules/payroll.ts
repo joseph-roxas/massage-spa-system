@@ -30,6 +30,7 @@ import {
   weekFrom,
   weekKindsOf,
   yearEndBonus,
+  yearEndBonusPayable,
   type Capability,
   type PayrollTotals,
   type PayWeek,
@@ -1259,6 +1260,9 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     if (!can(c.var.user.role, APPROVE[row.kind === 'year_end_bonus' ? 'therapist' : 'receptionist'])) return fail(c, 403, 'forbidden', 'You do not have access to this.');
     if (row.paidAt) return fail(c, 409, 'already_paid', 'Already marked paid.');
     if (row.kind === 'year_end_bonus') {
+      if (!yearEndBonusPayable(row.year, row.periodEnd)) {
+        return fail(c, 409, 'too_early', 'This is a preview: the period ends before December. Compute again after the cut-off week, then mark it paid.');
+      }
       const owed = (await deductionBalances(db, [row.staffId])).get(row.staffId) ?? 0;
       if (bonusDeduction(row.amount, owed) !== row.deduction) return fail(c, 409, 'stale', 'Deferred Deductions changed since this was computed. Compute again first.');
     }

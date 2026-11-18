@@ -117,7 +117,7 @@ export function StartDialog({ booking, board, roomId: pickedRoomId, onClose }: {
           </Field>
         )}
         {mustAsk && <Checkbox label="The guest asked for another therapist" checked={guestAsked} onChange={(e) => setGuestAsked(e.target.checked)} />}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Not yet</Button>
           <Button type="submit" disabled={start.isPending || !therapistId || !roomId || (mustAsk && !guestAsked)}>Start service</Button>
         </div>

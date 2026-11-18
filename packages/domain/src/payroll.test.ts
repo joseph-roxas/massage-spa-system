@@ -23,6 +23,7 @@ import {
   thirteenthMonth,
   bonusDeduction,
   bonusPeriod,
+  yearEndBonusPayable,
   suggestBonus,
   yearEndBonus,
   type ReceptionistRules,
@@ -461,6 +462,14 @@ describe('December pay', () => {
   });
   it('stops at the year end when computing a past year', () => {
     expect(bonusPeriod(2026, null, '2027-03-01').end).toBe('2026-12-27');
+  });
+  it('can be marked paid only once the period reaches December', () => {
+    // Computed on Wed Nov 18, 2026, the period ends Sun Nov 15: a preview only.
+    expect(yearEndBonusPayable(2026, bonusPeriod(2026, null, '2026-11-18').end)).toBe(false);
+    expect(yearEndBonusPayable(2026, '2026-11-29')).toBe(false);
+    expect(yearEndBonusPayable(2026, '2026-12-06')).toBe(true);
+    expect(yearEndBonusPayable(2026, '2026-12-13')).toBe(true);
+    expect(yearEndBonusPayable(2026, null)).toBe(false);
   });
   it('takes Deferred Deductions off the bonus, never more than the bonus', () => {
     expect(bonusDeduction(1_000_00, 409_00)).toBe(409_00);

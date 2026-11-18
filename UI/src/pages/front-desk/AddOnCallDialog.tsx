@@ -20,7 +20,7 @@ export function AddOnCallDialog({ onClose }: { onClose: () => void }) {
       <Modal title="On-call therapist added" onClose={onClose}>
         <div className="space-y-4">
           <Alert tone="success">{added} can now clock in with their PIN and will join the Rotation.</Alert>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>Close</Button>
             <Link to="/clock" className="inline-flex h-10 items-center rounded-md bg-teal-700 px-4 text-sm font-medium text-white hover:bg-teal-800">
               Clock-in Screen
@@ -50,7 +50,7 @@ export function AddOnCallDialog({ onClose }: { onClose: () => void }) {
             <Input required inputMode="numeric" pattern="\d{4}" maxLength={4} autoComplete="off" value={f.pin} onChange={(e) => setF({ ...f, pin: e.target.value })} />
           </Field>
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={add.isPending}>Add therapist</Button>
         </div>

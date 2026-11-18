@@ -47,7 +47,7 @@ function ExpenseForm({ expense, onDone }: { expense?: Expense; onDone: () => voi
       <Field label="What for">
         <Input required minLength={2} value={d.description} onChange={(e) => setD({ ...d, description: e.target.value })} placeholder="E.g. October electric bill, 2551Q filing fee" />
       </Field>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={!amount || !d.categoryId || act.isPending}>Save</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>

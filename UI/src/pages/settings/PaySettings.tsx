@@ -69,7 +69,7 @@ function CommissionRates() {
                 <Input type="date" min={today} required value={d.effectiveFrom} onChange={(e) => setD({ ...d, effectiveFrom: e.target.value })} />
               </Field>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={save.isPending}>Save rate</Button>
               <Button type="button" variant="secondary" onClick={() => setAdding(false)}>Cancel</Button>
             </div>

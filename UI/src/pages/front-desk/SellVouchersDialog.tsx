@@ -145,7 +145,7 @@ export function SellVouchersDialog({ onClose }: { onClose: () => void }) {
 
         {pay.fields}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!service || !count || !allPicked || !buyerName.trim() || pay.invalid || save.isPending}>
             Paid {peso(total)}

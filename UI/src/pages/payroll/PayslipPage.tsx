@@ -333,7 +333,7 @@ export function PayslipPage() {
         <Link to={`/payroll?week=${p.weekStart}`} className="text-sm text-teal-800 hover:underline">
           ← Back to payroll
         </Link>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {canApprove && p.status === 'draft' && (
             <Button disabled={act.isPending} onClick={() => act.mutate({ path: `/payrolls/${p.id}/approve` })}>
               Approve

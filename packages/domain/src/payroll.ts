@@ -537,6 +537,15 @@ export function bonusPeriod(year: number, previousEnd: IsoDate | null, today: Is
   };
 }
 
+/**
+ * Marking a Year-end Bonus paid fixes the year's cut-off, so it waits until the
+ * period reaches December: paid in November, the rest of the year would fall
+ * into next year's bonus.
+ */
+export function yearEndBonusPayable(year: number, periodEnd: IsoDate | null): boolean {
+  return periodEnd !== null && periodEnd >= `${year}-12-01`;
+}
+
 export type BonusScenario = { bp: number; cost: Centavos; left: Centavos };
 
 const USUAL_BONUS_BP = [500, 600, 700];

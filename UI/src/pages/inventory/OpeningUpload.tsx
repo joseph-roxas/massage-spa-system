@@ -153,7 +153,7 @@ export function OpeningUpload({ items, onDone }: { items: Item[]; onDone: () => 
           </table>
         </div>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={!ready || act.isPending}>
           Save {PLACE_LABELS[place].toLowerCase()} count ({counted.length} items
           {counted.some((m) => m.status === 'new') ? `, ${counted.filter((m) => m.status === 'new').length} new` : ''})

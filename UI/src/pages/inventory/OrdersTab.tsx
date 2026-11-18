@@ -66,7 +66,7 @@ function NewOrderDialog({ onClose, start }: { onClose: () => void; start: string
         <Field label="Note (optional)">
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!valid || act.isPending}>Send for approval</Button>
         </div>
@@ -124,7 +124,7 @@ function ReceiveDialog({ po, onClose }: { po: PurchaseOrder; onClose: () => void
           <p className="pb-2 text-sm font-medium">Total {peso(total)}</p>
         </div>
         <Checkbox label="Paid from the cash drawer today (counted at Day Close)" checked={fromDrawer} onChange={(e) => setFromDrawer(e.target.checked)} />
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!valid || act.isPending}>Add to stock</Button>
         </div>
@@ -214,7 +214,7 @@ export function OrdersTab() {
       title="Purchase Orders"
       actions={
         canRequest && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {low.length > 0 && (
               <Button variant="secondary" onClick={() => setCreating(low.map((i) => i.id))}>
                 Order low stock ({low.length})

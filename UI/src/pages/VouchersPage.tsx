@@ -125,7 +125,7 @@ function EndorseForm({ onDone }: { onDone: () => void }) {
           <span className="font-mono">{service.voucherPrefix}-{toNo.padStart(4, '0')}</span>
         </p>
       )}
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
         <Button type="submit" disabled={save.isPending || !(count > 0)}>Endorse cards</Button>
       </div>
@@ -226,7 +226,7 @@ function CountForm({ onDone }: { onDone: () => void }) {
           </div>
         </div>
       )}
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onDone}>Close</Button>
         <Button type="submit" disabled={save.isPending}>Save cards</Button>
       </div>
@@ -402,7 +402,7 @@ export function VouchersPage() {
         {rows.length === 0 ? (
           <p className="text-sm text-stone-500">No cards match.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-stone-200">

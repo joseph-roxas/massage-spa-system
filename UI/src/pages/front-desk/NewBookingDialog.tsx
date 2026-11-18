@@ -278,7 +278,7 @@ export function NewBookingDialog({
           </div>
         )}
         {startingNow && board.data && !freeRooms.length && <Alert tone="info">All rooms are taken. Untick Start now to add the guest to the waiting list.</Alert>}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={create.isPending || start.isPending}>
             {kind === 'scheduled' ? 'Save booking' : late ? 'Save late entry' : form.startNow ? 'Add and start' : 'Add to waiting list'}

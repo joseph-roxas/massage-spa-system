@@ -325,7 +325,7 @@ export function CheckoutDialog({ booking, onClose }: { booking: CheckoutBooking;
             <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
           </Field>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>Not yet</Button>
             <Button type="submit" disabled={!ready || save.isPending || guestAction.isPending || pay.invalid}>
               {due === 0 ? 'Record' : `Paid ${peso(due)}`}

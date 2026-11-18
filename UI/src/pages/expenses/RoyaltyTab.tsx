@@ -31,7 +31,7 @@ function StatementRow({ s }: { s: RoyaltyStatement }) {
         {s.status === 'confirmed' ? (
           <Badge>Paid {s.confirmedAt ? longDate(s.confirmedAt.slice(0, 10)) : ''}</Badge>
         ) : (
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="secondary" className="h-8" disabled={act.isPending || !(bp > 0)} onClick={() => act.mutate({ path: `/royalty/${s.month}/compute`, body: { bp } })}>
               Recompute
             </Button>

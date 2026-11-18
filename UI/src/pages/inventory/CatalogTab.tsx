@@ -45,7 +45,7 @@ function ItemForm({ item, onDone }: { item?: Item; onDone: () => void }) {
         </Field>
       </div>
       {item && <Checkbox label="Still stocked" checked={d.active} onChange={(e) => setD({ ...d, active: e.target.checked })} />}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={act.isPending || !Number.isInteger(Number(d.reorderLevel))}>Save</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>
@@ -73,7 +73,7 @@ function VendorForm({ vendor, onDone }: { vendor?: Vendor; onDone: () => void })
         </Field>
       </div>
       {vendor && <Checkbox label="Still buying from them" checked={d.active} onChange={(e) => setD({ ...d, active: e.target.checked })} />}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={act.isPending}>Save</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>
@@ -122,7 +122,7 @@ function OpeningCount({ items, onDone }: { items: Item[]; onDone: () => void }) 
             </label>
           ))}
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={!valid || act.isPending}>Save count ({entered.length})</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>
@@ -144,7 +144,7 @@ export function CatalogTab() {
       <Card
         title="Items"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => setCounting(true)}>Opening count</Button>
             {canCount && (
               <Button variant="secondary" onClick={() => setUploading(true)}>Upload opening count</Button>

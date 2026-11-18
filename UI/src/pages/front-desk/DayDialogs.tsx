@@ -112,7 +112,7 @@ export function CashOutDialog({ day, onClose }: { day: string; onClose: () => vo
             </Field>
           </div>
         )}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Done</Button>
           <Button type="submit" disabled={!ready || save.isPending}>Record Cash-out</Button>
         </div>
@@ -167,7 +167,7 @@ export function EarlyCloseDialog({ onClose }: { onClose: () => void }) {
         <Field label="Why are we closing early?">
           <Input required minLength={3} autoFocus value={reason} onChange={(e) => setReason(e.target.value)} />
         </Field>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={save.isPending}>Record Early Close</Button>
         </div>
@@ -311,13 +311,13 @@ export function DayCloseDialog({ date, onClose }: { date: string; onClose: () =>
               ) : (
                 <p>Nobody is still clocked in.</p>
               )}
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
                 <Button type="button" variant="secondary" onClick={() => setConfirming(false)}>Go back</Button>
                 <Button type="submit" variant="alarm" autoFocus disabled={save.isPending}>Yes, close the day</Button>
               </div>
             </div>
           ) : (
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button type="button" variant="secondary" onClick={onClose}>Not yet</Button>
               <Button type="submit" variant="alarm" disabled={countedCash === null}>Close the day</Button>
             </div>

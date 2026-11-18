@@ -997,3 +997,26 @@ Asked 2026-11-16: a Receptionist entered 3 hours for a Service the Guest had for
 7. **Petty cash top-up any day** (branch `cr-11`; asked 2026-11-16: the Receptionist forgets the Saturday top-up). `GET /cash/summary` sends `topUpDue` whenever petty cash is below ₱800, not only on Saturday, so the Front Desk banner shows **Top up petty cash ₱X** every day until it is done, now as an amber button. Wording on the banner and the Cash page follows; `isTopUpDay` is gone from the domain. `POST /cash/petty-topups` already allowed any day and still refuses more than brings the fund back to ₱800. The Saturday handover reminder is unchanged: it still waits for petty cash to be full. No migration.
 8. Not handled: a Voucher sale with added time (refused), and an Added Service that started at the old end time with the same Therapist (left as it is).
 
+
+## 28. Pages fit the screen, and no early Year-end Bonus payout (`cr-12`)
+
+Asked 2026-11-18. The owner, on a laptop at 80% Chrome zoom, sees every page cut on the right (Inventory, Front Desk, ...). The menu is a fixed 240px column, and tab bars, box headers and row buttons never wrap, so they push past the right edge. The Stock table's own sideways scrollbar sits at the bottom of the whole list, where nobody sees it.
+
+Agreed with the owner:
+
+1. **The menu folds below 1280px wide** into a top bar with the brand and a **Menu** button (it carries the Needs Attention count). The button slides the full menu in from the left; picking a page or tapping outside closes it. At 1280px and wider the sidebar is as before.
+2. **Nothing scrolls inside its own box.** On a laptop every page fits with no sideways scrolling. Where a table truly can't fit (a phone), the whole page scrolls sideways, so the scrollbar is always at the bottom of the window. The inner `overflow-x-auto` boxes go.
+3. **Rows wrap, neatly**: tab bars, the buttons in a box header, page headers and filter rows go onto a second line when they don't fit, aligned and evenly spaced.
+4. **Row buttons stack** inside the last column (Use / Discard over Send, and the like) when the table is short of room.
+5. Checked at 1280px (sidebar shown), 1024px (folded) and a phone, on every page in the menu.
+6. **Year-end Bonus: no Mark paid before December.** Marking the first one paid fixes the cut-off, so paying in November would end the 2026 bonus at a November week and push the rest into next year. `POST /bonuses/:id/paid` refuses a Year-end Bonus whose period ends before December 1 of its year (`too_early`): "Compute again after the cut-off week." 13th Month Pay is unchanged.
+7. Not changed (answered): computing December pay now is a preview. It covers commission to the last finished Pay Week (Nov 15 today) and approved Receptionist payrolls so far, so December's figures will be higher; Recompute replaces every unpaid line. The Receptionist cannot see either: the December pay, Totals and Deferred Deductions tabs, Finance and `GET /bonuses` are Super Admin only, and My Pay shows no bonus. No projected estimate.
+
+**As built (uncommitted on `cr-12`, no migration; next is still 0038):**
+
+- `Layout`: below `xl` a sticky top bar (brand, **Menu** with the Needs Attention count); the sidebar slides in over a dimmed page and closes on any navigation, a tap outside or Escape. Page margins are 16px below `2xl`, 32px from 1536px. The page body is `min-w-fit`, so a page that truly can't fit widens the whole page instead of spilling out of its boxes.
+- Every `overflow-x-auto` box is gone (14, including the Heatmap). Tab bars, box headers (`Card`) and button groups wrap; `Card` padding is 16px below `2xl`.
+- Reports: below 1536px the report list is a row of buttons above the report (descriptions as tooltips). Report tables have tighter cells; tables of 10 or more columns use small type, no letter spacing on headers, and only money columns refuse to wrap. Fixed in passing: the totals row showed "Invalid Date" when the first column is a date.
+- December pay: `yearEndBonusPayable(year, periodEnd)` in the domain. A Year-end Bonus whose period ends before December shows **Preview** instead of Mark paid, the card says so, and the API refuses with `too_early`.
+- Checked in a browser on a scratch copy of the local data: all 27 menu pages and tabs, and every report over Jan 1 to Nov 18, fit with no sideways scroll at 1280px (sidebar) and 1024px (folded). On a 375px phone the pages without wide tables fit; Stock, Reports, Settings, Users, Paper backup, Front Desk, Guests, Time Records and Price List scroll the whole page sideways, as agreed.
+- Tests: 271 domain, 233 API pass (new: payable only from December; refused `too_early`; existing pay tests move the period into December first). Typecheck, lint and build clean.

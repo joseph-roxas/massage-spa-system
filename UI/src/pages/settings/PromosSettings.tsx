@@ -66,7 +66,7 @@ function PromoForm({ promo, onDone }: { promo?: Promo; onDone: () => void }) {
         </Field>
       </div>
       <Checkbox label="Active" checked={d.active} onChange={(e) => set('active', e.target.checked)} />
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={save.isPending}>{promo ? 'Save promo' : 'Add promo'}</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>

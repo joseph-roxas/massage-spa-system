@@ -23,20 +23,29 @@ function presets(today: string): [string, string, string][] {
 function cell(c: Column, v: Row[string] | undefined) {
   if (v === null || v === undefined || v === '') return '—';
   if (c.type === 'money') return peso(Number(v));
-  if (c.type === 'date') return longDate(String(v));
+  // The totals row puts "Total" in the first column, which may be a date column.
+  if (c.type === 'date') return /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? longDate(String(v)) : String(v);
   return String(v);
 }
+
+// Reports can run to a dozen columns; tighter cells keep them on a laptop screen.
+const tightTh = th.replace('px-3', 'px-2');
+const tightTd = td.replace('px-3', 'px-2');
 
 function ReportTable({ report }: { report: Report }) {
   const num = (c: Column) => c.type === 'int' || c.type === 'money';
   if (!report.rows.length) return <p className="text-sm text-stone-500">Nothing in this range.</p>;
+  // A dozen money columns only fit a laptop in smaller type.
+  const wide = report.columns.length >= 10;
+  const headClass = wide ? tightTh.replace('px-2', 'px-1').replace('tracking-wide', 'tracking-normal') : tightTh;
+  const cellClass = wide ? tightTd.replace('text-sm', 'text-xs').replace('px-2', 'px-1') : tightTd;
   return (
-    <div className="overflow-x-auto">
+    <div>
       <table className="w-full">
         <thead>
           <tr className="border-b border-stone-200">
             {report.columns.map((c) => (
-              <th key={c.key} className={`${th} whitespace-nowrap ${num(c) ? 'text-right' : ''}`}>
+              <th key={c.key} className={`${headClass} ${num(c) ? 'text-right' : ''}`}>
                 {c.label}
               </th>
             ))}
@@ -46,7 +55,7 @@ function ReportTable({ report }: { report: Report }) {
           {report.rows.map((r, i) => (
             <tr key={i} className={r.rowKind === 'subtotal' ? 'bg-stone-50 font-semibold' : ''}>
               {report.columns.map((c) => (
-                <td key={c.key} className={`${td} whitespace-nowrap ${num(c) ? 'text-right tabular-nums' : ''}`}>
+                <td key={c.key} className={`${cellClass} ${num(c) ? 'whitespace-nowrap text-right tabular-nums' : ''}`}>
                   {cell(c, r[c.key])}
                 </td>
               ))}
@@ -57,7 +66,7 @@ function ReportTable({ report }: { report: Report }) {
           <tfoot>
             <tr className="border-t-2 border-stone-200 font-semibold">
               {report.columns.map((c) => (
-                <td key={c.key} className={`${td} whitespace-nowrap ${num(c) ? 'text-right tabular-nums' : ''}`}>
+                <td key={c.key} className={`${cellClass} ${num(c) ? 'whitespace-nowrap text-right tabular-nums' : ''}`}>
                   {report.totals![c.key] === null ? '' : cell(c, report.totals![c.key])}
                 </td>
               ))}
@@ -113,23 +122,27 @@ export function ReportsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Reports</h1>
-      <div className="grid grid-cols-[14rem_1fr] gap-6">
-        <nav className="space-y-1">
+      <div className="grid gap-6 2xl:grid-cols-[14rem_1fr]">
+        {/* A row of buttons above the report until the screen is wide enough for a side list. */}
+        <nav className="flex flex-wrap gap-2 2xl:block 2xl:space-y-1">
           {allowed.map((r) => (
             <button
               key={r}
               type="button"
               onClick={() => set(r === 'therapist-detail' ? { r, from: today, to: today } : { r })}
-              className={`block w-full rounded-md px-3 py-2 text-left text-sm ${r === name ? 'bg-teal-700 text-white' : 'text-stone-700 hover:bg-stone-100'}`}
+              title={REPORT_LABELS[r].blurb}
+              className={`block rounded-md border px-3 py-2 text-left text-sm 2xl:w-full 2xl:border-0 ${
+                r === name ? 'border-teal-700 bg-teal-700 text-white' : 'border-stone-300 bg-white text-stone-700 hover:bg-stone-100 2xl:bg-transparent'
+              }`}
             >
               <span className="block font-medium">{REPORT_LABELS[r].title}</span>
-              <span className={`block text-xs ${r === name ? 'text-teal-50' : 'text-stone-500'}`}>{REPORT_LABELS[r].blurb}</span>
+              <span className={`hidden text-xs 2xl:block ${r === name ? 'text-teal-50' : 'text-stone-500'}`}>{REPORT_LABELS[r].blurb}</span>
             </button>
           ))}
-          {!canPickDates && <p className="px-3 pt-2 text-xs text-stone-500">Today’s figures. The owner sees all reports.</p>}
+          {!canPickDates && <p className="basis-full px-3 pt-2 text-xs text-stone-500">Today’s figures. The owner sees all reports.</p>}
         </nav>
 
-        <div className="min-w-0 space-y-4">
+        <div className="space-y-4">
           {canPickDates && (
             <div className="flex flex-wrap items-end gap-3">
               <Field label="From">
@@ -185,7 +198,7 @@ export function ReportsPage() {
             title={`${REPORT_LABELS[name].title} · ${from === to ? longDate(from) : `${longDate(from)} – ${longDate(to)}`}`}
             actions={
               report && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" className="h-8" onClick={() => download(report, 'xlsx', from, to)}>
                     Excel
                   </Button>

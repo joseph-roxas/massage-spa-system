@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { yearEndBonusPayable } from '@spa/domain';
 import { Alert, Badge, Button, Card, Field, Input, td, th } from '../../components/ui';
 import { longDate, parsePesos, peso, percent, pesosText, todayManila } from '../../lib/format';
 import { useBonuses, useBonusSuggestion, useOpeningBasic, usePayrollAction, type Bonus, type OpeningBasic } from '../../lib/payroll';
@@ -9,7 +10,7 @@ function BonusTable({ rows, basisLabel, deductions = false }: { rows: Bonus[]; b
   return (
     <>
       {act.error && <Alert>{act.error.message}</Alert>}
-      <div className="overflow-x-auto">
+      <div>
         <table className="w-full">
           <thead>
             <tr className="border-b border-stone-200">
@@ -32,6 +33,10 @@ function BonusTable({ rows, basisLabel, deductions = false }: { rows: Bonus[]; b
                 <td className={`${td} text-right`}>
                   {b.paidAt ? (
                     <Badge>Paid {longDate(b.paidAt.slice(0, 10))}</Badge>
+                  ) : b.kind === 'year_end_bonus' && !yearEndBonusPayable(b.year, b.periodEnd) ? (
+                    <span title="Compute again after the cut-off week in December, then mark it paid.">
+                      <Badge tone="amber">Preview</Badge>
+                    </span>
                   ) : (
                     <Button variant="secondary" className="h-8" disabled={act.isPending} onClick={() => act.mutate({ path: `/bonuses/${b.id}/paid` })}>
                       Mark paid
@@ -176,10 +181,13 @@ export function DecemberPay() {
         <p className="mb-3 text-sm text-stone-500">
           Each Therapist’s Commission since last year’s cut-off, through the last finished Pay Week, times the percentage you choose. Any Deferred Deductions they still owe come off when you mark it paid.
           On-call Therapists are not included. Computing again keeps bonuses already paid.
+          {yeb.length > 0 && !yeb.some((b) => b.paidAt) && !yearEndBonusPayable(year, yeb[0]!.periodEnd)
+            ? ` This is a preview through ${longDate(yeb[0]!.periodEnd!)}: compute again after the cut-off week in December before marking any paid, since the first one paid fixes the cut-off.`
+            : ''}
           {yeb[0]?.bp ? ` Last computed at ${percent(yeb[0].bp)}.` : ''}
         </p>
         <Suggestion key={year} year={year} onUse={setPct} />
-        <form onSubmit={computeYeb} className="mb-4 flex items-end gap-3">
+        <form onSubmit={computeYeb} className="mb-4 flex flex-wrap items-end gap-3">
           <Field label="Percentage (%)">
             <Input type="number" min={0.01} max={100} step={0.01} required value={shown} onChange={(e) => setPct(e.target.value)} placeholder="E.g. 6" className="w-32" />
           </Field>

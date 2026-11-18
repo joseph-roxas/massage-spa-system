@@ -14,7 +14,7 @@ function BreakdownTable({ kind, rows }: { kind: PayrollKind; rows: Payroll[] }) 
   const total = (pick: (p: Payroll) => number) => rows.reduce((s, r) => s + pick(r), 0);
   return (
     <Card title={KIND_TITLE[kind]}>
-      <div className="overflow-x-auto">
+      <div>
         <table className="w-full text-sm [&_td]:whitespace-nowrap">
           <thead>
             <tr className="border-b border-stone-200">

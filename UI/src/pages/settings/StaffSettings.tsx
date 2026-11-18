@@ -358,7 +358,7 @@ function StaffForm({ member, onDone }: { member?: StaffMember; onDone: () => voi
         )}
         <Checkbox label="Currently working here" checked={d.active} onChange={(e) => set('active', e.target.checked)} />
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={save.isPending}>{member ? 'Save changes' : 'Add staff member'}</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>
@@ -448,7 +448,7 @@ function Certificates({ member, onDone }: { member: StaffMember; onDone: () => v
           <Input type="date" value={d.expiresOn} onChange={(e) => setD({ ...d, expiresOn: e.target.value })} />
         </Field>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={add.isPending}>Add certificate</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Done</Button>
       </div>
@@ -539,7 +539,7 @@ export function StaffSettings() {
       )}
       {data?.staff.length === 0 && !adding && <p className="text-sm text-stone-500">No staff yet. Add your therapists and receptionist.</p>}
       {!!data?.staff.length && (
-        <div className="overflow-x-auto">
+        <div>
           <table className="w-full">
             <thead>
               <tr className="border-b border-stone-200">

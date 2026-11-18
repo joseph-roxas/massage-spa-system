@@ -46,7 +46,7 @@ export function LateEntries() {
         The desk recorded these after the Therapist had already started. Check the times look right, since the start time decides Happy Hours and the Rotation.
       </p>
       {check.error && <Alert>{check.error.message}</Alert>}
-      <div className="overflow-x-auto">
+      <div>
         <table className="w-full">
           <thead>
             <tr className="border-b border-stone-200">

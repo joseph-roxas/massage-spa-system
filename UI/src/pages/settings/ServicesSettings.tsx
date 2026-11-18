@@ -31,7 +31,7 @@ function PriceForm({ service, onDone }: { service: Service; onDone: () => void }
         <Field label="Takes effect on">
           <Input type="date" required min={todayManila()} value={from} onChange={(e) => setFrom(e.target.value)} />
         </Field>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button type="submit" disabled={save.isPending}>Save price</Button>
           <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
         </div>
@@ -67,7 +67,7 @@ function SetAsideForm({ service, onDone }: { service: Service; onDone: () => voi
         <Field label="Takes effect on">
           <Input type="date" required min={todayManila()} value={from} onChange={(e) => setFrom(e.target.value)} />
         </Field>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button type="submit" disabled={save.isPending}>Save</Button>
           <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
         </div>
@@ -173,7 +173,7 @@ function ServiceForm({ service, onDone }: { service?: Service; onDone: () => voi
           </Field>
         </div>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={save.isPending}>{service ? 'Save changes' : 'Add service'}</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>

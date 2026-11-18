@@ -111,7 +111,7 @@ export function Heatmap({ report }: { report: Report }) {
   const shade = (v: number) => (v ? STEPS[Math.min(STEPS.length - 1, Math.floor(((v - 1) / max) * STEPS.length))] : 'transparent');
 
   return (
-    <figure className="mb-4 overflow-x-auto">
+    <figure className="mb-4">
       <figcaption className="mb-2 text-sm font-medium text-stone-700">Services started per hour</figcaption>
       <table className="border-separate text-xs" style={{ borderSpacing: 2 }}>
         <thead>

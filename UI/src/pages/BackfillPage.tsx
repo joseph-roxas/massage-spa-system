@@ -173,7 +173,7 @@ function Upload() {
         )}
 
         {sales && (
-          <div className="overflow-x-auto">
+          <div>
             <p className="mb-2 text-sm font-medium">Each month</p>
             <table className="w-full">
               <thead>
@@ -336,7 +336,7 @@ function OneDay() {
             </Field>
           ))}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button type="submit" disabled={!date}>Save day</Button>
           {exists && (
             <Button

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { ApiError } from '../lib/api';
 import { BrandMark } from './Brand';
@@ -56,14 +56,65 @@ export function Layout() {
   const urgent = attention.data?.items.some((i) => i.tone === 'urgent') ?? false;
   const logout = useLogout();
   const navigate = useNavigate();
+  // Below 1280px the menu folds into a top bar; this opens it over the page.
+  // Remembered with the page it was opened on, so going anywhere closes it.
+  const location = useLocation();
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const menuOpen = openOn === location.key;
+  const setMenuOpen = (open: boolean) => setOpenOn(open ? location.key : null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpenOn(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
   if (!user) return null;
   const dayOpen = logout.error instanceof ApiError && logout.error.code === 'day_open';
+  const badge = waiting > 0 && (
+    <span title="Needs attention" className={`rounded-full px-2 text-xs font-semibold text-white ${urgent ? 'bg-red-600' : 'bg-amber-500'}`}>
+      {waiting}
+    </span>
+  );
 
   return (
-    <div className="flex min-h-screen bg-stone-100 text-stone-800">
-      <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-stone-200 bg-white print:hidden">
-        <div className="px-5 py-5">
+    <div className="min-h-screen bg-stone-100 text-stone-800 xl:flex">
+      <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-stone-200 bg-white px-4 py-2 xl:hidden print:hidden">
+        <div className="min-w-0">
+          <BrandMark />
+        </div>
+        <button
+          type="button"
+          aria-expanded={menuOpen}
+          aria-controls="main-menu"
+          className="flex shrink-0 items-center gap-2 rounded-md border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100"
+          onClick={() => setMenuOpen(true)}
+        >
+          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M3 5h14M3 10h14M3 15h14" />
+          </svg>
+          Menu
+          {badge}
+        </button>
+      </header>
+      {menuOpen && <div className="fixed inset-0 z-40 bg-stone-900/40 xl:hidden print:hidden" onClick={() => setMenuOpen(false)} />}
+      <aside
+        id="main-menu"
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 max-w-[85vw] flex-col border-r border-stone-200 bg-white shadow-xl transition-transform duration-200 xl:sticky xl:top-0 xl:z-auto xl:w-60 xl:shrink-0 xl:translate-x-0 xl:shadow-none print:hidden ${
+          menuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-2 px-5 py-5">
           <BrandMark stacked />
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="-mr-2 rounded-md p-2 text-stone-500 hover:bg-stone-100 xl:hidden"
+            onClick={() => setMenuOpen(false)}
+          >
+            <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
+          </button>
         </div>
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-3">
           {NAV.filter((n) => (!n.capability || can(user.role, n.capability)) && !n.hideFor?.includes(user.role)).map((n) => (
@@ -79,14 +130,7 @@ export function Layout() {
             >
               <span className="flex items-center justify-between">
                 {n.label}
-                {n.to === '/' && waiting > 0 && (
-                  <span
-                    title="Needs attention"
-                    className={`rounded-full px-2 text-xs font-semibold text-white ${urgent ? 'bg-red-600' : 'bg-amber-500'}`}
-                  >
-                    {waiting}
-                  </span>
-                )}
+                {n.to === '/' && badge}
               </span>
             </NavLink>
           ))}
@@ -131,8 +175,11 @@ export function Layout() {
           )}
         </div>
       </aside>
-      <main className="min-w-0 flex-1 p-8 print:p-0">
-        <Outlet />
+      <main className="min-w-0 flex-1 p-4 2xl:p-8 print:p-0">
+        {/* Grows past the window only when a page truly can't fit, so the whole page scrolls sideways, never a box inside it. */}
+        <div className="min-w-fit">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

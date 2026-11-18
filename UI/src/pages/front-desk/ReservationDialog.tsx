@@ -70,7 +70,7 @@ export function ReservationDialog({ booking, mode, onClose }: { booking: Booking
           </Field>
         )}
         {mustAsk && <Checkbox label="The guest asked for this" checked={guestAsked} onChange={(e) => setGuestAsked(e.target.checked)} />}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Go back</Button>
           <Button type="submit" disabled={act.isPending || (mustAsk && !guestAsked)}>{mode === 'move' ? 'Save' : 'Cancel booking'}</Button>
         </div>

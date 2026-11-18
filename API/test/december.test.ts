@@ -13,6 +13,11 @@ type Suggestion = { period: { start: string; end: string }; commission: number; 
 const finished = () => lastCompletedPayWeek(businessDayOf(new Date()), 'therapist');
 const year = () => Number(finished().start.slice(0, 4));
 
+/** Mark paid waits for a period reaching December; tests run any day of the year. */
+async function asIfDecember(staffId: string) {
+  await env.DB.prepare(`UPDATE bonuses SET period_end = ? WHERE staff_id = ? AND kind = 'year_end_bonus' AND paid_at IS NULL`).bind(`${year()}-12-13`, staffId).run();
+}
+
 let n = 0;
 async function person(admin: Client, fields: Record<string, unknown>) {
   const name = `Y${++n}`;
@@ -109,6 +114,8 @@ describe('Year-end Bonus', () => {
     expect(await bonusOf(admin, t)).toMatchObject({ amount: 1_000_000, deduction: 40_900 });
     expect(await owed(admin, t)).toBe(40_900);
 
+    await asIfDecember(t);
+
     expect((await admin.post(`/bonuses/${(await bonusOf(admin, t)).id}/paid`)).status).toBe(200);
     expect(await owed(admin, t)).toBe(0);
   });
@@ -119,8 +126,20 @@ describe('Year-end Bonus', () => {
     await opening(admin, t, 40_900);
     await admin.post('/bonuses/year-end', { year: year(), bp: 1000 });
     expect(await bonusOf(admin, t)).toMatchObject({ amount: 10_000, deduction: 10_000 });
+    await asIfDecember(t);
     await admin.post(`/bonuses/${(await bonusOf(admin, t)).id}/paid`);
     expect(await owed(admin, t)).toBe(30_900);
+  });
+
+  it('refuses to mark paid while the period ends before December', async () => {
+    const t = await therapist(admin);
+    await pastWeek(t, finished().start, 10_000_000);
+    await admin.post('/bonuses/year-end', { year: year(), bp: 1000 });
+    await env.DB.prepare(`UPDATE bonuses SET period_end = ? WHERE staff_id = ?`).bind(`${year()}-11-15`, t).run();
+    const res = await admin.post(`/bonuses/${(await bonusOf(admin, t)).id}/paid`);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe('too_early');
+    expect((await bonusOf(admin, t)).paidAt).toBeNull();
   });
 
   it('refuses to pay on old figures once the balance moved', async () => {
@@ -129,6 +148,7 @@ describe('Year-end Bonus', () => {
     await opening(admin, t, 40_900);
     await admin.post('/bonuses/year-end', { year: year(), bp: 1000 });
     await opening(admin, t, 20_000);
+    await asIfDecember(t);
     const res = await admin.post(`/bonuses/${(await bonusOf(admin, t)).id}/paid`);
     expect(res.status).toBe(409);
     expect(await owed(admin, t)).toBe(20_000);
@@ -157,6 +177,7 @@ describe('Bonus suggestion', () => {
     await sale(t, finished().end, 15_000);
     const before = (await suggestion(admin)).profitBefore;
     await admin.post('/bonuses/year-end', { year: year(), bp: 5000 });
+    await asIfDecember(t);
     await admin.post(`/bonuses/${(await bonusOf(admin, t)).id}/paid`);
     expect((await suggestion(admin)).profitBefore).toBe(before);
   });

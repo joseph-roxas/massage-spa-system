@@ -408,7 +408,7 @@ function FrontDeskBoard() {
           <h1 className="text-2xl font-semibold">Front Desk</h1>
           <p className="text-sm text-stone-500">{longDate(board.day)}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => setCreating('scheduled')}>Schedule booking</Button>
           <Button onClick={() => setCreating('walk_in')}>New walk-in</Button>
         </div>
@@ -541,7 +541,7 @@ function FrontDeskBoard() {
               <Alert>{done.error.message}</Alert>
             </div>
           )}
-          <div className="mt-5 flex justify-end gap-2">
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
             <Button variant="secondary" onClick={() => setFinishing(null)}>Go back</Button>
             <Button disabled={done.isPending} onClick={() => markDone(finishingBooking)}>Yes, it’s done</Button>
           </div>

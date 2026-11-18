@@ -45,7 +45,7 @@ function WeekTable({ kind, start, rows, ready }: { kind: PayrollKind; start: str
     <Card
       title={KIND_TITLE[kind]}
       actions={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {ready && !allFixed && (
             <Button variant={rows.length ? 'secondary' : 'primary'} disabled={act.isPending} onClick={() => act.mutate({ path: `/payroll/weeks/${start}/generate`, body: { kind } })}>
               {rows.length ? 'Recompute drafts' : 'Generate payroll'}
@@ -260,7 +260,7 @@ export function PayrollPage() {
     <div className="space-y-6">
       <div className={`flex flex-wrap items-center justify-between gap-3 ${tab === 'totals' ? 'print:hidden' : ''}`}>
         <h1 className="text-2xl font-semibold">Payroll</h1>
-        <div className="flex rounded-md border border-stone-300 bg-white p-0.5 text-sm">
+        <div className="flex flex-wrap gap-0.5 rounded-md border border-stone-300 bg-white p-0.5 text-sm">
           {tabs.map(([key, label]) => (
             <button key={key} type="button" onClick={() => setTab(key)} className={`rounded px-3 py-1.5 ${tab === key ? 'bg-teal-700 text-white' : 'text-stone-700 hover:bg-stone-100'}`}>
               {label}
@@ -272,7 +272,7 @@ export function PayrollPage() {
       {(tab === 'payroll' || tab === 'breakdown') && (
         <div className="flex flex-wrap items-center gap-3 print:hidden">
             {canDesk && (
-              <div className="flex rounded-md border border-stone-300 bg-white p-0.5 text-sm">
+              <div className="flex flex-wrap gap-0.5 rounded-md border border-stone-300 bg-white p-0.5 text-sm">
                 <button type="button" onClick={() => go(lastCompletedPayWeek(today, 'therapist').start)} className={`rounded px-3 py-1.5 ${!forDesk ? 'bg-teal-700 text-white' : 'text-stone-700 hover:bg-stone-100'}`}>
                   Therapists (Mon–Sun)
                 </button>

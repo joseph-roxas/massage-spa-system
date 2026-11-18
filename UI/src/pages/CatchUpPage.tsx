@@ -67,7 +67,7 @@ function Remove({ act, path }: { act: Act; path: string }) {
 
 function Table({ head, children }: { head: string[]; children: ReactNode }) {
   return (
-    <div className="overflow-x-auto">
+    <div>
       <table className="w-full">
         <thead>
           <tr className="border-b border-stone-200">

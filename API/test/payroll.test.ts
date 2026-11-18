@@ -410,6 +410,8 @@ describe('Year-end Bonus', () => {
     const list = async () => (await json<{ bonuses: { id: string; staffId: string; amount: number; bp: number }[] }>(await admin.get(`/bonuses?year=${year}`))).bonuses.find((b) => b.staffId === t)!;
     // 510.00 × 8.13% = 41.463
     expect(await list()).toMatchObject({ amount: 4146, bp: 813 });
+    // Mark paid waits for a period reaching December; tests run any day of the year.
+    await env.DB.prepare(`UPDATE bonuses SET period_end = ? WHERE staff_id = ?`).bind(`${year}-12-13`, t).run();
     expect((await admin.post(`/bonuses/${(await list()).id}/paid`)).status).toBe(200);
     expect((await admin.post('/bonuses/year-end', { year, bp: 1000 })).status).toBe(200);
     expect((await list()).amount).toBe(4146);

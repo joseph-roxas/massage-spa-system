@@ -30,7 +30,7 @@ export function PaperSheetPage() {
         </div>
         <div className="flex items-center gap-3">
           {tabs.length > 1 && (
-            <div className="flex rounded-md border border-stone-300 bg-white p-0.5 text-sm">
+            <div className="flex flex-wrap gap-0.5 rounded-md border border-stone-300 bg-white p-0.5 text-sm">
               {tabs.map((t) => (
                 <button key={t} type="button" onClick={() => setTab(t)} className={`rounded px-3 py-1.5 ${tab === t ? 'bg-teal-700 text-white' : 'text-stone-700 hover:bg-stone-100'}`}>
                   {TAB_LABEL[t]}

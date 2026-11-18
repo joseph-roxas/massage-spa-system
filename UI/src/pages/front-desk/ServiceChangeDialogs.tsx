@@ -68,7 +68,7 @@ export function ServiceTopUpDialog({ booking, onClose }: { booking: ChangeTarget
             Adds <span className="font-semibold tabular-nums">{peso(adds)}</span> to the bill.
           </p>
         )}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Go back</Button>
           <Button type="submit" disabled={act.isPending || !data?.eligible || (picking && !part)}>Add time</Button>
         </div>
@@ -134,7 +134,7 @@ export function ChangeServiceDialog({ booking, onClose }: { booking: ChangeTarge
         <Field label="Reason" hint="Kept in the audit log">
           <Input required minLength={3} value={reason} onChange={(e) => setReason(e.target.value)} />
         </Field>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Go back</Button>
           <Button type="submit" disabled={act.isPending || !serviceId}>Change service</Button>
         </div>
@@ -178,7 +178,7 @@ export function ChangeTherapistDialog({ booking, currentName, board, onClose }: 
         <Field label="Reason" hint="Shown in reports">
           <Input required minLength={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="E.g. pressure too strong" />
         </Field>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Go back</Button>
           <Button type="submit" disabled={act.isPending || !therapistId}>Change therapist</Button>
         </div>

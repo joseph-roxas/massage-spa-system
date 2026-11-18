@@ -311,7 +311,7 @@ function RefundCard() {
         the Payslip shows the agencies. One refund per person.
       </p>
       <RefundChecklist plan={data.plan} />
-      <div className="overflow-x-auto">
+      <div>
         <table className="w-full">
           <thead>
             <tr className="border-b border-stone-200">

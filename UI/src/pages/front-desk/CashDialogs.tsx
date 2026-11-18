@@ -108,7 +108,7 @@ export function HandoverDialog({ onClose }: { onClose: () => void }) {
           </Alert>
         )}
         <p className="text-xs text-stone-500">It shows as “Waiting for owner” until the owner confirms receipt.</p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!centavos || (short > 0 && note.trim().length < 3) || save.isPending}>Record handover</Button>
         </div>
@@ -139,7 +139,7 @@ export function TopUpDialog({ onClose }: { onClose: () => void }) {
         <Field label="Amount (₱)">
           <Input required autoFocus inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!centavos || save.isPending}>Top up</Button>
         </div>

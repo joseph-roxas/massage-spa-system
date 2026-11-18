@@ -47,7 +47,7 @@ function GiveDialog({ person, onClose }: { person: Balance; onClose: () => void 
         </Field>
         <Checkbox label="Taken from the cash drawer (counted at Day Close)" checked={fromDrawer} onChange={(e) => setFromDrawer(e.target.checked)} />
         {above && canOverride && <Checkbox label="Allow more than the limit" checked={override} onChange={(e) => setOverride(e.target.checked)} />}
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={value === null || value <= 0 || act.isPending || (above && !override)}>
             Give {value ? peso(value) : ''}
@@ -77,7 +77,7 @@ function OpeningDialog({ person, onClose }: { person: Balance; onClose: () => vo
         <Field label="Amount owed">
           <Input inputMode="decimal" required value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={value === null || act.isPending}>Save</Button>
         </div>
@@ -106,7 +106,7 @@ function RepaymentDialog({ person, onClose }: { person: Balance; onClose: () => 
         <p className="text-sm text-stone-600">
           Taken from every payroll until the balance of {peso(person.balance)} is paid off; the last one only takes what is left. You can still change it on a single week’s payroll.
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {QUICK_REPAYMENTS.map((q) => (
             <Button key={q} type="button" variant={value === q ? 'primary' : 'secondary'} onClick={() => setAmount(pesosText(q))}>
               {peso(q)}
@@ -116,7 +116,7 @@ function RepaymentDialog({ person, onClose }: { person: Balance; onClose: () => 
         <Field label="Or another amount">
           <Input inputMode="decimal" required value={amount} onChange={(e) => setAmount(e.target.value)} className="w-36" />
         </Field>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={value === null || act.isPending}>Save</Button>
         </div>
@@ -225,7 +225,7 @@ export function CashAdvances() {
                   )}
                 </td>
                 <td className={`${td} text-right`}>
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     {b.kind === 'receptionist' && canOpening && (
                       <button type="button" className="text-xs text-stone-500 underline" onClick={() => setRepaying(b)}>
                         Repays {peso(b.caRepayment ?? 0)} a week

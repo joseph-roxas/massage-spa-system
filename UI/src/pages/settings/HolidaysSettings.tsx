@@ -37,7 +37,7 @@ function HolidayForm({ holiday, onDone }: { holiday?: Holiday; onDone: () => voi
         checked={d.raisesCommission}
         onChange={(e) => set('raisesCommission', e.target.checked)}
       />
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={save.isPending}>Save holiday</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>

@@ -155,7 +155,7 @@ export function CorrectSalesPage() {
         {rows.length === 0 ? (
           <p className="text-sm text-stone-500">No finished services on this day.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-stone-200">

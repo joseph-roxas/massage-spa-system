@@ -57,7 +57,7 @@ function ReceiveForm({ handover, onDone }: { handover: CashTransfer; onDone: () 
       <Field label={diff ? 'Why is it different?' : 'Note (optional)'}>
         <Input required={diff !== 0} value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
         <Button type="submit" disabled={centavos === null || save.isPending}>Confirm received</Button>
       </div>
@@ -90,7 +90,7 @@ function OpeningForm({ onDone }: { onDone: () => void }) {
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
       </div>
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
         <Button type="submit" disabled={centavos === null || save.isPending}>Save count</Button>
       </div>
@@ -174,7 +174,7 @@ export function CashPage() {
         {rows.length === 0 ? (
           <p className="text-sm text-stone-500">Nothing in these dates.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-stone-200">

@@ -62,12 +62,12 @@ export function Card({ title, actions, children }: { title?: string; actions?: R
   return (
     <section className="rounded-lg border border-stone-200 bg-white">
       {(title || actions) && (
-        <header className="flex items-center justify-between border-b border-stone-200 px-5 py-3">
+        <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-stone-200 px-4 py-3 2xl:px-5">
           <h2 className="font-semibold text-stone-800">{title}</h2>
           {actions}
         </header>
       )}
-      <div className="p-5">{children}</div>
+      <div className="p-4 2xl:p-5">{children}</div>
     </section>
   );
 }

@@ -75,7 +75,7 @@ function TakeOutDialog({ item, onClose }: { item: Item; onClose: () => void }) {
         <Field label="Note (optional)">
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={discard ? 'E.g. cracked in Room 3' : 'E.g. for Rooms 1–4'} />
         </Field>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!Number.isInteger(n) || n < 1 || n > item.shop || act.isPending}>
             {discard ? 'Discard' : 'Use'}
@@ -141,7 +141,7 @@ export function RequestDialog({ item, items, onClose }: { item?: Item; items: It
         <Field label="Note (optional)">
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!itemId || !Number.isInteger(n) || n < 1 || act.isPending}>Send request</Button>
         </div>
@@ -193,7 +193,7 @@ export function SendDialog({ item, items, qty: wanted, requestId, onClose }: { i
           <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
         <p className="text-xs text-stone-500">The receptionist confirms what arrived before it counts as shop stock.</p>
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!itemId || !Number.isInteger(n) || n < 1 || (chosen && n > chosen.storage) || act.isPending}>Send</Button>
         </div>
@@ -246,7 +246,7 @@ function PurchaseDialog({ items, onClose }: { items: Item[]; onClose: () => void
         </div>
         {price !== null && Number.isInteger(n) && n > 0 && <p className="text-sm text-stone-600">Total {peso(price * n)}</p>}
         <Checkbox label="Paid from the shop’s sales cash today (counted at Day Close)" checked={d.fromDrawer} onChange={(e) => setD({ ...d, fromDrawer: e.target.checked })} />
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={!d.itemId || !d.vendorId || price === null || !Number.isInteger(n) || n < 1 || act.isPending}>
             Save
@@ -400,7 +400,7 @@ export function StockTab() {
             </label>
           )}
         </div>
-        <div className="overflow-x-auto">
+        <div>
           <table className="w-full">
             <thead>
               <tr className="border-b border-stone-200">
@@ -447,7 +447,7 @@ export function StockTab() {
                       </td>
                     )}
                     <td className={`${td} text-right`}>
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <Button variant="secondary" className="h-8" disabled={i.shop < 1} onClick={() => setTakeOut(i)}>
                           {i.kind === 'consumable' ? 'Use' : 'Discard'}
                         </Button>

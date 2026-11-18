@@ -43,7 +43,7 @@ function RecurringForm({ r, onDone }: { r?: Recurring; onDone: () => void }) {
         </Field>
       </div>
       {r && <Checkbox label="Still monthly" checked={d.active} onChange={(e) => setD({ ...d, active: e.target.checked })} />}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={!amount || !d.categoryId || !Number.isInteger(day) || day < 1 || day > 31 || act.isPending}>Save</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>
@@ -63,7 +63,7 @@ export function SetupTab() {
       <Card
         title="Monthly expenses"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="secondary" disabled={act.isPending} onClick={() => act.mutate({ path: '/expenses/recurring/draft', body: { month: todayManila().slice(0, 7) } })}>
               Draft this month now
             </Button>

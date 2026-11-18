@@ -106,7 +106,7 @@ function IncomeStatementCard() {
       {(error || recompute.error) && <Alert>{(error ?? recompute.error)!.message}</Alert>}
       {recompute.data && <Alert tone="success">Employer contributions for {monthOf(today)}: {peso(recompute.data.amount ?? 0)}, waiting for you to confirm under Expenses.</Alert>}
       {c && p && (
-        <div className="overflow-x-auto">
+        <div>
           <table className="w-full">
             <thead>
               <tr className="border-b border-stone-200 text-xs text-stone-500">
@@ -168,7 +168,7 @@ function FileForm({ status, onDone }: { status: QuarterStatus; onDone: () => voi
         </Field>
       </div>
       <p className="text-xs text-stone-500">This records the payment as a BIR Expense.</p>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={paid === null || act.isPending}>Save</Button>
         <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
       </div>

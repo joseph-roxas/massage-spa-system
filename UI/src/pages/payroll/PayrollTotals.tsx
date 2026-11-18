@@ -190,7 +190,7 @@ export function PayrollTotals() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3 print:hidden">
-        <div className="flex rounded-md border border-stone-300 bg-white p-0.5 text-sm">
+        <div className="flex flex-wrap gap-0.5 rounded-md border border-stone-300 bg-white p-0.5 text-sm">
           {PERIODS.map(([key, name]) => (
             <button key={key} type="button" onClick={() => setPeriod(key)} className={`rounded px-3 py-1.5 ${period === key ? 'bg-teal-700 text-white' : 'text-stone-700 hover:bg-stone-100'}`}>
               {name}

@@ -74,6 +74,8 @@ beforeEach(async () => {
     env.DB.prepare(`DELETE FROM holidays WHERE date = '2026-11-02'`),
     env.DB.prepare(`DELETE FROM payroll_releases`),
     env.DB.prepare(`DELETE FROM cash_transfers`),
+    // Enough Sales Cash in the shop for pay released from it; the shortage tests take it away.
+    env.DB.prepare(`INSERT INTO cash_transfers (id, kind, amount, business_day, created_at) VALUES ('opening-cash', 'opening', 1000000, '2020-01-01', '2020-01-01T00:00:00Z')`),
     env.DB.prepare(`DELETE FROM cash_advances`),
     env.DB.prepare(`DELETE FROM cash_outs`),
     env.DB.prepare(`DELETE FROM payroll_adjustments`),
@@ -211,6 +213,63 @@ describe('therapist payroll', () => {
     expect(await json(await desk.post(`/payrolls/${p.id}/releases`, { amount: 79750, fromShopCash: false }))).toMatchObject({ released: true, left: 0 });
     expect(mine(await weekOf(desk, tw().start), t)).toMatchObject({ status: 'released', paid: 79750 });
     expect(await env.DB.prepare(`SELECT count(*) AS n FROM cash_transfers WHERE payroll_id = ?`).bind(p.id).first<{ n: number }>()).toEqual({ n: 0 });
+  });
+
+  it('refuses pay from the shop’s cash beyond the Sales Cash the shop should hold', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
+    const [, mon] = tDays();
+    await pastSales(mon!, t, [100000]);
+    await punched(t, mon!, '14:00', '23:00');
+    await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' });
+    const p = mine(await weekOf(desk, tw().start), t);
+    await admin.post(`/payrolls/${p.id}/approve`);
+    await env.DB.prepare(`UPDATE cash_transfers SET amount = 30000 WHERE id = 'opening-cash'`).run();
+    const shop = async () => (await json<{ salesCash: number }>(await desk.get('/cash/summary'))).salesCash;
+    const inShop = await shop();
+
+    const refused = await desk.post(`/payrolls/${p.id}/releases`, { amount: inShop + 1 });
+    expect(refused.status).toBe(409);
+    expect(await json(refused)).toMatchObject({ error: 'more_than_in_shop' });
+    expect((await desk.post(`/payrolls/${p.id}/release`)).status).toBe(409);
+    expect(await shop()).toBe(inShop);
+    // Paid another way, it goes through.
+    expect((await desk.post(`/payrolls/${p.id}/release`, { fromShopCash: false })).status).toBe(200);
+    expect(await shop()).toBe(inShop);
+  });
+
+  it('lets the Super Admin record a release as not from the shop’s cash, giving Sales Cash back', async () => {
+    const admin = await loggedIn('super_admin');
+    const desk = await loggedIn('receptionist');
+    const t = await newStaff(admin, { kind: 'therapist', therapistClass: 'regular' });
+    const [, mon] = tDays();
+    await pastSales(mon!, t, [100000]);
+    await punched(t, mon!, '14:00', '23:00');
+    await desk.post(`/payroll/weeks/${tw().start}/generate`, { kind: 'therapist' });
+    const p = mine(await weekOf(desk, tw().start), t);
+    await admin.post(`/payrolls/${p.id}/approve`);
+    const shop = async () => (await json<{ salesCash: number }>(await desk.get('/cash/summary'))).salesCash;
+    const before = await shop();
+    await desk.post(`/payrolls/${p.id}/release`);
+    expect(await shop()).toBe(before - 79750);
+
+    const release = (mine(await weekOf(desk, tw().start), t) as Payroll & { releases: { id: string; fromShopCash: boolean }[] }).releases[0]!;
+    // Its day was closed since: the shop counted what was really there, ₱797.50 more than expected.
+    const { day } = (await env.DB.prepare(`SELECT business_day AS day FROM cash_transfers WHERE kind = 'payroll'`).first<{ day: string }>())!;
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO business_days (date, opened_at, closed_at, expected_cash, counted_cash, variance) VALUES (?, '2026-01-01T00:00:00Z', '2026-01-01T12:00:00Z', 10000, 89750, 79750)`,
+    )
+      .bind(day)
+      .run();
+    expect((await desk.post(`/payroll-releases/${release.id}/not-from-shop`, { reason: 'Paid from the owner’s cash' })).status).toBe(403);
+    expect((await admin.post(`/payroll-releases/${release.id}/not-from-shop`, {})).status).toBe(400);
+    expect((await admin.post(`/payroll-releases/${release.id}/not-from-shop`, { reason: 'Paid from the owner’s cash' })).status).toBe(200);
+    expect(await env.DB.prepare(`SELECT expected_cash AS e, counted_cash AS c, variance AS v FROM business_days WHERE date = ?`).bind(day).first()).toEqual({ e: 89750, c: 89750, v: 0 });
+    await env.DB.prepare(`DELETE FROM business_days WHERE date = ?`).bind(day).run();
+    expect(await shop()).toBe(before);
+    expect(mine(await weekOf(desk, tw().start), t)).toMatchObject({ status: 'released', paid: 79750, releases: [{ fromShopCash: false }] });
+    expect((await admin.post(`/payroll-releases/${release.id}/not-from-shop`, { reason: 'Again' })).status).toBe(409);
   });
 
   it('waits for every day of the week to be closed, and regenerates drafts with new CAs', async () => {

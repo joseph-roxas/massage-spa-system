@@ -1,1 +1,14 @@
 @import 'tailwindcss';
+
+/*
+ * Pages scale with the window on laptop and desktop screens: today's size from
+ * 1600px wide, shrinking smoothly to 87.5% at 1280px, where the menu folds.
+ * Everything sized in rem (text, spacing, the menu) follows. Narrower windows
+ * keep the full size and wrap instead. Media queries use the browser's own
+ * 16px rem, so the breakpoints don't move with this.
+ */
+@media (min-width: 80rem) and (max-width: 100rem) {
+  html {
+    font-size: calc(14px + 2 * (100vw - 1280px) / 320);
+  }
+}

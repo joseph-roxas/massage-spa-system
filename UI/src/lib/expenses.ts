@@ -14,7 +14,7 @@ export type Expense = {
   royaltyMonth: string | null;
 };
 export type Recurring = { id: string; categoryId: string; description: string; amount: number; dayOfMonth: number; active: boolean };
-export type Purchase = { id: string; date: string; qty: number; unitPrice: number | null; itemName: string; unit: string; vendorName: string | null; total: number; fromDrawer: boolean };
+export type Purchase = { id: string; date: string; qty: number; unitPrice: number | null; itemName: string; unit: string; vendorName: string | null; total: number; fromDrawer: boolean; paidFrom: 'sales' | 'petty' | null };
 export type MonthSpending = {
   start: string;
   end: string;

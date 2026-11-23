@@ -9,8 +9,8 @@ async function json<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-type Expense = { id: string; categoryId: string; amount: number; status: string; royaltyMonth: string | null; recurringExpenseId: string | null };
-type Month = { expenses: Expense[]; cashOuts: { id: string; category: string; amount: number }[]; purchases: { total: number; fromDrawer: boolean }[]; totals: Record<string, number> };
+type Expense = { id: string; description: string; categoryId: string; amount: number; status: string; royaltyMonth: string | null; recurringExpenseId: string | null };
+type Month = { expenses: Expense[]; cashOuts: { id: string; category: string; amount: number }[]; purchases: { total: number; fromDrawer: boolean; paidFrom: string | null; date: string }[]; totals: Record<string, number> };
 
 const today = () => businessDayOf(new Date());
 const thisMonth = () => monthOf(today());
@@ -105,6 +105,35 @@ describe('royalty', () => {
 });
 
 describe('expenses', () => {
+  it('lists each section newest first, latest entry first on the same day', async () => {
+    const admin = await loggedIn('super_admin');
+    const month = thisMonth();
+    const first = `${month}-01`;
+    const second = `${month}-02`;
+    for (const [date, description] of [[second, 'Second day'], [first, 'First day, earlier'], [first, 'First day, later']]) {
+      expect((await admin.post('/expenses', { categoryId: 'laundry', date, amount: 1000, description })).status).toBe(201);
+    }
+    const at = (min: number) => `2026-01-01T00:0${min}:00.000Z`;
+    await env.DB.batch(
+      [
+        [first, at(1)],
+        [second, at(2)],
+        [first, at(3)],
+      ].map(([day, createdAt], i) =>
+        env.DB.prepare(`INSERT INTO cash_outs (id, business_day, category, source, amount, purpose, created_at) VALUES (?, ?, 'petty_cash', 'petty', ?, 'Petty', ?)`).bind(`co-${i}`, day, 100 + i, createdAt),
+      ),
+    );
+    const { id: vendorId } = await json<{ id: string }>(await admin.post('/inventory/vendors', { name: `Shop ${crypto.randomUUID().slice(0, 4)}` }));
+    for (const purchaseDate of [first, second]) {
+      expect((await admin.post('/inventory/stock-ins', { itemId: 'bleach', vendorId, qty: 1, unitPrice: 9000, purchaseDate })).status).toBe(201);
+    }
+
+    const m = await json<Month>(await admin.get(`/expenses?month=${month}`));
+    expect(m.expenses.map((e) => e.description)).toEqual(['Second day', 'First day, later', 'First day, earlier']);
+    expect(m.cashOuts.map((c) => c.id)).toEqual(['co-1', 'co-2', 'co-0']);
+    expect(m.purchases.map((p) => p.date)).toEqual([second, first]);
+  });
+
   it('counts recorded Expenses, drawer Cash-outs and inventory purchases once each; pay is not spending', async () => {
     const admin = await loggedIn('super_admin');
     const desk = await loggedIn('receptionist');
@@ -124,7 +153,7 @@ describe('expenses', () => {
 
     const m = await json<Month>(await admin.get(`/expenses?month=${thisMonth()}`));
     expect(m.cashOuts.map((x) => x.category)).toEqual(['laundry']);
-    expect(m.purchases).toEqual(expect.arrayContaining([expect.objectContaining({ total: 80000, fromDrawer: true }), expect.objectContaining({ total: 9000, fromDrawer: false })]));
+    expect(m.purchases).toEqual(expect.arrayContaining([expect.objectContaining({ total: 80000, fromDrawer: true, paidFrom: 'sales' }), expect.objectContaining({ total: 9000, fromDrawer: false, paidFrom: null })]));
     expect(m.totals).toEqual({ confirmed: 35000, pending: 0, cashOuts: 12000, purchases: 89000 });
 
     // The purchase's Cash-out still leaves the drawer at Day Close, and can't be removed on its own.

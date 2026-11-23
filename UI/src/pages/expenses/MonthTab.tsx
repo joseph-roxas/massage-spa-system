@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Alert, Badge, Button, Card, Field, FormPanel, Input, Select, td, th } from '../../components/ui';
 import { longDate, parsePesos, peso, pesosText, todayManila } from '../../lib/format';
 import { CASH_OUT_CATEGORIES } from '../../lib/sales';
@@ -55,12 +55,32 @@ function ExpenseForm({ expense, onDone }: { expense?: Expense; onDone: () => voi
   );
 }
 
+/** Where a Cash-out's money came from, in the glossary's words. */
+const FUND = { petty: 'Petty Cash Fund', sales: 'Sales Cash' } as const;
+
+/** Each list shows its newest 15 (the API sends newest first) until asked for all. */
+const SHOWN = 15;
+
+function ShowAll({ total, all, onShowAll }: { total: number; all: boolean; onShowAll: () => void }): ReactNode {
+  if (all || total <= SHOWN) return null;
+  return (
+    <button type="button" className="mt-2 text-sm font-medium text-teal-800 underline" onClick={onShowAll}>
+      Show all ({total})
+    </button>
+  );
+}
+
 export function MonthTab() {
   const [month, setMonth] = useState(todayManila().slice(0, 7));
   const { data, error } = useMonthSpending(month);
   const cats = useCategories();
   const act = useExpenseAction();
   const [editing, setEditing] = useState<Expense | 'new' | null>(null);
+  // Which lists show everything; picking another month goes back to the newest 15.
+  const [showAll, setShowAll] = useState({ month, expenses: false, cashOuts: false, purchases: false });
+  const all = showAll.month === month ? showAll : { month, expenses: false, cashOuts: false, purchases: false };
+  const showEvery = (list: 'expenses' | 'cashOuts' | 'purchases') => setShowAll({ ...all, [list]: true });
+  const shown = <T,>(xs: T[] | undefined, list: 'expenses' | 'cashOuts' | 'purchases') => (all[list] ? (xs ?? []) : (xs ?? []).slice(0, SHOWN));
   const catName = (id: string) => cats.data?.categories.find((c) => c.id === id)?.name ?? id;
   const t = data?.totals;
   const total = t ? t.confirmed + t.cashOuts + t.purchases : 0;
@@ -69,7 +89,7 @@ export function MonthTab() {
   const byCategory = new Map<string, number>();
   for (const e of data?.expenses ?? []) byCategory.set(catName(e.categoryId), (byCategory.get(catName(e.categoryId)) ?? 0) + e.amount);
   for (const c of data?.cashOuts ?? []) {
-    const key = `Drawer: ${CASH_OUT_CATEGORIES[c.category]}`;
+    const key = `Cash-out: ${CASH_OUT_CATEGORIES[c.category]}`;
     byCategory.set(key, (byCategory.get(key) ?? 0) + c.amount);
   }
   if (t?.purchases) byCategory.set('Inventory purchases', t.purchases);
@@ -88,7 +108,7 @@ export function MonthTab() {
           {[
             ['Spent', total],
             ['Expenses', t.confirmed],
-            ['Drawer Cash-outs', t.cashOuts],
+            ['Cash-outs', t.cashOuts],
             ['Inventory purchases', t.purchases],
           ].map(([label, value]) => (
             <div key={label as string} className="rounded-lg border border-stone-200 bg-white p-4">
@@ -121,7 +141,7 @@ export function MonthTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {data?.expenses.map((e) =>
+              {shown(data?.expenses, 'expenses').map((e) =>
                 editing !== 'new' && editing?.id === e.id ? (
                   <tr key={e.id}>
                     <td colSpan={5} className="py-2">
@@ -166,17 +186,22 @@ export function MonthTab() {
             </tbody>
           </table>
         )}
+        <ShowAll total={data?.expenses.length ?? 0} all={all.expenses} onShowAll={() => showEvery('expenses')} />
       </Card>
 
       <div className="grid grid-cols-2 gap-6">
-        <Card title="Drawer Cash-outs">
+        <Card title="Cash-outs">
           <p className="mb-2 text-xs text-stone-500">Recorded at the Front Desk. On-call pay and Cash Advances are under Payroll.</p>
           {data?.cashOuts.length ? (
             <ul className="divide-y divide-stone-100 text-sm">
-              {data.cashOuts.map((c) => (
+              {shown(data.cashOuts, 'cashOuts').map((c) => (
                 <li key={c.id} className="flex justify-between gap-3 py-1.5">
                   <span>
-                    {c.purpose} <span className="text-xs text-stone-500">· {CASH_OUT_CATEGORIES[c.category]}</span>
+                    {c.purpose}
+                    <span className="text-xs text-stone-500">
+                      {' '}
+                      · {CASH_OUT_CATEGORIES[c.category]} · {longDate(c.businessDay)} · from {FUND[c.source]}
+                    </span>
                     {c.breakdown && <span className="block text-xs text-stone-500">{c.breakdown.map((d) => `${longDate(d.day)} ${peso(d.amount)}`).join(' · ')}</span>}
                   </span>
                   <span className="tabular-nums">{peso(c.amount)}</span>
@@ -186,19 +211,20 @@ export function MonthTab() {
           ) : (
             <p className="text-sm text-stone-500">None.</p>
           )}
+          <ShowAll total={data?.cashOuts.length ?? 0} all={all.cashOuts} onShowAll={() => showEvery('cashOuts')} />
         </Card>
         <Card title="Inventory purchases">
-          <p className="mb-2 text-xs text-stone-500">From Inventory deliveries and purchases, including those paid from the drawer.</p>
+          <p className="mb-2 text-xs text-stone-500">From Inventory deliveries and purchases, including those paid at the Front Desk.</p>
           {data?.purchases.length ? (
             <ul className="divide-y divide-stone-100 text-sm">
-              {data.purchases.map((p) => (
+              {shown(data.purchases, 'purchases').map((p) => (
                 <li key={p.id} className="flex justify-between gap-3 py-1.5">
                   <span>
                     {p.qty} × {p.itemName} ({p.unit})
                     <span className="text-xs text-stone-500">
                       {' '}
-                      · {p.vendorName} · {longDate(p.date)}
-                      {p.fromDrawer && ' · from drawer'}
+                      {p.vendorName && `· ${p.vendorName} `}· {longDate(p.date)}
+                      {p.paidFrom && ` · from ${FUND[p.paidFrom]}`}
                     </span>
                   </span>
                   <span className="tabular-nums">{peso(p.total)}</span>
@@ -208,6 +234,7 @@ export function MonthTab() {
           ) : (
             <p className="text-sm text-stone-500">None.</p>
           )}
+          <ShowAll total={data?.purchases.length ?? 0} all={all.purchases} onShowAll={() => showEvery('purchases')} />
         </Card>
       </div>
 

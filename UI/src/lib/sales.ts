@@ -59,6 +59,7 @@ export const FORM_CASH_OUTS = {
 
 export type CashOut = {
   id: string;
+  businessDay: string;
   category: keyof typeof CASH_OUT_CATEGORIES;
   source: 'sales' | 'petty';
   amount: number;

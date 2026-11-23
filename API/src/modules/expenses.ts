@@ -270,7 +270,7 @@ export const expenseRoutes = new Hono<AuthedEnv>()
 
   // ----------------------------------------------------------------- Expenses
 
-  /** A month's spending: recorded Expenses, drawer Cash-outs and inventory purchases, each counted once. */
+  /** A month's spending, newest first: recorded Expenses, Cash-outs and inventory purchases, each counted once. */
   .get('/expenses', zValidator('query', z.object({ month }), invalidInput), async (c) => {
     const db = c.var.db;
     const { start, end } = monthRange(c.req.valid('query').month);
@@ -279,7 +279,7 @@ export const expenseRoutes = new Hono<AuthedEnv>()
         .select()
         .from(expenses)
         .where(and(gte(expenses.date, start), lte(expenses.date, end)))
-        .orderBy(asc(expenses.date), asc(expenses.createdAt)),
+        .orderBy(desc(expenses.date), desc(expenses.createdAt)),
       db
         .select()
         .from(cashOuts)
@@ -291,7 +291,7 @@ export const expenseRoutes = new Hono<AuthedEnv>()
             sql`not exists (select 1 from ${stockIns} where ${stockIns.cashOutId} = ${cashOuts.id})`,
           ),
         )
-        .orderBy(asc(cashOuts.businessDay), asc(cashOuts.createdAt)),
+        .orderBy(desc(cashOuts.businessDay), desc(cashOuts.createdAt)),
       db
         .select({
           id: stockIns.id,
@@ -299,6 +299,7 @@ export const expenseRoutes = new Hono<AuthedEnv>()
           qty: stockIns.qty,
           unitPrice: stockIns.unitPrice,
           cashOutId: stockIns.cashOutId,
+          paidFrom: cashOuts.source,
           itemName: items.name,
           unit: items.unit,
           vendorName: vendors.name,
@@ -306,8 +307,9 @@ export const expenseRoutes = new Hono<AuthedEnv>()
         .from(stockIns)
         .innerJoin(items, eq(items.id, stockIns.itemId))
         .leftJoin(vendors, eq(vendors.id, stockIns.vendorId))
+        .leftJoin(cashOuts, eq(cashOuts.id, stockIns.cashOutId))
         .where(and(eq(stockIns.kind, 'purchase'), gte(stockIns.purchaseDate, start), lte(stockIns.purchaseDate, end)))
-        .orderBy(asc(stockIns.purchaseDate)),
+        .orderBy(desc(stockIns.purchaseDate), desc(stockIns.createdAt)),
     ]);
     const purchaseLines = purchases.map((p) => ({ ...p, total: p.qty * (p.unitPrice ?? 0), fromDrawer: p.cashOutId !== null }));
     const sum = (xs: { amount?: number; total?: number }[]) => xs.reduce((s, x) => s + (x.amount ?? x.total ?? 0), 0);

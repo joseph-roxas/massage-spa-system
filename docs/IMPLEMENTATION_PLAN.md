@@ -974,7 +974,7 @@ Asked by the owner on 2026-11-12: the desk had no sign that something was sent f
 
 ## 27. Remove added time (`cr-10`, merged) and petty cash top-up any day (`cr-11`)
 
-**Status (2026-11-16): start here.** `cr-10` (items 1-6, Remove added time) is merged to `main` (`d6df8b5`, plan `f9f1fea`). `cr-11` holds item 7 (petty cash top-up any day), pushed, not merged or deployed. Neither has a migration, so the next is still 0038. 270 domain and 232 API tests pass (one Saturday-only domain test removed); typecheck, lint and build are clean.
+**Status (2026-11-16), superseded by §29's status:** `cr-10` (items 1-6, Remove added time) is merged to `main` (`d6df8b5`, plan `f9f1fea`). `cr-11` holds item 7 (petty cash top-up any day), pushed, not merged or deployed. Neither has a migration, so the next is still 0038. 270 domain and 232 API tests pass (one Saturday-only domain test removed); typecheck, lint and build are clean.
 
 **Pick up here, in order:**
 
@@ -1020,3 +1020,39 @@ Agreed with the owner:
 - December pay: `yearEndBonusPayable(year, periodEnd)` in the domain. A Year-end Bonus whose period ends before December shows **Preview** instead of Mark paid, the card says so, and the API refuses with `too_early`.
 - Checked in a browser on a scratch copy of the local data: all 27 menu pages and tabs, and every report over Jan 1 to Nov 18, fit with no sideways scroll at 1280px (sidebar) and 1024px (folded). On a 375px phone the pages without wide tables fit; Stock, Reports, Settings, Users, Paper backup, Front Desk, Guests, Time Records and Price List scroll the whole page sideways, as agreed.
 - Tests: 271 domain, 233 API pass (new: payable only from December; refused `too_early`; existing pay tests move the period into December first). Typecheck, lint and build clean.
+
+## 29. Pages scale with the window, avatar, newest spending first, stock filter (`cr-13`)
+
+**Status (2026-11-23): start here.** `cr-11` and `cr-12` (§27 item 7, §28) are merged to `main` (`ba584a9`) and deployed: production health reports `0037_payroll_releases`. `cr-13` (items 1–7 below) is pushed, not merged or deployed. No migration, so the next is still 0038. 271 domain and 234 API tests pass; typecheck, lint and build are clean.
+
+**Pick up here, in order:**
+
+1. **Maximize Chrome on the 1920×1080 monitor** (double-click the title bar or Win + ↑) and reload. The right edge and the menu's Log out should show with no code change; if not, compare `innerWidth` in the Chrome console with the monitor width (it was 1937 on a 1920 monitor).
+2. Owner opens the PR from `cr-13` to `main` and merges. Health stays `0037_payroll_releases`. Then check: Inventory → Stock opens on **With stock in storage**, A–Z; Expenses → Spending lists newest first, 15 per section; the avatar shows beside the name.
+3. Still open from §27, if not done yet: the Nov 15 service entered as 3 hours (Correct sales → Remove added time 1 hr), before that Therapist's week of Nov 9 payroll is approved.
+4. Still open from §26: tell the Receptionist about Hand over part / Paid in full and the Therapist Cash Advance rule; the Government Deduction Refund before the first December Payroll (reminder from Sat 2026-11-28, payout default Sat 2026-12-12), recomputed from the actual November payrolls; figures only in the local `docs/HANDOFF.md`.
+5. **Offered, not yet asked for:** the Receptionist's Past Payslips on pre-Go-live payroll weeks (declined for now); an "Order" button on Shop requests; a reload prompt for tabs left open across a deploy.
+
+Asked 2026-11-23, after cr-12 was merged and deployed. The owner still saw the right side of every page cut on a 1920×1080 monitor, and had to scroll to reach their name and Log out in the menu.
+
+**What the cut was:** a console check on the live Expenses page gave a window of 1937px, the page exactly 1937px wide, the menu 240px and the page body 1633px, all as designed. Nothing spilled sideways inside Chrome; the Chrome window itself was wider than the 1920px monitor, and its bottom sat behind the taskbar. Fix on the owner's side: maximize Chrome (double-click the title bar or Win + ↑). cr-12's page wrapper was not the cause and stays.
+
+Agreed with the owner:
+
+1. **Pages scale with the window.** From 1600px wide pages are today's size; between 1280px and 1600px everything sized in rem shrinks smoothly to 87.5% at 1280px. Below 1280px (folded menu) sizes stay full and rows wrap as in §28. Window height does not change the size.
+2. **Name, role, Change password and Log out are always in view** at the bottom of the menu at any window height, phone included; only the list of pages scrolls.
+3. **Default avatar:** one hand-drawn colored SVG (dark shoulder-length hair, teal top with a white collar, light-blue circle) for every login, 36px, left of the name in the menu. No upload.
+4. **Spending tab:** Expenses, Cash-outs and Inventory purchases each list newest first (by the spending date; the latest entered first on the same date), the newest 15 of the month with **Show all (N)**. Month totals still count everything.
+5. **Every Cash-out shows its business day** and where the money came from ("from Petty Cash Fund" / "from Sales Cash"). Laundry keeps its days underneath.
+6. **"Drawer" retired from the tab** (the glossary avoids it): "Drawer Cash-outs" is **Cash-outs**, purchases paid at the Front Desk say which fund paid them instead of "from drawer", and By category says "Cash-out: …".
+7. **Inventory → Stock filter by where the stock is** (asked the same day): **With stock in storage** (the default), **With stock at the shop**, or **All items**, beside the kind filter. The list is in alphabetical order. The "Only low at the shop" count follows both filters, so it matches what ticking it lists.
+
+**As built (no migration; next is still 0038):**
+
+- `UI/src/index.css`: root font size `calc(14px + 2 * (100vw - 1280px) / 320)` between 80rem and 100rem. Breakpoints are unaffected (media queries use the browser's 16px).
+- `Layout`: the menu is `h-dvh` (on phones `100vh` is taller than what shows); the account block holds `DefaultAvatar` (`UI/src/components/Avatar.tsx`).
+- `GET /expenses?month=` returns each list newest first and each purchase's `paidFrom` (`sales` | `petty` | null, from its Cash-out). `fromDrawer` stays for older callers.
+- Fixed in passing: a purchase with no vendor showed "· ·".
+- `StockTab`: `WHERE` filter (storage / shop / all) and a name sort on the Stock list only; dialogs keep the Settings order. "No items match these filters." when nothing is left. Checked on the scratch copy: storage shows only items with storage, the shop view only items at the shop.
+- Checked on a scratch copy: no sideways scroll on all 15 menu pages at 1280, 1440 and 1920px (root 14, 15, 16px); Log out in view at 1280×560 while scrolled, and in the phone menu; 18 expenses and 17 Cash-outs show 15 with Show all.
+- Tests: 271 domain, 234 API pass (new: each section newest first, latest entry first on a day; `paidFrom`). Typecheck, lint and build clean.

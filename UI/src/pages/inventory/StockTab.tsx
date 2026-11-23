@@ -351,6 +351,13 @@ function History({ item }: { item: Item }) {
   );
 }
 
+type Where = 'storage' | 'shop' | 'all';
+const WHERE: Record<Where, { label: string; keep: (i: Item) => boolean }> = {
+  storage: { label: 'With stock in storage', keep: (i) => i.storage > 0 },
+  shop: { label: 'With stock at the shop', keep: (i) => i.shop > 0 },
+  all: { label: 'All items', keep: () => true },
+};
+
 export function StockTab() {
   const { data, error } = useItems();
   const isAdmin = useCan('inventory.po.approve');
@@ -362,10 +369,15 @@ export function StockTab() {
   // The front desk mostly handles Consumables; the Super Admin sees everything.
   const [kind, setKind] = useState<ItemKind | ''>(isAdmin ? '' : 'consumable');
   const [lowOnly, setLowOnly] = useState(false);
+  // Opens on what is in storage, the stock that can still be sent to the shop.
+  const [where, setWhere] = useState<Where>('storage');
   const items = data?.items ?? [];
   const all = items.filter((i) => i.active || i.shop > 0 || i.storage > 0);
-  const rows = all.filter((i) => (!kind || i.kind === kind) && (!lowOnly || i.low));
-  const lowCount = all.filter((i) => i.low).length;
+  const rows = all
+    .filter((i) => (!kind || i.kind === kind) && (!lowOnly || i.low) && WHERE[where].keep(i))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  // Counts what ticking the box would list, so the number matches.
+  const lowCount = all.filter((i) => i.low && (!kind || i.kind === kind) && WHERE[where].keep(i)).length;
 
   return (
     <div className="space-y-6">
@@ -389,6 +401,13 @@ export function StockTab() {
           <Select value={kind} onChange={(e) => setKind(e.target.value as ItemKind | '')} className="w-48 rounded-md border border-stone-300 px-2 py-1.5 text-sm">
             <option value="">All kinds</option>
             {Object.entries(ITEM_KIND_LABELS).map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
+          </Select>
+          <Select value={where} onChange={(e) => setWhere(e.target.value as Where)} className="w-56 rounded-md border border-stone-300 px-2 py-1.5 text-sm">
+            {Object.entries(WHERE).map(([k, { label }]) => (
               <option key={k} value={k}>
                 {label}
               </option>
@@ -472,6 +491,13 @@ export function StockTab() {
                   )}
                 </Fragment>
               ))}
+              {data && rows.length === 0 && (
+                <tr>
+                  <td colSpan={isAdmin ? 6 : 5} className={`${td} text-stone-500`}>
+                    No items match these filters.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

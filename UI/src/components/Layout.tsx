@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { ApiError } from '../lib/api';
+import { DefaultAvatar } from './Avatar';
 import { BrandMark } from './Brand';
 import { can, type Capability, type Role } from '@spa/domain';
 import { ROLE_LABELS, useCurrentUser, useLogout } from '../lib/auth';
@@ -99,7 +100,7 @@ export function Layout() {
       {menuOpen && <div className="fixed inset-0 z-40 bg-stone-900/40 xl:hidden print:hidden" onClick={() => setMenuOpen(false)} />}
       <aside
         id="main-menu"
-        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 max-w-[85vw] flex-col border-r border-stone-200 bg-white shadow-xl transition-transform duration-200 xl:sticky xl:top-0 xl:z-auto xl:w-60 xl:shrink-0 xl:translate-x-0 xl:shadow-none print:hidden ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-dvh w-64 max-w-[85vw] flex-col border-r border-stone-200 bg-white shadow-xl transition-transform duration-200 xl:sticky xl:top-0 xl:z-auto xl:w-60 xl:shrink-0 xl:translate-x-0 xl:shadow-none print:hidden ${
           menuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -135,14 +136,20 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
+        {/* Always in view: only the list of pages above scrolls. */}
         <div className="shrink-0 border-t border-stone-200 p-4">
-          <p className="text-sm font-medium">
-            {user.firstName} {user.lastName}
-          </p>
-          <p className="text-xs text-stone-500">
-            {ROLE_LABELS[user.role]}
-            {user.actingAs && ` · ${user.actingAs.displayName} relieving`}
-          </p>
+          <div className="flex items-center gap-3">
+            <DefaultAvatar />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">
+                {user.firstName} {user.lastName}
+              </p>
+              <p className="text-xs text-stone-500">
+                {ROLE_LABELS[user.role]}
+                {user.actingAs && ` · ${user.actingAs.displayName} relieving`}
+              </p>
+            </div>
+          </div>
           <div className="mt-3 flex gap-3 text-xs">
             <NavLink to="/change-password" className="text-stone-600 hover:underline">
               Change password

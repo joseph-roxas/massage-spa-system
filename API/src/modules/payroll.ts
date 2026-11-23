@@ -70,7 +70,7 @@ import { fail, invalidInput } from '../lib/http';
 import { contributionRates, weeklyDeductions } from '../lib/contributions';
 import { REFUND_PLAN_KEY, refundStatus } from '../lib/refund';
 import { goLiveDate, takeHomeFloor } from '../lib/pay-rules';
-import { currentTransferDay } from '../lib/sales-cash';
+import { currentTransferDay, salesCashNow } from '../lib/sales-cash';
 import { nowIso } from '../lib/time';
 import { centavos, isoDate } from '../lib/validation';
 import { receptionistRules, reliefDays } from '../lib/relief';
@@ -318,14 +318,23 @@ function canSee(c: Context<AuthedEnv>, kind: Kind) {
 async function releasesOf(db: Db, payrollIds: string[]) {
   const rows = payrollIds.length
     ? await db
-        .select({ payrollId: payrollReleases.payrollId, amount: payrollReleases.amount, businessDay: payrollReleases.businessDay, fromShopCash: sql<number>`${payrollReleases.cashTransferId} is not null`, createdAt: payrollReleases.createdAt })
+        .select({ id: payrollReleases.id, payrollId: payrollReleases.payrollId, amount: payrollReleases.amount, businessDay: payrollReleases.businessDay, fromShopCash: sql<number>`${payrollReleases.cashTransferId} is not null`, createdAt: payrollReleases.createdAt })
         .from(payrollReleases)
         .where(inArray(payrollReleases.payrollId, payrollIds))
         .orderBy(asc(payrollReleases.createdAt))
     : [];
-  const byPayroll = new Map<string, { amount: number; businessDay: string; fromShopCash: boolean; createdAt: string }[]>();
+  const byPayroll = new Map<string, { id: string; amount: number; businessDay: string; fromShopCash: boolean; createdAt: string }[]>();
   for (const { payrollId, ...r } of rows) byPayroll.set(payrollId, [...(byPayroll.get(payrollId) ?? []), { ...r, fromShopCash: !!r.fromShopCash }]);
   return byPayroll;
+}
+
+/** Refuses pay from the shop's cash that is more than the Sales Cash the shop should hold, as a Cash Handover is. */
+async function shopCashShort(c: Context<AuthedEnv>, amount: number, fromShopCash: boolean) {
+  if (!fromShopCash || amount <= 0) return null;
+  const now = await salesCashNow(c.var.db);
+  if (amount <= now.amount) return null;
+  const inShop = `₱${(Math.max(0, now.amount) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+  return fail(c, 409, 'more_than_in_shop', `Only ${inShop} of sales cash should be in the shop. If you paid it another way, untick “Paid from shop cash”.`);
 }
 
 /**
@@ -429,6 +438,7 @@ const advanceBody = z.object({
 export const payrollRoutes = new Hono<AuthedEnv>()
   .use('/payroll/*', requireAuth)
   .use('/payrolls/*', requireAuth)
+  .use('/payroll-releases/*', requireAuth)
   .use('/cash-advances', requireAuth)
   .use('/cash-advances/*', requireAuth)
   .use('/bonuses', requireAuth)
@@ -771,6 +781,8 @@ export const payrollRoutes = new Hono<AuthedEnv>()
     if (!row || !canSee(c, row.kind)) return fail(c, 404, 'not_found', 'Payroll not found.');
     if (row.status !== 'approved') return fail(c, 409, 'not_approved', row.status === 'draft' ? 'The Super Admin must approve this Payroll first.' : 'Already released.');
     const paid = sumOf((await releasesOf(db, [row.id])).get(row.id));
+    const short = await shopCashShort(c, row.net - paid, fromShopCash);
+    if (short) return short;
     const { statements } = await releaseStatements(db, row, Math.max(0, row.net - paid), fromShopCash, c.var.user.id);
     await db.batch(statements);
     return c.json({ ok: true });
@@ -788,9 +800,46 @@ export const payrollRoutes = new Hono<AuthedEnv>()
       if (row.status !== 'approved') return fail(c, 409, 'not_approved', row.status === 'draft' ? 'The Super Admin must approve this Payroll first.' : 'Already released.');
       const left = row.net - sumOf((await releasesOf(db, [row.id])).get(row.id));
       if (amount > left) return fail(c, 409, 'too_much', `Only ₱${(left / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 })} is left to hand over.`);
+      const short = await shopCashShort(c, amount, fromShopCash);
+      if (short) return short;
       const { statements, full } = await releaseStatements(db, row, amount, fromShopCash, c.var.user.id);
       await db.batch(statements);
       return c.json({ ok: true, released: full, left: left - amount }, 201);
+    },
+  )
+
+  /**
+   * Super Admin: a release recorded as paid from the shop's cash was really paid another way. Sales Cash
+   * gets it back; on a closed day the expected cash and variance follow, and the count stays.
+   */
+  .post(
+    '/payroll-releases/:id/not-from-shop',
+    requireCapability('day.reopen'),
+    zValidator('json', z.object({ reason: z.string().trim().min(3, 'Give a short reason.').max(300) }), invalidInput),
+    async (c) => {
+      const db = c.var.db;
+      const release = await db.select().from(payrollReleases).where(eq(payrollReleases.id, c.req.param('id'))).get();
+      if (!release) return fail(c, 404, 'not_found', 'Release not found.');
+      if (!release.cashTransferId) return fail(c, 409, 'not_from_shop', 'This release is already recorded as not from the shop’s cash.');
+      const transfer = await db.select().from(cashTransfers).where(eq(cashTransfers.id, release.cashTransferId)).get();
+      const day = transfer ? await db.select().from(businessDays).where(eq(businessDays.date, transfer.businessDay)).get() : undefined;
+      const closed = day?.closedAt && day.expectedCash !== null && day.countedCash !== null ? day : null;
+      const dayAfter = closed ? { expectedCash: closed.expectedCash! + release.amount, variance: closed.countedCash! - (closed.expectedCash! + release.amount) } : null;
+      await db.batch([
+        db.update(payrollReleases).set({ cashTransferId: null }).where(eq(payrollReleases.id, release.id)),
+        ...(transfer ? [db.delete(cashTransfers).where(eq(cashTransfers.id, transfer.id))] : []),
+        ...(closed && dayAfter ? [db.update(businessDays).set(dayAfter).where(eq(businessDays.date, closed.date))] : []),
+        auditInsert(db, {
+          actorUserId: c.var.user.id,
+          action: 'payroll.release_not_from_shop',
+          entity: 'payroll',
+          entityId: release.payrollId,
+          before: { release, transfer, day: closed ? { expectedCash: closed.expectedCash, variance: closed.variance } : null },
+          after: { cashTransferId: null, day: dayAfter },
+          reason: c.req.valid('json').reason,
+        }),
+      ]);
+      return c.json({ ok: true });
     },
   )
 

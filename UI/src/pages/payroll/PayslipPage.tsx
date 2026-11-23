@@ -322,6 +322,8 @@ export function PayslipPage() {
   const act = usePayrollAction();
   const kind = data?.payroll.kind ?? 'therapist';
   const canApprove = useCan(kind === 'therapist' ? 'payroll.therapist.approve' : 'payroll.receptionist.manage');
+  const canCorrect = useCan('day.reopen');
+  const [fromShopCash, setFromShopCash] = useState(true);
 
   if (error) return <Alert>{error.message}</Alert>;
   if (!data) return null;
@@ -351,6 +353,7 @@ export function PayslipPage() {
               Back to draft
             </Button>
           )}
+          {p.status === 'approved' && <Checkbox label="Paid from shop cash" checked={fromShopCash} onChange={(e) => setFromShopCash(e.target.checked)} />}
           {p.status === 'approved' && (
             <Button
               variant="secondary"
@@ -359,14 +362,14 @@ export function PayslipPage() {
                 const text = prompt(`How much did you hand over now? ${peso(p.net - p.paid)} is still to be released.`);
                 const amount = text === null ? null : parsePesos(text);
                 if (text !== null && !amount) return alert('Enter an amount, e.g. 1000.');
-                if (amount) act.mutate({ path: `/payrolls/${p.id}/releases`, body: { amount } });
+                if (amount) act.mutate({ path: `/payrolls/${p.id}/releases`, body: { amount, fromShopCash } });
               }}
             >
               Hand over part
             </Button>
           )}
           {p.status === 'approved' && (
-            <Button disabled={act.isPending} onClick={() => confirm(`Hand over the rest, ${peso(p.net - p.paid)}?`) && act.mutate({ path: `/payrolls/${p.id}/release` })}>
+            <Button disabled={act.isPending} onClick={() => confirm(`Hand over the rest, ${peso(p.net - p.paid)}?`) && act.mutate({ path: `/payrolls/${p.id}/release`, body: { fromShopCash } })}>
               Paid in full
             </Button>
           )}
@@ -384,9 +387,22 @@ export function PayslipPage() {
           </p>
           <ul className="mt-1 text-stone-600">
             {p.releases.map((r) => (
-              <li key={r.createdAt}>
+              <li key={r.id}>
                 {longDate(r.businessDay)}: {peso(r.amount)}
-                {r.fromShopCash ? '' : ' · not from the shop’s cash'}
+                {r.fromShopCash ? ' · from the shop’s cash' : ' · not from the shop’s cash'}
+                {r.fromShopCash && canCorrect && (
+                  <button
+                    type="button"
+                    className="ml-3 text-teal-800 underline"
+                    disabled={act.isPending}
+                    onClick={() => {
+                      const reason = prompt(`${peso(r.amount)} was paid another way, not from the shop’s sales cash. Sales Cash gets it back. Why?`);
+                      if (reason && reason.trim().length >= 3) act.mutate({ path: `/payroll-releases/${r.id}/not-from-shop`, body: { reason } });
+                    }}
+                  >
+                    Not from the shop’s cash
+                  </button>
+                )}
               </li>
             ))}
           </ul>
